@@ -34,6 +34,10 @@ class AuthorityPackType:
     jurisdiction: str
     schema_version: int = strawberry.field(name="schemaVersion")
     fingerprint: str
+    activation_status: str
+    active_version: str | None
+    active_fingerprint: str | None
+    activation_error: str | None
     source_hosts: list[str] = strawberry.field(name="sourceHosts")
     valid: bool
     validation_error: str | None = strawberry.field(name="validationError")
@@ -65,6 +69,10 @@ def _to_graphql(plan: AuthorityPackPlan) -> AuthorityPackType:
         jurisdiction=plan.jurisdiction,
         schema_version=plan.schema_version,
         fingerprint=plan.fingerprint,
+        activation_status=plan.activation_status,
+        active_version=plan.active_version,
+        active_fingerprint=plan.active_fingerprint,
+        activation_error=plan.activation_error,
         source_hosts=list(plan.source_hosts),
         valid=plan.valid,
         validation_error=plan.validation_error,
@@ -173,7 +181,15 @@ def m_install_authority_pack(
     )
 
 
+def q_authority_pack_activation_status(info: strawberry.Info) -> GenericScalar:
+    return AuthorityPackService.activation_status(info.context.user)
+
+
 QUERY_FIELDS = {
+    "authority_pack_activation_status": strawberry.field(
+        resolver=q_authority_pack_activation_status,
+        name="authorityPackActivationStatus",
+    ),
     "authority_packs": strawberry.field(
         resolver=q_authority_packs,
         name="authorityPacks",

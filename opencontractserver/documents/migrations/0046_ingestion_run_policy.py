@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("documents", "0043_add_file_converter_support"),
+        ("documents", "0045_worker_copy_processing_status"),
         ("worker_uploads", "0008_ingestion_run_policy"),
     ]
 

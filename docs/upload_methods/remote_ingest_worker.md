@@ -69,10 +69,11 @@ is a resumable, per-document CLI:
 
 Discovery streams in filesystem order; ledger reads use bounded keyset pages,
 and submitted unfinished work is capped at twice `--max-workers`. The worker
-paces itself against outstanding uploads visible to its exact worker token.
+paces itself against outstanding uploads for its worker account and corpus,
+including receipts submitted before token rotation.
 Unavailable status pauses admission; permanent HTTP errors stop the run. See the
 [admission policy](../../scripts/remote_ingest/README.md#admission) for watermarks,
-retry/cancellation behavior and token-scope limits. Re-running `run` skips
+retry/cancellation behavior and receipt-scope limits. Re-running `run` skips
 uploaded documents and retries unfinished work. Ctrl-C cancels queued work and
 drains already-started calls; use one invocation per ledger at a time. See
 [bounded traversal and resume](../../scripts/remote_ingest/README.md#bounded-traversal-and-resume)

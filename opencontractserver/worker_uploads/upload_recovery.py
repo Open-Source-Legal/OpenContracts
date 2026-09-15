@@ -2,6 +2,7 @@
 
 import hashlib
 import re
+from datetime import timedelta
 from uuid import UUID
 
 from django.db import connection, transaction
@@ -9,6 +10,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from opencontractserver.constants.document_processing import (
+    MAX_PROCESSING_ATTEMPTS,
     MAX_UPLOAD_ERROR_MESSAGE_LENGTH,
 )
 from opencontractserver.utils.upload_identity import upload_payload_digest
@@ -20,11 +22,13 @@ from opencontractserver.worker_uploads.run_policy import (
 )
 from opencontractserver.worker_uploads.run_services import runs_for_token
 
-MAX_PROCESSING_ATTEMPTS = 3
-
 
 class UploadConflict(ValueError):
     """A stable, safe conflict code for an upload operation."""
+
+
+class UploadRateLimited(Exception):
+    """The token's budget for new upload receipts is exhausted."""
 
 
 def receipts_for_token(token):
@@ -92,6 +96,16 @@ def stage_upload(token, file, metadata, client_key=None):
             if run.status != IngestionRun.Status.ACTIVE:
                 raise RunPolicyError("run_not_active")
             validate_preparation(run, metadata)
+        # Replays resolve under the key lock before spending any new-upload
+        # budget. Distinct keys retain the best-effort count-then-create limit;
+        # strict request/throughput limits belong at the reverse proxy.
+        if token.rate_limit_per_minute > 0:
+            recent_count = WorkerDocumentUpload.objects.filter(
+                corpus_access_token=token,
+                created__gte=timezone.now() - timedelta(minutes=1),
+            ).count()
+            if recent_count >= token.rate_limit_per_minute:
+                raise UploadRateLimited()
         upload = WorkerDocumentUpload.objects.create(
             ingestion_run=run,
             corpus_access_token=token,

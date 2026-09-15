@@ -75,10 +75,32 @@ All files sit at the ZIP root (no subdirectories). Every key in
 
 ## Importing a Corpus
 
-**GraphQL Mutation**: `UploadCorpusImportZip`
+Send a multipart `POST /api/imports/corpus/` with the export ZIP in `file`.
+Omit `corpus_id` to create a new corpus, or supply an existing corpus you can
+edit. Format version is auto-detected from `data.json`.
 
-The import accepts a base64-encoded ZIP and creates a new corpus with all
-contained data. Format version is auto-detected from `data.json`.
+The optional boolean `reingest_and_remap` defaults to `true`. This reparses
+supported source documents through the current processing pipeline and remaps
+their non-structural annotations onto the new parsing output. Use `false` to
+preserve the export's supported prepared text, PAWLs, and structural annotations
+without scheduling a reparse. This avoids parsing work and retains the prepared
+layer's fidelity, but does not apply improvements from the current parser.
+Both modes use the existing label, metadata, and relationship import logic;
+exported IDs are remapped to destination IDs.
+
+For large files, use `/api/imports/chunked/start/` with `kind: "corpus_export"`
+and place the same option in `metadata`, for example:
+
+```json
+{"corpus_id": "42", "reingest_and_remap": false}
+```
+
+The server validates and stores the option at start. Resuming the upload and
+posting to `/api/imports/chunked/<upload_id>/complete/` uses that stored choice;
+completion does not require the metadata again. Omission, including in older
+sessions, retains the `true` default. The frontend
+`importCorpusExportMultipart({ file, reingestAndRemap: false })` helper carries
+the choice through either transport.
 
 ### Import Behavior
 

@@ -12,7 +12,13 @@ from django.db.models import Q, Sum
 from django.utils import timezone
 
 from opencontractserver.annotations.models import Annotation, Note, Relationship
+from opencontractserver.constants.ingestion_runs import (
+    MAX_OPERATION_ATTEMPTS,
+    REPORT_EVENT_LIMIT,
+    REPORT_PAGE_SIZE,
+)
 from opencontractserver.documents.models import Document
+from opencontractserver.utils.embedding_identity import valid_embeddings
 from opencontractserver.utils.embeddings import synthesize_relationship_block_text
 from opencontractserver.utils.files import read_field_file_text
 from opencontractserver.worker_uploads.run_models import (
@@ -38,7 +44,6 @@ TARGETS = {
     "relationship": Relationship,
     "note": Note,
 }
-MAX_ATTEMPTS = 3
 
 
 def event(run, code, **detail):
@@ -201,10 +206,13 @@ def route_embedding(obj, corpus_id=None):
         if run.policy["embedding_mode"] == "prepared":
             continue
         if (
-            obj.get_embedding(
-                run.policy["provider"]["path"], run.policy["provider"]["dimension"]
+            valid_embeddings(
+                run.policy["provider"]["path"],
+                run.policy["provider"]["dimension"],
+                run.policy["provider"]["configuration"],
             )
-            is not None
+            .filter(**obj.get_embedding_reference_kwargs())
+            .exists()
         ):
             continue
         if isinstance(obj, Annotation) and set(obj.content_modalities or ["TEXT"]) - {
@@ -302,7 +310,7 @@ def _admit_locked(run, operation):
         operation.save(update_fields=["error_code"])
         _violate_locked(run, str(exc))
         return
-    if operation.attempt_count >= MAX_ATTEMPTS:
+    if operation.attempt_count >= MAX_OPERATION_ATTEMPTS:
         operation.error_code = "retry_exhausted"
         operation.save(update_fields=["error_code"])
         return
@@ -411,7 +419,9 @@ def execute_reservation(reservation_id):
                         if len(vector) != run.policy["provider"][
                             "dimension"
                         ] or not obj.add_embedding(
-                            run.policy["provider"]["path"], vector
+                            run.policy["provider"]["path"],
+                            vector,
+                            configuration=run.policy["provider"]["configuration"],
                         ):
                             raise RunPolicyError("invalid_embedding_result")
                     operation.status = IngestionOperation.Status.COMPLETED
@@ -521,7 +531,7 @@ def control_run(run_id, action, *, ceiling_usd=None, operation_id=None):
                     IngestionOperation.Status.FAILED,
                 ):
                     raise RunPolicyError("operation_not_retryable")
-                if operation.attempt_count >= MAX_ATTEMPTS:
+                if operation.attempt_count >= MAX_OPERATION_ATTEMPTS:
                     raise RunPolicyError("retry_exhausted")
                 # Never release a started attempt, even when the caller believes
                 # its worker crashed. Late completion is separately fenced.
@@ -552,7 +562,9 @@ def run_report(run, *, offset=0):
     # describe one committed state, even while provider requests finish.
     run = IngestionRun.objects.select_for_update().get(pk=run.pk)
     operation_count = run.operations.count()
-    operations = list(run.operations.order_by("created", "pk")[offset : offset + 100])
+    operations = list(
+        run.operations.order_by("created", "pk")[offset : offset + REPORT_PAGE_SIZE]
+    )
     reservations = IngestionReservation.objects.filter(operation__run=run)
     uncertain = reservations.filter(
         status__in=[
@@ -592,7 +604,11 @@ def run_report(run, *, offset=0):
         "waiting_estimate_usd": str(waiting),
         "operation_count": operation_count,
         "offset": offset,
-        "next_offset": offset + 100 if offset + 100 < operation_count else None,
+        "next_offset": (
+            offset + REPORT_PAGE_SIZE
+            if offset + REPORT_PAGE_SIZE < operation_count
+            else None
+        ),
         "operations": rows(
             run.operations.filter(pk__in=[op.pk for op in operations])
             .order_by("created", "pk")
@@ -620,6 +636,8 @@ def run_report(run, *, offset=0):
             )
         ),
         "events": list(
-            run.events.order_by("-created").values("code", "detail", "created")[:100]
+            run.events.order_by("-created").values("code", "detail", "created")[
+                :REPORT_EVENT_LIMIT
+            ]
         ),
     }

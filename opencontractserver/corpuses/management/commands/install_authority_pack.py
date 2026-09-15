@@ -14,18 +14,11 @@ comes from ``settings.AUTHORITY_PACK_REGISTRY_URL``; override with ``--repo``,
 or skip the network entirely with ``--tarball /path/to/archive.tar.gz``
 (air-gapped installs, tests).
 
-Fetched packs land in ``settings.AUTHORITY_PACK_INSTALL_DIR`` — an implicit
-pack bundle root scanned by ``authority_pack_dirs()`` — and are then installed
-via the existing ``load_authority_pack`` command (preflight validation,
-idempotent convergence, ``--public`` publication, post-install re-link). The
-install dir is a managed fetch cache: re-installing a pack replaces its
-directory (rmtree + move, not an atomic swap — a crash mid-replace leaves the
-pack absent until the command is re-run). Hand-curated packs belong in
-``AUTHORITY_PACK_PATHS``/``ROOTS``.
+Successful installs persist immutable pack archives in application storage and
+activate them with database content through load_authority_pack. Fetch-only
+candidates live under AUTHORITY_PACK_INSTALL_DIR/.staged and are not active.
+Runtime discovery observes the shared active version without process restarts.
 
-Grammar-tier pack taxonomy extensions (``abbreviations``/``shape_rules``) are
-``lru_cache``d per process, so web/worker processes need a restart after a
-first-time install — the command prints the reminder.
 """
 
 import logging
@@ -99,25 +92,7 @@ def _top_prefix(names: list[str]) -> str:
 
 
 def materialise_pack(staged_pack: Path, pack: str, stdout=None) -> Path:
-    """Move an extracted pack into ``AUTHORITY_PACK_INSTALL_DIR``; return its path.
-
-    Loading a pack into the database is only half of installing it. The install
-    dir is an implicit discovery root (``pipeline.registry.authority_pack_dirs``),
-    and three things are read from the pack DIRECTORY at runtime rather than from
-    the database:
-
-      * ``source_hosts`` — unioned into the SSRF allowlist, so a pack that
-        fetches from a live source can only reach it while its directory is
-        discoverable. "Installing the pack IS the trust decision."
-      * ``shape_rules`` and ``abbreviations`` — the pack's citation vocabulary,
-        merged into ``classify_prefix`` and the Tier-2a grammar.
-      * in-pack provider modules, which register with the pipeline registry.
-
-    A caller that loads straight from a temporary extraction directory gets the
-    sections and the taxonomy rows and silently loses all three, with nothing
-    failing at install time — which is why this is shared rather than
-    reimplemented per command.
-    """
+    """Keep a fetched candidate outside runtime discovery until activation."""
     # `pack` is used as a path component twice below, and one of those uses is
     # an rmtree. `Path.__truediv__` does not collapse or reject `..`, so a value
     # like "../../../../var/lib/x" resolves outside the install root and would
@@ -132,7 +107,9 @@ def materialise_pack(staged_pack: Path, pack: str, stdout=None) -> Path:
         raise CommandError(
             f"Extracted pack {pack!r} is missing pack.yaml; refusing to install"
         )
-    install_root = Path(settings.AUTHORITY_PACK_INSTALL_DIR).expanduser()
+    # Fetched candidates are not active definitions. Only a successful service
+    # install publishes them through shared artifact storage and its DB pointer.
+    install_root = Path(settings.AUTHORITY_PACK_INSTALL_DIR).expanduser() / ".staged"
     install_root.mkdir(parents=True, exist_ok=True)
     dest = install_root / pack
     if dest.exists():
@@ -327,47 +304,41 @@ class Command(BaseCommand):
                     member.name = member.name[len(prefix) + 1 :]
                     tar.extract(member, path=staged, filter="data")
 
-            dest = materialise_pack(staged / pack, pack, self.stdout)
-            self.stdout.write(self.style.SUCCESS(f"Pack materialised at {dest}"))
+            dest = staged / pack
+            if options["fetch_only"]:
+                dest = materialise_pack(dest, pack, self.stdout)
+                self.stdout.write(self.style.SUCCESS(f"Pack materialised at {dest}"))
 
-        # Say what code this pack ships, without importing it — reporting a
-        # pack's providers by executing them would defeat the point. This runs
-        # for --fetch-only too, not just before the DB-writing install below:
-        # materialise_pack() has already placed the pack under
-        # AUTHORITY_PACK_INSTALL_DIR, an implicit discovery root
-        # (authority_pack_dirs()), so the NEXT get_registry() call in any
-        # web/worker process — independent of ever running load_authority_pack
-        # or supplying --creator — is what actually imports providers/*.py.
-        # --fetch-only alone creates that exposure, so it needs the same
-        # visibility.
-        _report_pack_providers(dest, self.stdout, self.style)
+            # Report the executable surface before preflight or activation,
+            # without importing providers. Fetch-only candidates stay inactive.
+            _report_pack_providers(dest, self.stdout, self.style)
 
-        if options["fetch_only"]:
-            self.stdout.write(
-                "Fetch-only: skipping install. Run load_authority_pack --path "
-                f"{dest} to install."
-            )
-            return
-
-        if not options["creator"]:
-            raise CommandError(
-                "--creator is required to install or preflight (or use --fetch-only)"
-            )
-
-        call_command(
-            "load_authority_pack",
-            path=str(dest),
-            creator=options["creator"],
-            check=options["check"],
-            public=options["public"],
-            no_relink=options["no_relink"],
-            stdout=self.stdout,
-        )
-
-        if not options["check"]:
-            self.stdout.write(
-                self.style.WARNING(
-                    "Restart web/worker processes to pick up the pack's grammar-tier "
-                    "taxonomy extensions (pack config is cached per process)."
+            if options["fetch_only"]:
+                self.stdout.write(
+                    "Fetch-only: skipping install. Run load_authority_pack --path "
+                    f"{dest} to install."
                 )
+                return
+
+            if not options["creator"]:
+                raise CommandError(
+                    "--creator is required to install or preflight (or use --fetch-only)"
+                )
+
+            call_command(
+                "load_authority_pack",
+                path=str(dest),
+                creator=options["creator"],
+                check=options["check"],
+                public=options["public"],
+                no_relink=options["no_relink"],
+                stdout=self.stdout,
             )
+
+            if not options["check"]:
+                self.stdout.write(
+                    self.style.WARNING(
+                        "Pack artifact activated. Web and worker processes refresh "
+                        "from the shared active version automatically."
+                    )
+                )

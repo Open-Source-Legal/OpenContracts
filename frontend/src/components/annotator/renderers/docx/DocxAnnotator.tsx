@@ -369,7 +369,13 @@ const DocxAnnotator: React.FC<DocxAnnotatorProps> = ({
   // ── Effect 1: Initialize Docxodus WASM ──────────────────────────────
   useEffect(() => {
     let cancelled = false;
-    initDocxodus()
+    // Bundling moves the JS module away from its sibling WASM files. The Vite
+    // plugin publishes the runtime at this stable path in production builds.
+    initDocxodus(
+      import.meta.env.PROD
+        ? `${import.meta.env.BASE_URL}docxodus-wasm/`
+        : undefined
+    )
       .then(() => {
         if (!cancelled) setWasmReady(true);
       })

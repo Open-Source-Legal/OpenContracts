@@ -8,6 +8,7 @@ from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 from django.db import IntegrityError
 from django.db.models import Manager, Model, Prefetch, Q, QuerySet
 
+from opencontractserver.constants.search import DIM_TO_FIELD_MAP
 from opencontractserver.shared.prefetch_attrs import (
     track_permission_prefetches,
     user_group_perm_attr,
@@ -1340,21 +1341,10 @@ class EmbeddingManager(BaseVisibilityManager):
     """
 
     def _get_vector_field_name(self, dimension: int) -> str:
-        if dimension == 384:
-            return "vector_384"
-        elif dimension == 768:
-            return "vector_768"
-        elif dimension == 1024:
-            return "vector_1024"
-        elif dimension == 1536:
-            return "vector_1536"
-        elif dimension == 2048:
-            return "vector_2048"
-        elif dimension == 3072:
-            return "vector_3072"
-        elif dimension == 4096:
-            return "vector_4096"
-        raise ValueError(f"Unsupported embedding dimension: {dimension}")
+        try:
+            return DIM_TO_FIELD_MAP[dimension]
+        except KeyError:
+            raise ValueError(f"Unsupported embedding dimension: {dimension}") from None
 
     def store_embedding(
         self,
@@ -1363,6 +1353,7 @@ class EmbeddingManager(BaseVisibilityManager):
         dimension: int,
         vector: list[float],
         embedder_path: str,
+        configuration: str = "",
         document_id: int | None = None,
         annotation_id: int | None = None,
         note_id: int | None = None,
@@ -1407,6 +1398,15 @@ class EmbeddingManager(BaseVisibilityManager):
             )
 
         field_name = self._get_vector_field_name(dimension)
+        vector_values: dict[str, Any] = {field_name: vector}
+        if configuration:
+            # A fingerprint identifies ONE dimension/model. Do not relabel an
+            # older dimension's vector with the provenance of a new result.
+            vector_values = {
+                field: vector if field == field_name else None
+                for field in DIM_TO_FIELD_MAP.values()
+            }
+        updates = {**vector_values, "configuration": configuration}
 
         # Build lookup kwargs for the unique constraint
         lookup = {
@@ -1424,8 +1424,9 @@ class EmbeddingManager(BaseVisibilityManager):
         embedding = self.filter(**lookup).first()
 
         if embedding:
-            setattr(embedding, field_name, vector)
-            embedding.save(update_fields=[field_name, "modified"])
+            for field, value in updates.items():
+                setattr(embedding, field, value)
+            embedding.save(update_fields=[*updates, "modified"])
             return embedding
 
         # Try to create a new embedding. If a race condition causes a constraint
@@ -1435,7 +1436,7 @@ class EmbeddingManager(BaseVisibilityManager):
             return self.create(
                 creator=creator,
                 **lookup,
-                **{field_name: vector},
+                **updates,
             )
         except IntegrityError:
             # Race condition: another worker created the embedding first.
@@ -1445,6 +1446,7 @@ class EmbeddingManager(BaseVisibilityManager):
                 f"by another worker. Fetching and updating instead."
             )
             embedding = self.get(**lookup)
-            setattr(embedding, field_name, vector)
-            embedding.save(update_fields=[field_name, "modified"])
+            for field, value in updates.items():
+                setattr(embedding, field, value)
+            embedding.save(update_fields=[*updates, "modified"])
             return embedding

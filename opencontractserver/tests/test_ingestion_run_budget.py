@@ -29,8 +29,13 @@ from opencontractserver.annotations.models import (
     Relationship,
     StructuralAnnotationSet,
 )
+from opencontractserver.constants.embeddings import OPENAI_EMBEDDER_PATH as OPENAI
 from opencontractserver.corpuses.models import Corpus
-from opencontractserver.documents.models import Document, PipelineSettings
+from opencontractserver.documents.models import (
+    Document,
+    DocumentProcessingStatus,
+    PipelineSettings,
+)
 from opencontractserver.pipeline.embedders.openai_embedder import OpenAIEmbedder
 from opencontractserver.tests.test_worker_uploads import (
     _make_fake_pdf,
@@ -47,7 +52,7 @@ from opencontractserver.worker_uploads.run_models import (
     IngestionReservation,
     IngestionRun,
 )
-from opencontractserver.worker_uploads.run_policy import OPENAI, RunPolicyError
+from opencontractserver.worker_uploads.run_policy import RunPolicyError
 from opencontractserver.worker_uploads.run_services import (
     control_run,
     create_run,
@@ -170,6 +175,8 @@ class IngestionRunBudgetTests(TransactionTestCase):
         self.assert_totals(run, accounted="0", reserved="0.000004")
 
     def test_usage_settles_once_and_redelivery_never_calls_the_provider_again(self):
+        from opencontractserver.documents.readiness import assess_document
+
         run = self.new_run()
         doc, reservation = self.reserve(run)
         with patch.object(
@@ -181,10 +188,35 @@ class IngestionRunBudgetTests(TransactionTestCase):
         provider.assert_called_once_with("abcd")
         self.assert_totals(run, accounted="0.000002", reserved="0")
         self.assertEqual(Embedding.objects.filter(document=doc).count(), 1)
+        doc.processing_status = DocumentProcessingStatus.COMPLETED
+        doc.backend_lock = False
+        doc.save(update_fields=["processing_status", "backend_lock"])
+        assessment = assess_document(doc, self.corpus)
+        self.assertEqual(assessment["state"], "ready", assessment)
         report = run_report(run)
         self.assertEqual(report["remaining_usd"], "0.000002000")
         self.assertEqual(report["reservations"][0]["accounted_tokens"], 2)
         self.assertIsInstance(report["reservations"][0]["amount_usd"], str)
+
+    def test_unverified_vector_cannot_skip_budgeted_generation(self):
+        run = self.new_run()
+        doc = self.document(run)
+        doc.add_embedding(OPENAI, [0.25] * 384)
+        self.assertTrue(route_embedding(doc))
+        self.assertEqual(run.operations.count(), 1)
+        self.assert_totals(run, accounted="0", reserved="0.000004")
+
+    def test_model_revision_change_blocks_reserved_work(self):
+        run = self.new_run()
+        _, reservation = self.reserve(run)
+        with override_settings(EMBEDDING_MODEL_REVISIONS={OPENAI: "new-revision"}):
+            with patch.object(OpenAIEmbedder, "embed_text_accounted") as provider:
+                execute_reservation(reservation.pk)
+        provider.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.status, IngestionRun.Status.POLICY_VIOLATION)
+        self.assertEqual(run.last_error, "provider_configuration_changed")
+        self.assert_totals(run, accounted="0", reserved="0.000004")
 
     def test_duplicate_admission_reserves_only_one_operation(self):
         run = self.new_run()
@@ -1024,6 +1056,9 @@ class IngestionRunBudgetTests(TransactionTestCase):
             )
             action.assert_not_called()
             calculate_embedding_for_doc_text(doc_id=doc.pk)
+            calculate_embedding_for_doc_text(
+                doc_id=doc.pk, embedder_path="unapproved.Provider"
+            )
             calculate_embeddings_for_annotation_batch(
                 annotation_ids=[annot.pk], embedder_path="unapproved.Provider"
             )

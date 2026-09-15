@@ -1,0 +1,1 @@
+Expose the `reingest_and_remap` option on direct and chunked corpus-export imports. It defaults to `true`; explicit `false` preserves supported prepared parsing artifacts and survives chunked upload resume and completion.

@@ -11,6 +11,24 @@ from opencontractserver.utils.embeddings import get_embedder
 
 User = get_user_model()
 
+# The embedding tasks now record each embedder's settings fingerprint via
+# ``embedding_configuration``. The MagicMock embedders below carry no
+# serializable settings, so pin the fingerprint for this module; provenance
+# itself is covered by test_ingestion_readiness.
+_CONFIGURATION = "test-configuration"
+_provenance = patch(
+    "opencontractserver.tasks.embeddings_task.embedding_configuration",
+    return_value=_CONFIGURATION,
+)
+
+
+def setUpModule():
+    _provenance.start()
+
+
+def tearDownModule():
+    _provenance.stop()
+
 
 class TestEmbedder(BaseEmbedder):
     """
@@ -477,7 +495,9 @@ class TestEmbeddingTask(unittest.TestCase):
         mock_embedder_instance.embed_text.assert_called_with("This is test text")
 
         # The key test: verify that the explicit embedder_path was used
-        mock_annot.add_embedding.assert_called_with(explicit_embedder_path, test_vector)
+        mock_annot.add_embedding.assert_called_with(
+            explicit_embedder_path, test_vector, configuration=_CONFIGURATION
+        )
 
     @patch("opencontractserver.tasks.embeddings_task.Corpus")
     @patch("opencontractserver.tasks.embeddings_task.get_component_by_name")
@@ -622,7 +642,7 @@ class TestEmbeddingTask(unittest.TestCase):
 
         # Verify embedding was stored with the default path
         mock_annot.add_embedding.assert_called_once_with(
-            "default.embedder.path", test_vector
+            "default.embedder.path", test_vector, configuration=_CONFIGURATION
         )
 
 
@@ -663,7 +683,7 @@ class TestMultimodalEmbeddingTask(unittest.TestCase):
 
         # Should have stored embedding
         mock_annot.add_embedding.assert_called_once_with(
-            "multimodal.embedder.path", test_vector
+            "multimodal.embedder.path", test_vector, configuration=_CONFIGURATION
         )
 
         self.assertTrue(result)
@@ -700,7 +720,7 @@ class TestMultimodalEmbeddingTask(unittest.TestCase):
 
         # Should have stored embedding
         mock_annot.add_embedding.assert_called_once_with(
-            "text.only.embedder", test_vector
+            "text.only.embedder", test_vector, configuration=_CONFIGURATION
         )
 
         self.assertTrue(result)
@@ -774,7 +794,7 @@ class TestMultimodalEmbeddingTask(unittest.TestCase):
 
         # Should have tried to store embedding
         mock_annot.add_embedding.assert_called_once_with(
-            "multimodal.embedder.path", test_vector
+            "multimodal.embedder.path", test_vector, configuration=_CONFIGURATION
         )
 
         # Should return False because add_embedding returned None
@@ -817,7 +837,7 @@ class TestMultimodalEmbeddingTask(unittest.TestCase):
 
         # Should have stored embedding
         mock_annot.add_embedding.assert_called_once_with(
-            "multimodal.embedder.path", test_vector
+            "multimodal.embedder.path", test_vector, configuration=_CONFIGURATION
         )
 
         self.assertTrue(result)
@@ -1532,7 +1552,9 @@ class TestEmbedRelationship(unittest.TestCase):
         )
 
         self.assertFalse(result)
-        mock_rel.add_embedding.assert_called_once_with("embedder.path", [0.1] * 4)
+        mock_rel.add_embedding.assert_called_once_with(
+            "embedder.path", [0.1] * 4, configuration=_CONFIGURATION
+        )
 
     def test_successful_embedding_returns_true(self):
         from opencontractserver.tasks.embeddings_task import _embed_relationship
@@ -1694,8 +1716,12 @@ class TestCalculateEmbeddingsForRelationshipBatch(unittest.TestCase):
         mock_embedder.embed_texts_batch.assert_called_once_with(
             ["relationship text 1", "relationship text 2", "relationship text 3"]
         )
-        rel1.add_embedding.assert_called_once_with("explicit.path", [0.1] * 384)
-        rel2.add_embedding.assert_called_once_with("explicit.path", [0.2] * 384)
+        rel1.add_embedding.assert_called_once_with(
+            "explicit.path", [0.1] * 384, configuration=_CONFIGURATION
+        )
+        rel2.add_embedding.assert_called_once_with(
+            "explicit.path", [0.2] * 384, configuration=_CONFIGURATION
+        )
         rel3.add_embedding.assert_not_called()
         filtered.select_related.assert_called_once_with("creator")
         filtered.select_related.return_value.prefetch_related.assert_called_once()

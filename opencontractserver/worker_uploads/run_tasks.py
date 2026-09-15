@@ -2,6 +2,8 @@
 
 from celery import shared_task
 
+from opencontractserver.constants.ingestion_runs import OPERATION_DRAIN_BATCH_SIZE
+
 
 @shared_task(queue="worker_uploads", acks_late=True)
 def process_ingestion_operation(reservation_id):
@@ -26,7 +28,7 @@ def process_pending_ingestion_operations():
             ],
         )
         .order_by("created")
-        .values_list("pk", flat=True)[:100]
+        .values_list("pk", flat=True)[:OPERATION_DRAIN_BATCH_SIZE]
     )
     for reservation_id in ids:
         process_ingestion_operation.delay(str(reservation_id))

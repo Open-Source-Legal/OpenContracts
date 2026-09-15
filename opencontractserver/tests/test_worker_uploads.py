@@ -823,6 +823,41 @@ class TestBatchProcessor(TestCase):
         self.assertIsNotNone(upload.result_document)
         self.assertIsNotNone(upload.processing_finished)
 
+        corpus_doc = upload.result_document
+        source = corpus_doc.source_document
+        self.assertEqual(corpus_doc.processing_status, "completed")
+        self.assertEqual(source.processing_status, corpus_doc.processing_status)
+        self.assertEqual(source.processing_finished, corpus_doc.processing_finished)
+        self.assertIsNotNone(corpus_doc.processing_finished)
+
+    def test_unavailable_embedding_provenance_does_not_fail_the_upload_receipt(self):
+        from opencontractserver.documents.models import PipelineSettings
+        from opencontractserver.documents.readiness import assess_document
+        from opencontractserver.worker_uploads.tasks import process_pending_uploads
+
+        path = "opencontractserver.pipeline.embedders.test_embedder.TestEmbedder"
+        pipeline = PipelineSettings.get_instance(use_cache=False)
+        pipeline.default_embedder = path
+        pipeline.enabled_components = ["another.component"]
+        pipeline.save()
+        upload = self._create_staged_upload(
+            embeddings={
+                "embedder_path": path,
+                "model_identity": "deployed-v2",
+                "document_embedding": [0.1] * 384,
+            }
+        )
+        with override_settings(EMBEDDING_MODEL_REVISIONS={path: "deployed-v2"}):
+            result = process_pending_uploads.apply().get()
+            upload.refresh_from_db()
+            self.assertEqual(result["succeeded"], 1)
+            self.assertEqual(upload.status, UploadStatus.COMPLETED)
+            embedding = Embedding.objects.get(document=upload.result_document)
+            self.assertEqual(embedding.configuration, "")
+            readiness = assess_document(upload.result_document, self.corpus)
+            self.assertEqual(readiness["state"], "unavailable")
+            self.assertIn("embedder_unavailable", readiness["reasons"])
+
     def test_created_document_owned_by_corpus_creator(self):
         """Documents created by worker uploads are owned by the corpus creator."""
         from opencontractserver.worker_uploads.tasks import process_pending_uploads

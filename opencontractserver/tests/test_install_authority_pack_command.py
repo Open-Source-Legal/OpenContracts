@@ -74,7 +74,7 @@ def _build_registry_tarball(
 class InstallAuthorityPackCommandTests(TestCase):
     @classmethod
     def setUpTestData(cls):
-        User.objects.create_user(username="packowner", password="x")
+        User.objects.create_user(username="packowner", is_superuser=True, password="x")
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -117,12 +117,14 @@ class InstallAuthorityPackCommandTests(TestCase):
         before = Corpus.objects.count()
         out = self._run("good_pack", fetch_only=True)
         self.assertIn("materialised", out)
-        self.assertTrue((self.install_dir / "good_pack" / "pack.yaml").is_file())
+        self.assertTrue(
+            (self.install_dir / ".staged" / "good_pack" / "pack.yaml").is_file()
+        )
         self.assertEqual(Corpus.objects.count(), before)
 
     def test_refetch_replaces_previous_directory(self):
         self._run("good_pack", fetch_only=True)
-        stale = self.install_dir / "good_pack" / "stale.txt"
+        stale = self.install_dir / ".staged" / "good_pack" / "stale.txt"
         stale.write_text("left over from a previous fetch")
         out = self._run("good_pack", fetch_only=True)
         self.assertIn("Replacing previously fetched pack", out)
@@ -186,14 +188,16 @@ class InstallAuthorityPackCommandTests(TestCase):
         expected_url = "https://example.test/registry/archive/v1.2.tar.gz"
         self.assertEqual(download.call_args.args[0], expected_url)
         self.assertIn(f"Fetching {expected_url}", out.getvalue())
-        self.assertTrue((self.install_dir / "good_pack" / "pack.yaml").is_file())
+        self.assertTrue(
+            (self.install_dir / ".staged" / "good_pack" / "pack.yaml").is_file()
+        )
 
     def test_extraction_size_cap_refuses_oversized_pack(self):
         with mock.patch.object(cmd_module, "MAX_EXTRACTED_BYTES", 8):
             with self.assertRaises(CommandError) as ctx:
                 self._run("good_pack", fetch_only=True)
         self.assertIn("expands past", str(ctx.exception))
-        self.assertFalse((self.install_dir / "good_pack").exists())
+        self.assertFalse((self.install_dir / ".staged" / "good_pack").exists())
 
     def test_directory_typed_pack_yaml_refused(self):
         """A pack.yaml *directory* member gets the pack listed but must fail
@@ -230,7 +234,7 @@ class InstallAuthorityPackCommandTests(TestCase):
     def test_install_creates_corpus_via_load_authority_pack(self):
         out = self._run("good_pack", creator="packowner")
         self.assertTrue(Corpus.objects.filter(title="Registry Pack A").exists())
-        self.assertIn("Restart web/worker", out)
+        self.assertIn("refresh from the shared active version automatically", out)
 
     def test_check_preflights_without_db_writes(self):
         before = Corpus.objects.count()
@@ -253,13 +257,17 @@ class InstallAuthorityPackCommandTests(TestCase):
             self._run("good_pack", fetch_only=True)
         self.assertIn("not found in registry", str(ctx.exception))
 
-    def test_installed_pack_is_discoverable_as_bundle_root(self):
+    def test_fetched_candidate_is_only_discoverable_in_catalog(self):
         self._run("good_pack", fetch_only=True)
         from opencontractserver.pipeline.registry import authority_pack_dirs
 
         with override_settings(AUTHORITY_PACK_INSTALL_DIR=str(self.install_dir)):
             dirs = [p.name for p in authority_pack_dirs()]
-        self.assertIn("good_pack", dirs)
+        self.assertNotIn("good_pack", dirs)
+        with override_settings(AUTHORITY_PACK_INSTALL_DIR=str(self.install_dir)):
+            self.assertIn(
+                "good_pack", [p.name for p in authority_pack_dirs(for_catalog=True)]
+            )
 
     # ---- pre-install provider report -------------------------------------
     # `_report_pack_providers` — the code surface an operator sees before

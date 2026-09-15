@@ -10,6 +10,7 @@ from opencontractserver.constants.document_processing import (
 from opencontractserver.constants.embeddings import (
     DEFAULT_OPENAI_EMBEDDING_DIMENSIONS,
     DEFAULT_OPENAI_EMBEDDING_MODEL,
+    OPENAI_API_BASE_URL,
     OPENAI_MODEL_DIMENSIONS,
 )
 from opencontractserver.pipeline.base.embedder import BaseEmbedder
@@ -176,9 +177,9 @@ class OpenAIEmbedder(BaseEmbedder):
         }
         if s.openai_embedding_model.startswith("text-embedding-3"):
             kwargs["dimensions"] = int(s.openai_embedding_dimensions)
-        with self._build_client(
-            openai_api_base_url="https://api.openai.com/v1"
-        ).with_options(max_retries=0) as client:
+        with self._build_client(openai_api_base_url=OPENAI_API_BASE_URL).with_options(
+            max_retries=0
+        ) as client:
             response = client.embeddings.create(**kwargs)
         return list(response.data[0].embedding), response.usage.prompt_tokens
 

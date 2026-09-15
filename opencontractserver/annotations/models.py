@@ -47,6 +47,10 @@ from opencontractserver.shared.mixins import HasEmbeddingMixin
 from opencontractserver.shared.Models import BaseOCModel
 from opencontractserver.shared.utils import calc_oc_file_path
 
+from .authority_pack_models import (  # noqa: F401
+    AuthorityPackActivation,
+    AuthorityPackArtifact,
+)
 from .compact_json import (
     compact_annotation_json,
     is_compact_format,
@@ -540,6 +544,8 @@ class Embedding(BaseOCModel):
     )
 
     # Multiple dimension-specific embeddings
+    configuration = django.db.models.CharField(max_length=64, blank=True, default="")
+
     vector_384 = VectorField(dimensions=EMBEDDING_DIM_384, null=True, blank=True)
     vector_768 = VectorField(dimensions=EMBEDDING_DIM_768, null=True, blank=True)
     vector_1024 = VectorField(dimensions=EMBEDDING_DIM_1024, null=True, blank=True)

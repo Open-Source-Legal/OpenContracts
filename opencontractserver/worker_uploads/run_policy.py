@@ -19,13 +19,22 @@ from opencontractserver.annotations.models import EMBEDDING_DIMENSIONS
 from opencontractserver.constants.document_processing import (
     OPENAI_EMBEDDER_MAX_INPUT_CHARS,
 )
-from opencontractserver.constants.embeddings import OPENAI_MODEL_DIMENSIONS
+from opencontractserver.constants.embeddings import (
+    OPENAI_API_BASE_URL,
+    OPENAI_EMBEDDER_PATH,
+    OPENAI_MODEL_DIMENSIONS,
+)
+from opencontractserver.constants.ingestion_runs import (
+    MAX_ALLOWANCE_USD,
+    MAX_PREPARATIONS,
+    TOKENS_PER_PRICING_UNIT,
+    USD_QUANTUM,
+)
 from opencontractserver.documents.models import PipelineSettings
 from opencontractserver.pipeline.embedders.openai_embedder import OpenAIEmbedder
 from opencontractserver.pipeline.utils import get_component_by_name
+from opencontractserver.utils.embedding_identity import embedding_configuration
 
-OPENAI = "opencontractserver.pipeline.embedders.openai_embedder.OpenAIEmbedder"
-QUANTUM = Decimal("0.000000001")
 SUPPORTED_DIMENSIONS = {dimension for dimension, _ in EMBEDDING_DIMENSIONS}
 
 
@@ -42,9 +51,9 @@ def digest(value):
 def money(value):
     try:
         amount = Decimal(str(value))
-        if not amount.is_finite() or amount < 0 or amount > Decimal("1000000000"):
+        if not amount.is_finite() or amount < 0 or amount > MAX_ALLOWANCE_USD:
             raise ValueError
-        if amount != amount.quantize(QUANTUM):
+        if amount != amount.quantize(USD_QUANTUM):
             raise ValueError
         return amount
     except (InvalidOperation, ValueError):
@@ -60,7 +69,7 @@ def resolve_provider(corpus):
     pipeline = PipelineSettings.get_instance(use_cache=False)
     corpus.refresh_from_db(fields=["preferred_embedder"])
     path = corpus.preferred_embedder or pipeline.get_default_embedder()
-    if path != OPENAI or not pipeline.is_component_enabled(path):
+    if path != OPENAI_EMBEDDER_PATH or not pipeline.is_component_enabled(path):
         raise RunPolicyError("unbounded_provider")
     try:
         cls = get_component_by_name(path)
@@ -74,7 +83,7 @@ def resolve_provider(corpus):
         base_url = config.openai_api_base_url
         if model not in OPENAI_MODEL_DIMENSIONS or base_url not in (
             "",
-            "https://api.openai.com/v1",
+            OPENAI_API_BASE_URL,
         ):
             raise RunPolicyError("unbounded_provider")
         if (
@@ -82,11 +91,15 @@ def resolve_provider(corpus):
             or provider.vector_size > OPENAI_MODEL_DIMENSIONS[model]
         ):
             raise RunPolicyError("unsupported_embedding_dimension")
+        configuration = embedding_configuration(provider)
+        if not configuration:
+            raise RunPolicyError("provider_configuration_unavailable")
         descriptor = {
             "path": path,
             "model": model,
             "dimension": provider.vector_size,
-            "endpoint": "https://api.openai.com/v1",
+            "configuration": configuration,
+            "endpoint": OPENAI_API_BASE_URL,
             "implementation": hashlib.sha256(
                 Path(inspect.getfile(cls)).read_bytes()
             ).hexdigest(),
@@ -124,7 +137,10 @@ def pricing_for(model):
 def build_policy(corpus, *, preparations, embedding_mode="prepared", fallback="forbid"):
     if embedding_mode not in ("prepared", "server") or fallback != "forbid":
         raise RunPolicyError("prohibited_fallback")
-    if not isinstance(preparations, list) or not 1 <= len(preparations) <= 64:
+    if (
+        not isinstance(preparations, list)
+        or not 1 <= len(preparations) <= MAX_PREPARATIONS
+    ):
         raise RunPolicyError("invalid_preparation_policy")
     fields = {
         "fingerprint",
@@ -226,5 +242,5 @@ def token_cost(policy, tokens):
     return (
         Decimal(tokens)
         * Decimal(policy["pricing"]["usd_per_million_tokens"])
-        / Decimal(1000000)
-    ).quantize(QUANTUM, rounding=ROUND_CEILING)
+        / TOKENS_PER_PRICING_UNIT
+    ).quantize(USD_QUANTUM, rounding=ROUND_CEILING)

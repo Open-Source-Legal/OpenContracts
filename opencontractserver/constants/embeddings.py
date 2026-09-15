@@ -1,5 +1,10 @@
 # Constants for embedding models used by the OpenAI embedder pipeline component.
 
+OPENAI_EMBEDDER_PATH = (
+    "opencontractserver.pipeline.embedders.openai_embedder.OpenAIEmbedder"
+)
+OPENAI_API_BASE_URL = "https://api.openai.com/v1"
+
 OPENAI_MODEL_DIMENSIONS: dict[str, int] = {
     "text-embedding-3-small": 1536,
     "text-embedding-3-large": 3072,

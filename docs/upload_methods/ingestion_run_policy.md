@@ -25,9 +25,13 @@ Two modes are available:
 Both modes suppress server parsing, conversion, thumbnails, multimodal fallback,
 and automatic corpus actions. Custom endpoints, unknown providers, and unknown
 prices cannot be admitted. The effective corpus/default provider, model,
-dimension, implementation, and configured pricing are checked at admission and
+dimension, non-secret configuration fingerprint, implementation, and configured
+pricing are checked at admission and
 again before each request. Changed configuration pauses execution; restoring the
-approved configuration permits resume. Changing the policy requires a new run.
+approved configuration permits resume. The fingerprint includes operator-supplied
+`EMBEDDING_MODEL_REVISIONS`; bump that revision when a model changes in place.
+Changing the policy requires a new run. Generated vectors retain this fingerprint
+for readiness checks; unverified or stale vectors do not skip budgeted generation.
 
 **The ceiling covers server provider usage at the recorded pricing basis.**
 External worker parsing, enrichment and embedding, infrastructure, and later

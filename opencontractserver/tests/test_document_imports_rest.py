@@ -1298,6 +1298,38 @@ class CorpusExportImportViewTests(TestCase):
         # until the celery task rewrites the title from the export.
         self.assertEqual(corpus.title, "New Import")
 
+    def _assert_queued_reingest_mode(self, expected, **fields):
+        from unittest.mock import patch
+
+        self._login()
+        with patch(
+            "opencontractserver.document_imports.services.import_corpus"
+        ) as task:
+            response = self._upload(**fields)
+        self.assertEqual(response.status_code, 202, response.content)
+        task.s.assert_called_once_with(
+            TemporaryFileHandle.objects.get().id,
+            self.user.id,
+            response.json()["corpus_id"],
+            reingest_and_remap=expected,
+        )
+
+    def test_omitted_mode_queues_reingest(self):
+        self._assert_queued_reingest_mode(True)
+
+    def test_explicit_true_queues_reingest(self):
+        self._assert_queued_reingest_mode(True, reingest_and_remap="true")
+
+    def test_explicit_false_queues_preserved_artifacts(self):
+        self._assert_queued_reingest_mode(False, reingest_and_remap="false")
+
+    def test_malformed_mode_is_rejected_before_staging(self):
+        self._login()
+        response = self._upload(reingest_and_remap="sometimes")
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("reingest_and_remap", response.json())
+        self.assertFalse(TemporaryFileHandle.objects.exists())
+
     def test_targeted_import_reuses_existing_corpus(self):
         target = Corpus.objects.create(
             title="Existing target", creator=self.user, backend_lock=False
@@ -1347,8 +1379,8 @@ class CorpusExportImportViewTests(TestCase):
         handles_before = TemporaryFileHandle.objects.count()
 
         self._login()
-        denied = self._upload(corpus_id=str(foreign.id))
-        missing = self._upload(corpus_id="999999999")
+        denied = self._upload(corpus_id=str(foreign.id), reingest_and_remap="false")
+        missing = self._upload(corpus_id="999999999", reingest_and_remap="false")
 
         self.assertEqual(denied.status_code, 400, denied.content)
         self.assertEqual(missing.status_code, 400, missing.content)

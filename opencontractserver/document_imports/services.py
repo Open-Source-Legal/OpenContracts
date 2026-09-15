@@ -48,6 +48,9 @@ from opencontractserver.document_imports.models import (
     ChunkedUploadSession,
     ChunkedUploadStatus,
 )
+from opencontractserver.document_imports.serializers import (
+    CorpusExportImportOptionsSerializer,
+)
 from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.registry import get_allowed_mime_types
 from opencontractserver.pipeline.utils import resolve_convertible_upload
@@ -771,8 +774,8 @@ def import_corpus_export_for_user(
 
     ``reingest_and_remap`` defaults to ``True`` here — this is the opt-out
     boundary for the **user-facing** corpus-export import (the REST
-    ``CorpusExportImportView`` and the chunked-upload completion path both call
-    this without overriding it). Re-parsing each document through the current
+    ``CorpusExportImportView`` and the chunked-upload completion path both expose
+    this option). Re-parsing each document through the current
     pipeline and re-anchoring its non-structural annotations is the default
     behaviour for a user uploading an export; pass ``False`` to trust the
     export's baked PAWLs / structural layer instead. The lower-level
@@ -992,6 +995,13 @@ def _gate_chunked_corpus(corpus_ref, *, user, access_token) -> None:
         raise ChunkedUploadError(corpus_error, http_status=403)
 
 
+def _corpus_export_reingest_mode(metadata: dict) -> bool:
+    options = CorpusExportImportOptionsSerializer(data=metadata)
+    if not options.is_valid():
+        raise ChunkedUploadError("reingest_and_remap must be a boolean")
+    return options.validated_data["reingest_and_remap"]
+
+
 def start_chunked_upload(
     *,
     user,
@@ -1090,6 +1100,7 @@ def start_chunked_upload(
                 access_token=access_token,
             )
         elif kind == ChunkedUploadKind.CORPUS_EXPORT:
+            metadata["reingest_and_remap"] = _corpus_export_reingest_mode(metadata)
             _gate_chunked_corpus(
                 normalise_optional(metadata.get("corpus_id")),
                 user=user,
@@ -1318,6 +1329,12 @@ def complete_chunked_upload(
             http_status=409,
         )
 
+    # Validate old sessions before claiming them or assembling their bytes.
+    # They may contain options saved before start-time normalization existed.
+    reingest_and_remap = True
+    if session.kind == ChunkedUploadKind.CORPUS_EXPORT:
+        reingest_and_remap = _corpus_export_reingest_mode(session.metadata or {})
+
     # Integrity: every part present exactly once, and the bytes add up.
     parts = list(session.parts.order_by("index"))
     if len(parts) != session.total_chunks or {p.index for p in parts} != set(
@@ -1422,6 +1439,7 @@ def complete_chunked_upload(
                 user=user,
                 zip_source=File(tmp, name=session.filename),
                 corpus_id=normalise_optional(md.get("corpus_id")),
+                reingest_and_remap=reingest_and_remap,
             )
     except DocumentImportPermissionError:
         _mark_failed(session, "Permission denied")

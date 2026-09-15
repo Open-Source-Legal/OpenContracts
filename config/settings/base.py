@@ -934,6 +934,10 @@ CELERY_BEAT_SCHEDULE = {
 # Documents per batch when draining the staging table
 WORKER_UPLOAD_BATCH_SIZE = int(env("WORKER_UPLOAD_BATCH_SIZE", default="50"))
 
+# Deployed model revisions for services whose URL/class can stay unchanged.
+# Included in readiness provenance; remote workers supply the matching identity.
+EMBEDDING_MODEL_REVISIONS = env.json("EMBEDDING_MODEL_REVISIONS", default={})
+
 # Authority-section batches drained per process_pending_section_batches run.
 # Deliberately far smaller than WORKER_UPLOAD_BATCH_SIZE because the unit of
 # work is much coarser — one batch can carry hundreds of sections. The task
@@ -1829,17 +1833,18 @@ AUTHORITY_PACK_ROOTS = env.list("AUTHORITY_PACK_ROOTS", default=[])
 # requires a pack to install and serve its sections with ``providers/`` deleted.
 AUTHORITY_PACK_LOAD_PROVIDERS = env.bool("AUTHORITY_PACK_LOAD_PROVIDERS", default=True)
 
-# Where `manage.py install_authority_pack` materialises packs fetched from the
-# pack registry repo. The directory is an implicit pack bundle root (scanned by
-# authority_pack_dirs() exactly like an AUTHORITY_PACK_ROOTS entry), so a
-# fetched pack is discoverable with zero further configuration. It is a managed
-# fetch cache — re-installing a pack replaces its directory — so hand-curated
-# packs belong in AUTHORITY_PACK_PATHS/ROOTS instead. Deployments that recreate
-# containers should mount a volume here (or re-run install_authority_pack on
-# boot): installed pack *content* lives in the database, but the grammar tier
-# re-reads pack taxonomy extensions from this directory at process start.
+# Fetch-only candidates live in the hidden .staged directory. Legacy packs
+# directly under this root remain discoverable until migrated through the
+# installer. Managed versions persist in application storage, independently of
+# this local candidate directory.
 AUTHORITY_PACK_INSTALL_DIR = env.str(
     "AUTHORITY_PACK_INSTALL_DIR", default=str(ROOT_DIR / ".authority_packs")
+)
+
+# Expendable local extraction cache. Immutable archives use the application's
+# default storage backend; active versions are selected in the database.
+AUTHORITY_PACK_CACHE_DIR = env.str(
+    "AUTHORITY_PACK_CACHE_DIR", default="/tmp/oc-authority-packs"
 )
 
 # The pack registry `install_authority_pack` fetches from: any git host that
