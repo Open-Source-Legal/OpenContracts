@@ -92,7 +92,13 @@ class ZipToCorpusImportSerializer(serializers.Serializer):
     custom_meta = serializers.JSONField(required=False, default=dict)
 
 
-class CorpusExportImportSerializer(serializers.Serializer):
+class CorpusExportImportOptionsSerializer(serializers.Serializer):
+    """Processing options shared by direct and chunked corpus-export imports."""
+
+    reingest_and_remap = serializers.BooleanField(required=False, default=True)
+
+
+class CorpusExportImportSerializer(CorpusExportImportOptionsSerializer):
     """
     Validates an OpenContracts corpus-export zip import. The export ZIP
     produced by ``StartCorpusExport`` is the only supported input.

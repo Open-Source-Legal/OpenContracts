@@ -478,6 +478,25 @@ describe("importHttp.importCorpusExportMultipart", () => {
     clearMockFetch();
   });
 
+  it.each([
+    [undefined, null],
+    [true, "true"],
+    [false, "false"],
+  ])("serializes multipart reingest mode %s as %s", async (mode, encoded) => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        makeJsonResponse({ ok: true, corpus_id: 17 }, { status: 202 })
+      );
+    setMockFetch(fetchMock);
+    await importCorpusExportMultipart({
+      file: new File(["zip"], "export.zip"),
+      reingestAndRemap: mode,
+    });
+    const fd = fetchMock.mock.calls[0][1].body as FormData;
+    expect(fd.get("reingest_and_remap")).toBe(encoded);
+  });
+
   it("posts FormData to /api/imports/corpus/ and surfaces corpus_id", async () => {
     const fetchMock = vi
       .fn()
@@ -741,34 +760,41 @@ describe("importHttp chunked transport", () => {
     expect(startPayload.metadata.add_to_corpus_id).toBe("5");
   });
 
-  it("threads a target corpus through chunked corpus-export metadata", async () => {
-    const fetchMock = makeRoutedFetch({
-      start: () =>
-        makeJsonResponse({ ok: true, upload_id: "c-1" }, { status: 201 }),
-      part: () => makeJsonResponse({ ok: true }),
-      complete: () =>
-        makeJsonResponse(
-          { ok: true, corpus_id: 17, message: "Import started." },
-          { status: 202 }
-        ),
-    });
-    setMockFetch(fetchMock);
+  it.each([undefined, true, false])(
+    "threads a target and reingest mode %s through chunked corpus-export metadata",
+    async (mode) => {
+      const fetchMock = makeRoutedFetch({
+        start: () =>
+          makeJsonResponse({ ok: true, upload_id: "c-1" }, { status: 201 }),
+        part: () => makeJsonResponse({ ok: true }),
+        complete: () =>
+          makeJsonResponse(
+            { ok: true, corpus_id: 17, message: "Import started." },
+            { status: 202 }
+          ),
+      });
+      setMockFetch(fetchMock);
 
-    const file = makeLargeFile(
-      "pack-corpus.zip",
-      UPLOAD.CHUNK_THRESHOLD_BYTES + 1,
-      "application/zip"
-    );
-    const result = await importCorpusExportMultipart({
-      file,
-      corpusId: "Q29ycHVzVHlwZToxNw==",
-    });
+      const file = makeLargeFile(
+        "pack-corpus.zip",
+        UPLOAD.CHUNK_THRESHOLD_BYTES + 1,
+        "application/zip"
+      );
+      const result = await importCorpusExportMultipart({
+        file,
+        corpusId: "Q29ycHVzVHlwZToxNw==",
+        reingestAndRemap: mode,
+      });
 
-    expect(result.ok).toBe(true);
-    const startPayload = JSON.parse(fetchMock.mock.calls[0][1].body as string);
-    expect(startPayload.kind).toBe("corpus_export");
-    expect(startPayload.metadata.corpus_id).toBe("Q29ycHVzVHlwZToxNw==");
-  });
+      expect(result.ok).toBe(true);
+      const startPayload = JSON.parse(
+        fetchMock.mock.calls[0][1].body as string
+      );
+      expect(startPayload.kind).toBe("corpus_export");
+      expect(startPayload.metadata.corpus_id).toBe("Q29ycHVzVHlwZToxNw==");
+      expect(startPayload.metadata.reingest_and_remap).toBe(mode);
+    }
+  );
 
   it("retries a transiently-failing part and then completes", async () => {
     // Part index 0 fails once with a 503 (retryable) then succeeds; the whole

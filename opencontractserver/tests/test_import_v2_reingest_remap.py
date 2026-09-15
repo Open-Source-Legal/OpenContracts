@@ -26,10 +26,13 @@ import zipfile
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import transaction
 from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
+from rest_framework.test import APIClient
 
+from opencontractserver.annotations.compact_json import expand_annotation_json
 from opencontractserver.annotations.models import (
     RELATIONSHIP_LABEL,
     TOKEN_LABEL,
@@ -37,6 +40,7 @@ from opencontractserver.annotations.models import (
     AnnotationLabel,
     LabelSet,
     Relationship,
+    StructuralAnnotationSet,
 )
 from opencontractserver.corpuses.models import Corpus, TemporaryFileHandle
 from opencontractserver.documents.models import (
@@ -58,6 +62,7 @@ from opencontractserver.tasks.import_tasks_v2 import (
 )
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.annotation_anchoring import anchor_annotations
+from opencontractserver.utils.compact_pawls import expand_pawls_pages
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 User = get_user_model()
@@ -849,6 +854,9 @@ class TestRemapFinalizeTrigger(TestCase):
 # scopes that cost to the end-to-end class below. (Not function-local because
 # the parser-path constants are referenced in class-level decorators/fixtures.)
 from opencontractserver.tests.fixtures import SAMPLE_PDF_FILE_ONE_PATH  # noqa: E402
+from opencontractserver.tests.test_v2_import_back_compat import (  # noqa: E402
+    v2_description_fixture,
+)
 
 # Hermetic in-test PDF parser (shared with test_zip_import_integration) returns
 # deterministic PAWLs with a known "CHAPTER 1" heading, so the reingested docs
@@ -1238,6 +1246,169 @@ class TestReingestRemapEndToEnd(TransactionTestCase):
             Relationship.objects.filter(corpus=imported, structural=False).count(),
             1,
         )
+
+    def _assert_http_preserves_export(self, *, chunked, version):
+        """Use the same two-document export fixture through each public transport."""
+        from unittest.mock import patch
+
+        self.user.is_usage_capped = False
+        self.user.save(update_fields=["is_usage_capped"])
+        originals = [self.ann_a.document, self.ann_b.document]
+        for doc in originals:
+            doc.custom_meta = {"publisher": "prepared-fixture", "title": doc.title}
+            doc.txt_extract_file.save("prepared.txt", ContentFile(b"Prepared text"))
+            doc.structural_annotation_set = StructuralAnnotationSet.objects.create(
+                content_hash=doc.pdf_file_hash,
+                parser_name="prepared-export",
+                page_count=1,
+                pawls_parse_file=ContentFile(self.src_pawls, name="prepared.json"),
+                txt_extract_file=ContentFile(b"Prepared text", name="prepared.txt"),
+                creator=self.user,
+            )
+            doc.save()
+            Annotation.objects.create(
+                structural_set=doc.structural_annotation_set,
+                annotation_label=self.token_label,
+                raw_text="Prepared heading",
+                structural=True,
+                creator=self.user,
+            )
+
+        staged = self._export_and_stage()
+        with staged.file.open("rb") as source:
+            exported = source.read()
+        # Add the existing V2 compatibility fixture's legacy description and
+        # revision fields. V3 represents these as standalone CAML documents.
+        archive = io.BytesIO()
+        with zipfile.ZipFile(io.BytesIO(exported)) as source:
+            with zipfile.ZipFile(archive, "w") as target:
+                for member in source.namelist():
+                    content = source.read(member)
+                    if member == "data.json":
+                        data = json.loads(content)
+                        self.assertEqual(data["version"], "3.0")
+                        data["version"] = version
+                        if version == "2.0":
+                            data.update(v2_description_fixture(self.user.email))
+                        content = json.dumps(data).encode()
+                    target.writestr(member, content)
+        payload = archive.getvalue()
+
+        # Force the importer to reconstruct structural artifacts from the ZIP,
+        # rather than satisfy assertions by reusing the source database rows.
+        struct_ids = [doc.structural_annotation_set_id for doc in originals]
+        Document.objects.filter(pk__in=[doc.pk for doc in originals]).update(
+            structural_annotation_set=None
+        )
+        StructuralAnnotationSet.objects.filter(pk__in=struct_ids).delete()
+
+        client = APIClient()
+        client.force_authenticate(self.user)
+        with patch(
+            "opencontractserver.documents.signals.document_processing_steps"
+        ) as parse:
+            if chunked:
+                start = client.post(
+                    "/api/imports/chunked/start/",
+                    {
+                        "kind": "corpus_export",
+                        "filename": "prepared.zip",
+                        "total_size": len(payload),
+                        "chunk_size": len(payload),
+                        "total_chunks": 1,
+                        "metadata": {"reingest_and_remap": False},
+                    },
+                    format="json",
+                )
+                self.assertEqual(start.status_code, 201, start.content)
+                upload_id = start.json()["upload_id"]
+                part = client.put(
+                    f"/api/imports/chunked/{upload_id}/parts/0/",
+                    {"file": SimpleUploadedFile("part", payload)},
+                    format="multipart",
+                )
+                self.assertEqual(part.status_code, 200, part.content)
+                response = client.post(f"/api/imports/chunked/{upload_id}/complete/")
+            else:
+                response = client.post(
+                    "/api/imports/corpus/",
+                    {
+                        "file": SimpleUploadedFile("prepared.zip", payload),
+                        "reingest_and_remap": "false",
+                    },
+                    format="multipart",
+                )
+            self.assertEqual(response.status_code, 202, response.content)
+            parse.assert_not_called()
+
+        imported = Corpus.objects.get(pk=response.json()["corpus_id"])
+        imported_docs = list(
+            Document.objects.filter(
+                file_type="application/pdf",
+                pk__in=DocumentPath.objects.filter(corpus=imported).values(
+                    "document_id"
+                ),
+            ).order_by("title")
+        )
+        self.assertEqual(len(imported_docs), 2)
+        for original, doc in zip(originals, imported_docs):
+            self.assertNotEqual(doc.pk, original.pk)
+            self.assertEqual(doc.title, original.title)
+            self.assertEqual(doc.custom_meta, original.custom_meta)
+            with doc.pawls_parse_file.open("rb") as pawls:
+                self.assertEqual(
+                    expand_pawls_pages(json.load(pawls)), json.loads(self.src_pawls)
+                )
+            with doc.txt_extract_file.open("rb") as text_file:
+                self.assertEqual(text_file.read(), b"Prepared text")
+            self.assertEqual(
+                doc.structural_annotation_set.parser_name, "prepared-export"
+            )
+            heading = doc.structural_annotation_set.structural_annotations.get()
+            self.assertEqual(heading.raw_text, "Prepared heading")
+            self.assertEqual(heading.annotation_label.text, self.token_label.text)
+
+        relationship = Relationship.objects.get(corpus=imported, structural=False)
+        self.assertEqual(relationship.relationship_label.text, "relates_to")
+        for original, endpoint in (
+            (self.ann_a, relationship.source_annotations.get()),
+            (self.ann_b, relationship.target_annotations.get()),
+        ):
+            self.assertNotEqual(endpoint.pk, original.pk)
+            self.assertEqual(endpoint.document.title, original.document.title)
+            self.assertIn(endpoint.document, imported_docs)
+            self.assertEqual(
+                endpoint.annotation_label.text, original.annotation_label.text
+            )
+            self.assertEqual(endpoint.raw_text, original.raw_text)
+            self.assertEqual(
+                expand_annotation_json(endpoint.json),
+                expand_annotation_json(original.json),
+            )
+        self.assertFalse(PendingCorpusImport.objects.filter(corpus=imported).exists())
+        self.assertFalse(
+            PendingDocumentAnnotations.objects.filter(corpus=imported).exists()
+        )
+        if version == "2.0":
+            readme = imported.readme_caml_document
+            self.assertIsNotNone(readme)
+            with readme.txt_extract_file.open("rb") as body:
+                self.assertEqual(body.read(), b"v3 body")
+            revisions = Document.objects.filter(version_tree_id=readme.version_tree_id)
+            self.assertEqual(revisions.count(), 3)
+            bodies = set()
+            for revision in revisions:
+                with revision.txt_extract_file.open("rb") as body:
+                    bodies.add(body.read())
+            self.assertEqual(bodies, {b"v1 body", b"v2 body", b"v3 body"})
+
+    def test_multipart_false_preserves_v3_artifacts_and_cross_document_relationship(
+        self,
+    ):
+        self._assert_http_preserves_export(chunked=False, version="3.0")
+
+    def test_chunked_false_preserves_v2_artifacts_and_cross_document_relationship(self):
+        self._assert_http_preserves_export(chunked=True, version="2.0")
 
 
 class TestServiceLevelOptOutDefault(TestCase):

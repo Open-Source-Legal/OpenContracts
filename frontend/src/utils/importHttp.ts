@@ -105,6 +105,8 @@ export interface ImportCorpusExportRestInput {
    * server preserves the long-standing "create a new corpus" behaviour.
    */
   corpusId?: string | null;
+  /** Defaults to true; false preserves the export's prepared parsing artifacts. */
+  reingestAndRemap?: boolean;
   /** Optional progress callback (fraction in ``[0, 1]``) for large uploads. */
   onProgress?: UploadProgressCallback;
 }
@@ -642,11 +644,16 @@ export async function importCorpusExportMultipart(
   input: ImportCorpusExportRestInput
 ): Promise<ImportCorpusExportRestResult> {
   if (shouldChunkFile(input.file)) {
+    const metadata: Record<string, unknown> = {};
+    if (input.corpusId) metadata.corpus_id = input.corpusId;
+    if (input.reingestAndRemap !== undefined) {
+      metadata.reingest_and_remap = input.reingestAndRemap;
+    }
     const r = await uploadFileInChunks({
       kind: "corpus_export",
       file: input.file,
       filename: input.file.name,
-      metadata: input.corpusId ? { corpus_id: input.corpusId } : {},
+      metadata,
       onProgress: input.onProgress,
     });
     if (!r.ok) {
@@ -662,6 +669,9 @@ export async function importCorpusExportMultipart(
   const fd = new FormData();
   fd.append("file", input.file);
   appendIfDefined(fd, "corpus_id", input.corpusId);
+  if (input.reingestAndRemap !== undefined) {
+    fd.append("reingest_and_remap", String(input.reingestAndRemap));
+  }
 
   const response = await fetch(`${getApiRoot()}/api/imports/corpus/`, {
     method: "POST",
