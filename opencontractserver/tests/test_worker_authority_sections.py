@@ -104,9 +104,29 @@ class TestSectionBatchEndpoint(SectionBatchTestBase):
         payload = _make_payload(sections=[{"key": "hr:119-1", "heading": "no text"}])
         response = self.client_api.post(ENDPOINT, payload, format="json")
         assert response.status_code == 400
-        assert "sections[0]" in str(response.data)
+        assert response.json() == {
+            "non_field_errors": ["Invalid authority section specification."]
+        }
         assert not WorkerAuthoritySectionBatch.objects.exists()
         mock_nudge.assert_not_called()
+
+    def test_section_validation_does_not_expose_exception_details(self):
+        sensitive = "parser credential=secret at /private/parser.py:42"
+        with patch(
+            "opencontractserver.enrichment.authorities.parse_section_spec",
+            side_effect=ValueError(sensitive),
+        ), self.assertLogs(
+            "opencontractserver.worker_uploads.serializers", level="WARNING"
+        ) as logs:
+            response = self.client_api.post(ENDPOINT, _make_payload(), format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {"non_field_errors": ["Invalid authority section specification."]},
+        )
+        self.assertNotIn(sensitive, response.content.decode())
+        self.assertIn(sensitive, "\n".join(logs.output))
+        self.assertFalse(WorkerAuthoritySectionBatch.objects.exists())
 
     @patch(
         "opencontractserver.worker_uploads.views.process_pending_section_batches.apply_async"

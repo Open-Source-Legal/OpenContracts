@@ -313,8 +313,9 @@ def _process_single_upload(
                 raise RunPolicyError("run_not_active")
             validate_preparation(run, upload.metadata)
         except RunPolicyError as exc:
-            if str(exc) != "run_not_active":
-                _violate_locked(run, str(exc))
+            code = exc.public_code
+            if code != "run_not_active":
+                _violate_locked(run, code)
             upload.status = UploadStatus.PENDING
             upload.processing_token = None
             upload.processing_started = None

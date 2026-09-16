@@ -172,8 +172,11 @@ class WorkerAuthoritySectionBatchSerializer(serializers.Serializer):
 
         try:
             parse_section_spec({"sections": attrs["sections"]}, label="payload")
-        except ValueError as exc:
-            raise serializers.ValidationError(str(exc))
+        except ValueError:
+            logger.warning("Invalid authority section specification.", exc_info=True)
+            raise serializers.ValidationError(
+                "Invalid authority section specification."
+            ) from None
         for i, row in enumerate(attrs["equivalences"]):
             if not isinstance(row, dict):
                 raise serializers.ValidationError(

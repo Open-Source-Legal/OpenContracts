@@ -14,7 +14,6 @@ from django.utils import timezone
 
 from opencontractserver.annotations.models import Annotation
 from opencontractserver.constants.readiness import (
-    MAX_ERROR_LENGTH,
     MAX_TEXT_BYTES,
     REPAIR_TIMEOUT,
 )
@@ -36,12 +35,26 @@ from opencontractserver.utils.embedding_identity import (
     embedding_configuration,
     valid_embeddings,
 )
+from opencontractserver.utils.public_errors import PublicError
 
 logger = logging.getLogger(__name__)
 
 
-class ReadinessUnavailable(ValueError):
+class ReadinessUnavailable(PublicError):
     """An intentional, safe diagnostic code for readiness callers."""
+
+    default_code = "readiness_unavailable"
+    public_codes = frozenset(
+        {
+            "document_deleted",
+            "embedder_configuration_unavailable",
+            "embedder_unavailable",
+            "invalid_embedder",
+            "text_artifact_exceeds_status_limit",
+            "text_artifact_missing",
+            "unsupported_dimension",
+        }
+    )
 
 
 def effective_embedder(corpus=None, *, path=None):
@@ -156,7 +169,9 @@ def assess_documents(documents, corpus):
     try:
         embedder = effective_embedder(corpus)
     except ReadinessUnavailable as exc:
-        return [unavailable(document, corpus, str(exc)) for document in documents]
+        return [
+            unavailable(document, corpus, exc.public_code) for document in documents
+        ]
     results = []
     for document in documents:
         try:
@@ -177,9 +192,10 @@ def assess_document(document, corpus=None, *, embedder=None):
         "generation": None,
         "reasons": [],
         "processing_status": document.processing_status,
-        "processing_error": " ".join(document.processing_error.split())[
-            :MAX_ERROR_LENGTH
-        ],
+        # Stored parser errors can contain paths, credentials and tracebacks.
+        "processing_error": (
+            "document_processing_failed" if document.processing_error else ""
+        ),
         "required_stages": [
             "parsing",
             "annotations",
@@ -261,7 +277,7 @@ def assess_document(document, corpus=None, *, embedder=None):
         )
         result["state"] = "unavailable"
         if isinstance(exc, ReadinessUnavailable):
-            reason = str(exc)
+            reason = exc.public_code
         elif isinstance(exc, FileNotFoundError):
             reason = "text_artifact_missing"
         elif isinstance(exc, UnicodeError):

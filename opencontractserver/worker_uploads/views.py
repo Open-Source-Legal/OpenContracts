@@ -154,9 +154,9 @@ class WorkerDocumentUploadView(APIView):
                 headers={"Retry-After": "60"},
             )
         except RunPolicyError as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_409_CONFLICT)
+            return Response({"error": exc.public_code}, status=status.HTTP_409_CONFLICT)
         except UploadConflict as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_409_CONFLICT)
+            return Response({"error": exc.public_code}, status=status.HTTP_409_CONFLICT)
         except ValueError:
             return Response(
                 {"error": "invalid_upload_identity"}, status=status.HTTP_400_BAD_REQUEST
@@ -261,7 +261,7 @@ class WorkerDocumentUploadRetryView(APIView):
         except WorkerDocumentUpload.DoesNotExist:
             raise NotFound()
         except UploadConflict as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_409_CONFLICT)
+            return Response({"error": exc.public_code}, status=status.HTTP_409_CONFLICT)
         if queued:
             transaction.on_commit(_nudge_upload_processor)
         return Response(
