@@ -72,7 +72,7 @@ django-guardian
 
 # GraphQL
 # ------------------------------------------------------------------------------
-strawberry-graphql==0.327.3  # code-first GraphQL; replaced graphene-django (schema parity pinned by config/graphql/schema.graphql)
+strawberry-graphql==0.327.7  # code-first GraphQL; replaced graphene-django (schema parity pinned by config/graphql/schema.graphql)
 
 # Telemetry
 # ------------------------------------------------------------------------------
