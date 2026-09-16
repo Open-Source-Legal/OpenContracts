@@ -19,3 +19,7 @@ HANDLE_SUFFIX_MAX = 9999
 # realistic collision odds make a handful of retries effectively guaranteed
 # to succeed; bound prevents pathological loops.
 HANDLE_INSERT_RETRY_ATTEMPTS = 5
+
+AUTOMATION_CREDENTIAL_DEFAULT_DAYS = 30
+AUTOMATION_CREDENTIAL_PAGE_SIZE = 20
+AUTOMATION_CREDENTIAL_MAX_PAGE_SIZE = 100

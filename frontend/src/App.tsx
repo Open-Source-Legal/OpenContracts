@@ -61,6 +61,7 @@ import { Extracts } from "./views/Extracts";
 import { BadgeManagement } from "./components/badges/BadgeManagement";
 import {
   GlobalSettingsPanel,
+  AutomationCredentialManagement,
   GlobalAgentManagement,
   SystemSettings,
   WorkerAccountManagement,
@@ -367,6 +368,10 @@ export const App = () => {
           <Route path="/a/:slug" element={<ArtifactPosterRoute />} />
           <Route path="/admin/badges" element={<BadgeManagement />} />
           <Route path="/admin/settings" element={<GlobalSettingsPanel />} />
+          <Route
+            path="/admin/automation-credentials"
+            element={<AutomationCredentialManagement />}
+          />
           <Route path="/admin/agents" element={<GlobalAgentManagement />} />
           <Route
             path="/admin/worker-accounts"

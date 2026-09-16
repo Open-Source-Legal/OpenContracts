@@ -1,0 +1,1 @@
+- Add admin GUI and authenticated GraphQL management of scoped automation credentials, with shared CLI validation, paginated metadata, one-time token display and separate administrator/principal audit attribution (#2381).

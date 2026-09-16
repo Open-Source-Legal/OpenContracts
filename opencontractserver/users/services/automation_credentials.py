@@ -5,12 +5,19 @@ from __future__ import annotations
 import hashlib
 import logging
 import secrets
+from datetime import timedelta
 from enum import Enum
 
+from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 
+from opencontractserver.constants.users import (
+    AUTOMATION_CREDENTIAL_DEFAULT_DAYS,
+    AUTOMATION_CREDENTIAL_MAX_PAGE_SIZE,
+)
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.users.models import AutomationCredential
 from opencontractserver.utils.ids import from_global_id
@@ -54,9 +61,107 @@ def _new_secret(credential):
     return f"{credential.pk}.{secret}"
 
 
-def mint(*, user, name, scopes, corpus_ids, expires_at=None):
+def expiry_from_days(days=AUTOMATION_CREDENTIAL_DEFAULT_DAYS):
+    if days <= 0:
+        raise ValueError("Lifetime must be positive.")
+    try:
+        return timezone.now() + timedelta(days=days)
+    except OverflowError:
+        raise ValueError("Lifetime is too large.") from None
+
+
+def require_management(actor, *, lock=False):
+    if not (
+        actor is not None
+        and actor.is_authenticated
+        and actor.is_active
+        and actor.is_superuser
+        and getattr(actor, "automation_credential", None) is None
+    ):
+        raise PermissionDenied("An active superuser login is required.")
+    if lock:
+        current = (
+            get_user_model().objects.select_for_update().filter(pk=actor.pk).first()
+        )
+        require_management(current)
+
+
+def _page(queryset, limit, offset):
+    if not 1 <= limit <= AUTOMATION_CREDENTIAL_MAX_PAGE_SIZE or offset < 0:
+        raise ValueError("Invalid page bounds.")
+    return list(queryset[offset : offset + limit]), queryset.count()
+
+
+def list_credentials(actor, *, limit, offset):
+    require_management(actor)
+    return _page(
+        AutomationCredential.objects.select_related("user").order_by(
+            "-created_at", "id"
+        ),
+        limit,
+        offset,
+    )
+
+
+def inspect_credential(actor, credential_id):
+    require_management(actor)
+    return AutomationCredential.objects.select_related("user").get(pk=credential_id)
+
+
+def management_choices(actor, *, kind, search, limit, offset):
+    require_management(actor)
+    queryset: QuerySet
+    if kind == "principal":
+        queryset = get_user_model().objects.filter(is_active=True)
+        query = Q(username__icontains=search) | Q(name__icontains=search)
+        label = "username"
+    elif kind == "corpus":
+        queryset = Corpus.objects.all()
+        query = Q(title__icontains=search)
+        label = "title"
+    else:
+        raise ValueError("Invalid choice kind.")
+    if search.isdecimal():
+        query |= Q(pk=int(search))
+    rows, total = _page(queryset.filter(query).order_by("pk"), limit, offset)
+    return [(str(row.pk), getattr(row, label)) for row in rows], total
+
+
+def mint_for_admin(actor, *, user_id, all_corpuses, corpus_ids, expires_days, **kwargs):
+    require_management(actor)
+    if (all_corpuses and corpus_ids is not None) or (
+        not all_corpuses and not corpus_ids
+    ):
+        raise ValueError("Select corpuses or explicitly allow all corpuses.")
+    return mint(
+        actor=actor,
+        user=get_user_model().objects.get(pk=user_id, is_active=True),
+        corpus_ids=None if all_corpuses else corpus_ids,
+        expires_at=expiry_from_days(expires_days),
+        **kwargs,
+    )
+
+
+@transaction.atomic
+def mint(*, user, name, scopes, corpus_ids, expires_at=None, actor=None):
+    if actor is not None:
+        require_management(actor)
+    # Lock in ID order: administrators can mint for each other. Re-read both
+    # roles under those locks so concurrent deactivation/demotion cannot slip
+    # between validation and creation.
+    ids = {user.pk} | ({actor.pk} if actor is not None else set())
+    users = {
+        row.pk: row
+        for row in get_user_model()
+        .objects.select_for_update()
+        .filter(pk__in=ids)
+        .order_by("pk")
+    }
+    if actor is not None:
+        require_management(users.get(actor.pk))
+    user = users.get(user.pk)
     scopes = sorted(set(scopes))
-    if not user.is_active:
+    if user is None or not user.is_active:
         raise ValueError("Principal must be active.")
     if not name.strip() or len(name) > 100:
         raise ValueError("Name must contain 1–100 characters.")
@@ -77,7 +182,7 @@ def mint(*, user, name, scopes, corpus_ids, expires_at=None):
     )
     token = _new_secret(credential)
     credential.save()
-    audit("minted", credential)
+    audit("minted", credential, actor=actor)
     return credential, token
 
 
@@ -99,11 +204,12 @@ def metadata(credential):
     }
 
 
-def audit(event, credential):
+def audit(event, credential, *, actor=None):
     logger.info(
-        "Automation credential %s credential_id=%s actor_id=%s",
+        "Automation credential %s credential_id=%s actor_id=%s principal_id=%s",
         event,
         credential.pk,
+        actor.pk if actor is not None else None,
         credential.user_id,
     )
 
@@ -121,9 +227,11 @@ def _validate(credential):
 
 
 @transaction.atomic
-def rotate(credential_id):
+def rotate(credential_id, *, actor=None):
+    if actor is not None:
+        require_management(actor, lock=True)
     credential = (
-        AutomationCredential.objects.select_for_update()
+        AutomationCredential.objects.select_for_update(of=("self",))
         .select_related("user")
         .get(pk=credential_id)
     )
@@ -131,17 +239,19 @@ def rotate(credential_id):
     token = _new_secret(credential)
     credential.rotated_at = timezone.now()
     credential.save(update_fields=["secret_hash", "rotated_at"])
-    audit("rotated", credential)
+    audit("rotated", credential, actor=actor)
     return credential, token
 
 
 @transaction.atomic
-def revoke(credential_id):
+def revoke(credential_id, *, actor=None):
+    if actor is not None:
+        require_management(actor, lock=True)
     credential = AutomationCredential.objects.select_for_update().get(pk=credential_id)
     if credential.revoked_at is None:
         credential.revoked_at = timezone.now()
         credential.save(update_fields=["revoked_at"])
-        audit("revoked", credential)
+        audit("revoked", credential, actor=actor)
     return credential
 
 
@@ -158,7 +268,7 @@ def authenticate_token(token):
         raise AuthenticationFailed(INVALID)
     _validate(credential)
     credential.user.automation_credential = credential
-    audit("authenticated", credential)
+    audit("authenticated", credential, actor=credential.user)
     return credential
 
 

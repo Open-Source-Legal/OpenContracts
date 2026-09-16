@@ -1184,3 +1184,7 @@ export const GOVERNANCE_GRAPH_WEAVING_MAX_MS = 90000;
 /** Max authority rows shown in the wanted-authorities backlog card; the
  * server already ranks by mention volume, so the cut keeps the top demand. */
 export const WANTED_AUTHORITIES_MAX_ROWS = 5;
+
+// Defaults for the automation credential mint form.
+export const AUTOMATION_CREDENTIAL_DEFAULT_DAYS = 30;
+export const AUTOMATION_CREDENTIAL_NAME_MAX_LENGTH = 100;

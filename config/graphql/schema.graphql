@@ -7493,6 +7493,10 @@ type CorpusAccessTokenCreatedType {
 }
 
 type Query {
+  automationCredentials(limit: Int! = 20, offset: Int! = 0): AutomationCredentialPage!
+  automationCredential(id: UUID!): AutomationCredentialMetadata!
+  automationCredentialScopes: [String!]!
+  automationCredentialChoices(kind: String!, search: String! = "", limit: Int! = 20, offset: Int! = 0): AutomationCredentialChoicePage!
   corpusActionTemplates(isActive: Boolean, offset: Int, before: String, after: String, first: Int, last: Int): CorpusActionTemplateTypeConnection
   corpusActions(corpusId: ID, trigger: String, disabled: Boolean, offset: Int, before: String, after: String, first: Int, last: Int): CorpusActionTypeConnection
   agentActionResults(corpusActionId: ID, documentId: ID, status: String, offset: Int, before: String, after: String, first: Int, last: Int): AgentActionResultTypeConnection
@@ -8212,6 +8216,9 @@ enum LabelType {
 }
 
 type Mutation {
+  mintAutomationCredential(userId: ID!, name: String!, scopes: [String!]!, corpusIds: [ID!] = null, allCorpuses: Boolean! = false, expiresDays: Int! = 30): AutomationCredentialSecret!
+  rotateAutomationCredential(id: UUID!): AutomationCredentialSecret!
+  revokeAutomationCredential(id: UUID!): AutomationCredentialMetadata!
   """Create a new agent configuration (admin/corpus owner only)."""
   createAgentConfiguration(
     """List of tools available to the agent"""
@@ -10491,4 +10498,38 @@ enum IngestionSourceTypeEnum {
   API
   PIPELINE
   SYNC
+}
+
+type AutomationCredentialMetadata {
+  id: UUID!
+  userId: ID!
+  username: String!
+  name: String!
+  scopes: [String!]!
+  corpusIds: [ID!]
+  expiresAt: DateTime
+  revokedAt: DateTime
+  createdAt: DateTime!
+  rotatedAt: DateTime
+  status: String!
+}
+
+type AutomationCredentialPage {
+  items: [AutomationCredentialMetadata!]!
+  totalCount: Int!
+}
+
+type AutomationCredentialSecret {
+  credential: AutomationCredentialMetadata!
+  token: String!
+}
+
+type AutomationCredentialChoice {
+  id: ID!
+  label: String!
+}
+
+type AutomationCredentialChoicePage {
+  items: [AutomationCredentialChoice!]!
+  totalCount: Int!
 }
