@@ -72,6 +72,8 @@ permissions**. Scope names do not imply one another.
 | `ingestion:read` | Existing `admin*Ingestion` / upload / import diagnostics; requires all-corpus authorization and the existing superuser gate |
 | `ingestion:repair` | `reEmbedCorpus` for an allowed corpus; `retryDocumentProcessing` requires all-corpus authorization because it changes the document globally |
 | `authority:admin` | Explicit namespace, key-equivalence, frontier and trusted-pack operations; requires all-corpus authorization and `is_authority_admin` |
+| `pipeline:read` | `pipelineSettings`, `pipelineComponents`, `supportedMimeTypes`, `convertibleExtensions`; requires all-corpus authorization and a superuser principal |
+| `pipeline:configure` | `updatePipelineSettings`, including its nested settings response; requires all-corpus authorization and a superuser principal |
 
 Corpus-export archives can carry public objects, so importing them requires
 `document:import`, `corpus:publish`, and either `corpus:configure` (destination
@@ -87,6 +89,63 @@ operation is checked before any resolver runs, including aliases, fragments,
 variables and directives. A denied field rejects the operation without partial
 mutation effects. A browser session cannot override an explicit automation
 header. Normal resolver/service permission checks remain in effect.
+
+## Pipeline configuration
+
+Mint a credential for an existing superuser with `--scope pipeline:read`
+and/or `--scope pipeline:configure`, plus `--all-corpuses`. These scopes do not
+imply one another; configuring settings does not permit a standalone read.
+Existing credentials gain neither scope automatically. A corpus-restricted
+credential cannot access these global operations, even for a superuser.
+
+`pipelineComponents` permits each component group and its `settingsSchema`;
+`supportedMimeTypes` permits `stageCoverage`. Queries and the update response
+permit settings metadata, but **not `modifiedBy` or arbitrary user/Node
+traversal**. Secret schema entries expose only presence (`hasValue`), never
+decrypted values (`currentValue` is null). `resetPipelineSettings`,
+`updateComponentSecrets`, `deleteComponentSecrets`, `updateToolSecrets` and
+`deleteToolSecrets` remain denied. Secret management would require a separate
+explicit capability; non-secret settings still reject inline credentials.
+
+This example reads component schemas, updates non-secret settings and reads
+back the result. It takes the token from an environment variable and prints
+neither the token nor response bodies. Use your deployment's HTTPS URL and
+configure secrets separately through an interactive administrator login.
+
+```python
+import json
+import os
+from urllib.request import Request, urlopen
+
+def graphql(query, variables=None):
+    request = Request(
+        "https://contracts.example.org/graphql/",
+        data=json.dumps({"query": query, "variables": variables or {}}).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": "Automation " + os.environ["OPENCONTRACTS_AUTOMATION_TOKEN"],
+        },
+    )
+    with urlopen(request, timeout=30) as response:
+        result = json.load(response)
+    if result.get("errors"):
+        raise RuntimeError("GraphQL operation rejected")
+    return result["data"]
+
+catalog = graphql("""{ pipelineComponents { embedders {
+  className settingsSchema { name settingType hasValue currentValue }
+} } }""")
+component = "opencontractserver.pipeline.embedders.openai_embedder.OpenAIEmbedder"
+updated = graphql("""mutation($settings: GenericScalar!) {
+  updatePipelineSettings(componentSettings: $settings) {
+    ok pipelineSettings { componentSettings }
+  }
+}""", {"settings": {component: {"openai_embedding_dimensions": 1536}}})
+if not updated["updatePipelineSettings"]["ok"]:
+    raise RuntimeError("Pipeline settings validation failed")
+current = graphql("{ pipelineSettings { componentSettings } }")
+assert current["pipelineSettings"]["componentSettings"][component]["openai_embedding_dimensions"] == 1536
+```
 
 ## Rotation and in-progress work
 
