@@ -317,9 +317,9 @@ def _admit_locked(run, operation):
     try:
         validate_execution(run)
     except RunPolicyError as exc:
-        operation.error_code = str(exc)
+        operation.error_code = exc.public_code
         operation.save(update_fields=["error_code"])
-        _violate_locked(run, str(exc))
+        _violate_locked(run, exc.public_code)
         return
     if operation.attempt_count >= MAX_OPERATION_ATTEMPTS:
         operation.error_code = "retry_exhausted"
@@ -386,7 +386,7 @@ def execute_reservation(reservation_id):
             Relationship.DoesNotExist,
         ) as exc:
             code = (
-                str(exc)
+                exc.public_code
                 if isinstance(exc, RunPolicyError)
                 else "operation_target_missing"
             )
@@ -439,7 +439,7 @@ def execute_reservation(reservation_id):
                     operation.error_code = ""
                 except Exception as exc:
                     if isinstance(exc, RunPolicyError):
-                        code = str(exc)
+                        code = exc.public_code
                     elif isinstance(exc, ObjectDoesNotExist):
                         code = "operation_target_missing"
                     else:
@@ -470,7 +470,9 @@ def execute_reservation(reservation_id):
         # Never log a provider exception: SDK errors can contain credentials,
         # endpoints or source content. The outstanding bound remains reserved.
         code = (
-            str(exc) if isinstance(exc, RunPolicyError) else "provider_outcome_unknown"
+            exc.public_code
+            if isinstance(exc, RunPolicyError)
+            else "provider_outcome_unknown"
         )
         with transaction.atomic():
             run = IngestionRun.objects.select_for_update().get(pk=run.pk)

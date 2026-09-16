@@ -1,9 +1,11 @@
 """Readiness checks stored artifacts; repair reuses inference without parsing."""
 
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Barrier, Event
+from typing import Any
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -106,6 +108,82 @@ class ReadinessFixtures(SimpleTestCase):
 
 
 class ReadinessTests(ReadinessFixtures, TestCase):
+    def readiness_requests(self) -> list[tuple[Callable[..., Any], str, int]]:
+        client = APIClient()
+        client.force_authenticate(self.user)
+        account = WorkerAccount.create_with_user(
+            name="diagnostic-worker", creator=self.user
+        )
+        token, key = CorpusAccessToken.create_token(
+            worker_account=account, corpus=self.corpus
+        )
+        receipt = WorkerDocumentUpload.objects.create(
+            corpus=self.corpus,
+            corpus_access_token=token,
+            worker_account=account,
+            result_document=self.doc,
+            status="COMPLETED",
+        )
+        worker = APIClient()
+        worker.credentials(HTTP_AUTHORIZATION=f"WorkerKey {key}")
+        return [
+            (client.get, f"/api/readiness/documents/{self.doc.pk}/", 200),
+            (client.post, f"/api/readiness/documents/{self.doc.pk}/", 202),
+            (client.get, f"/api/readiness/corpuses/{self.corpus.pk}/", 200),
+            (worker.get, f"/api/readiness/worker/{receipt.pk}/", 200),
+            (worker.post, f"/api/readiness/worker/{receipt.pk}/", 202),
+            (worker.get, "/api/readiness/worker/", 200),
+        ]
+
+    def test_readiness_endpoints_only_return_public_diagnostic_codes(self):
+        sensitive = "embedder credential=secret at /private/embedder.py:42"
+        cases = self.readiness_requests()
+        for failure_point in ("effective_embedder", "document_has_text"):
+            for message, code in (
+                (sensitive, "readiness_unavailable"),
+                ("embedder_unavailable", "embedder_unavailable"),
+            ):
+                with patch(
+                    f"opencontractserver.documents.readiness.{failure_point}",
+                    side_effect=ReadinessUnavailable(message),
+                ):
+                    for request, url, status in cases:
+                        with self.subTest(
+                            failure_point=failure_point,
+                            message=message,
+                            url=url,
+                            method=request.__name__,
+                        ):
+                            response = request(url)
+                            self.assertEqual(response.status_code, status)
+                            payload = response.json()
+                            observations = payload.get("documents", [payload])
+                            self.assertEqual(len(observations), 1)
+                            self.assertEqual(observations[0]["state"], "unavailable")
+                            self.assertEqual(observations[0]["reasons"], [code])
+                            self.assertNotIn(sensitive, response.content.decode())
+
+    def test_readiness_endpoints_do_not_expose_saved_parser_errors(self):
+        sensitive = "parser credential=secret\nTraceback at /private/parser.py:42"
+        cases = self.readiness_requests()
+        for error, code in ((sensitive, "document_processing_failed"), ("", "")):
+            self.doc.processing_status = "failed"
+            self.doc.processing_error = error
+            self.doc.save(update_fields=["processing_status", "processing_error"])
+            for request, url, status in cases:
+                with self.subTest(error=error, url=url, method=request.__name__):
+                    response = request(url)
+                    self.assertEqual(response.status_code, status)
+                    payload = response.json()
+                    observations = payload.get("documents", [payload])
+                    self.assertEqual(len(observations), 1)
+                    self.assertEqual(observations[0]["state"], "failed")
+                    self.assertEqual(observations[0]["processing_error"], code)
+                    self.assertNotIn("credential=secret", response.content.decode())
+                    self.assertNotIn("/private/parser.py", response.content.decode())
+            self.doc.refresh_from_db()
+            self.assertEqual(self.doc.processing_error, error)
+
     def test_nonserializable_settings_allow_unverified_embeddings(self):
         from opencontractserver.tasks.embeddings_task import (
             calculate_embedding_for_doc_text,
@@ -421,9 +499,7 @@ class ReadinessTests(ReadinessFixtures, TestCase):
         self.doc.save(update_fields=["processing_status", "processing_error"])
         result = assess_document(self.doc, self.corpus)
         self.assertEqual(result["state"], "failed")
-        self.assertEqual(
-            result["processing_error"], "Parser timed out while loading page 2"
-        )
+        self.assertEqual(result["processing_error"], "document_processing_failed")
         request_repair(self.doc, self.corpus, user=self.user)
         self.assertFalse(EmbeddingRepair.objects.exists())
 

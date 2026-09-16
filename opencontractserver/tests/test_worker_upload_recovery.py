@@ -22,6 +22,7 @@ from opencontractserver.worker_uploads.models import (
     WorkerAccount,
     WorkerDocumentUpload,
 )
+from opencontractserver.worker_uploads.run_policy import RunPolicyError
 from opencontractserver.worker_uploads.tasks import (
     _fail_upload,
     _process_single_upload,
@@ -29,6 +30,7 @@ from opencontractserver.worker_uploads.tasks import (
     recover_stalled_uploads,
 )
 from opencontractserver.worker_uploads.upload_recovery import (
+    UploadConflict,
     _admission_lock,
     stage_upload,
 )
@@ -89,6 +91,29 @@ class UploadRecoveryTests(TransactionTestCase):
             processing_started=timezone.now(),
         )
         return fence
+
+    def test_upload_and_retry_do_not_expose_exception_details(self):
+        sensitive = "storage credential=secret at /private/storage.py:42"
+        for error, code in (
+            (RunPolicyError(sensitive), "run_policy_error"),
+            (UploadConflict(sensitive), "upload_conflict"),
+        ):
+            with self.subTest(error=type(error).__name__), patch(
+                "opencontractserver.worker_uploads.views.stage_upload",
+                side_effect=error,
+            ):
+                response = self.post()
+                self.assertEqual(response.status_code, 409)
+                self.assertEqual(response.json(), {"error": code})
+        with patch(
+            "opencontractserver.worker_uploads.views.retry_upload",
+            side_effect=UploadConflict(sensitive),
+        ):
+            response = self.client.post(
+                f"/api/worker-uploads/documents/{uuid4()}/retry/"
+            )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json(), {"error": "upload_conflict"})
 
     def test_concurrent_posts_and_lost_response_return_one_receipt_and_document(self):
         barrier = Barrier(2)

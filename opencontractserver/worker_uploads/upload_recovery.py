@@ -13,6 +13,7 @@ from opencontractserver.constants.document_processing import (
     MAX_PROCESSING_ATTEMPTS,
     MAX_UPLOAD_ERROR_MESSAGE_LENGTH,
 )
+from opencontractserver.utils.public_errors import PublicError
 from opencontractserver.utils.upload_identity import upload_payload_digest
 from opencontractserver.worker_uploads.models import UploadStatus, WorkerDocumentUpload
 from opencontractserver.worker_uploads.run_models import IngestionRun
@@ -23,8 +24,13 @@ from opencontractserver.worker_uploads.run_policy import (
 from opencontractserver.worker_uploads.run_services import runs_for_token
 
 
-class UploadConflict(ValueError):
+class UploadConflict(PublicError):
     """A stable, safe conflict code for an upload operation."""
+
+    default_code = "upload_conflict"
+    public_codes = frozenset(
+        {"idempotency_conflict", "retry_exhausted", "retry_artifact_unavailable"}
+    )
 
 
 class UploadRateLimited(Exception):

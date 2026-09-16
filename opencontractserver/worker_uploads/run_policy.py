@@ -38,12 +38,47 @@ from opencontractserver.pipeline.embedders.sent_transformer_microservice import 
 )
 from opencontractserver.pipeline.utils import get_component_by_name
 from opencontractserver.utils.embedding_identity import embedding_configuration
+from opencontractserver.utils.public_errors import PublicError
 
 SUPPORTED_DIMENSIONS = {dimension for dimension, _ in EMBEDDING_DIMENSIONS}
 
 
-class RunPolicyError(ValueError):
+class RunPolicyError(PublicError):
     """Only fixed, credential-free error codes may cross this boundary."""
+
+    default_code = "run_policy_error"
+    public_codes = frozenset(
+        {
+            "ceiling_cannot_decrease",
+            "embedding_policy_mismatch",
+            "invalid_embedding_result",
+            "invalid_money",
+            "invalid_preparation_policy",
+            "invalid_run_action",
+            "invalid_usage_receipt",
+            "operation_input_changed",
+            "operation_not_retryable",
+            "policy_integrity_violation",
+            "preparation_policy_mismatch",
+            "pricing_changed",
+            "prohibited_fallback",
+            "prohibited_multimodal_fallback",
+            "prohibited_parse",
+            "provider_configuration_changed",
+            "provider_configuration_unavailable",
+            "provider_model_revision_required",
+            "retry_exhausted",
+            "run_cancelled",
+            "run_identity_conflict",
+            "run_not_active",
+            "run_not_found",
+            "run_requires_idempotency_key",
+            "unbounded_provider",
+            "unknown_pricing",
+            "unsupported_embedding_dimension",
+            "usage_exceeds_reservation",
+        }
+    )
 
 
 def digest(value):

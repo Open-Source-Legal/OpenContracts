@@ -147,6 +147,93 @@ class IngestionRunBudgetTests(TransactionTestCase):
         self.assertEqual(run.reserved_usd, Decimal(reserved))
         self.assertLessEqual(run.accounted_usd + run.reserved_usd, run.ceiling_usd)
 
+    def test_run_endpoints_only_return_public_policy_codes(self):
+        sensitive = "provider credential=secret at /private/provider.py:42"
+        payload = {"ceiling_usd": "0", "preparations": [PREPARATION]}
+        for message, code, status in (
+            (sensitive, "run_policy_error", 400),
+            ("invalid_money", "invalid_money", 400),
+            ("run_identity_conflict", "run_identity_conflict", 409),
+        ):
+            with self.subTest(message=message), patch(
+                "opencontractserver.worker_uploads.run_views.create_run",
+                side_effect=RunPolicyError(message),
+            ):
+                response = self.api_client.post(
+                    "/api/worker-uploads/runs/", payload, format="json"
+                )
+                self.assertEqual(response.status_code, status)
+                self.assertEqual(response.json(), {"error": code})
+
+        run = self.new_run()
+        for message, code in (
+            (sensitive, "run_policy_error"),
+            ("run_cancelled", "run_cancelled"),
+        ):
+            with self.subTest(message=message), patch(
+                "opencontractserver.worker_uploads.run_views.control_run",
+                side_effect=RunPolicyError(message),
+            ):
+                response = self.api_client.post(
+                    f"/api/worker-uploads/runs/{run.pk}/",
+                    {"action": "resume"},
+                    format="json",
+                )
+                self.assertEqual(response.status_code, 409)
+                self.assertEqual(response.json(), {"error": code})
+
+    def test_policy_exception_details_do_not_reach_persisted_reports(self):
+        sensitive = "provider credential=secret at /private/provider.py:42"
+        for phase in ("admission", "execution", "publication", "provider"):
+            with self.subTest(phase=phase):
+                run = self.new_run()
+                if phase == "admission":
+                    with patch(
+                        "opencontractserver.worker_uploads.run_services.validate_execution",
+                        side_effect=RunPolicyError(sensitive),
+                    ):
+                        self.assertTrue(route_embedding(self.document(run)))
+                else:
+                    _, reservation = self.reserve(run)
+                    targets = {
+                        "execution": "opencontractserver.worker_uploads.run_services.validate_execution",
+                        "publication": "opencontractserver.documents.models.Document.add_embedding",
+                        "provider": (
+                            "opencontractserver.pipeline.embedders.openai_embedder."
+                            "OpenAIEmbedder.embed_text_accounted"
+                        ),
+                    }
+                    with patch.object(
+                        OpenAIEmbedder,
+                        "embed_text_accounted",
+                        return_value=([0.25] * 384, 2),
+                    ), patch(targets[phase], side_effect=RunPolicyError(sensitive)):
+                        execute_reservation(reservation.pk)
+
+                # Exercise all three report responses, including an idempotent
+                # create replay of a run which already has a persisted failure.
+                url = f"/api/worker-uploads/runs/{run.pk}/"
+                responses = [
+                    self.api_client.get(url),
+                    self.api_client.post(url, {"action": "pause"}, format="json"),
+                    self.api_client.post(
+                        "/api/worker-uploads/runs/",
+                        {
+                            "id": str(run.pk),
+                            "ceiling_usd": "0.000004",
+                            "preparations": [PREPARATION],
+                            "embedding_mode": "server",
+                        },
+                        format="json",
+                    ),
+                ]
+                self.assertEqual([r.status_code for r in responses], [200, 200, 201])
+                for response in responses:
+                    self.assertEqual(response.json()["last_error"], "run_policy_error")
+                    self.assertNotIn(sensitive, response.content.decode())
+                self.assertTrue(run.events.filter(code="run_policy_error").exists())
+                self.assertNotIn(sensitive, run.operations.get().error_code)
+
     def test_exact_boundary_fits_and_next_byte_waits_without_a_reservation(self):
         run = self.new_run()
         self.reserve(run)
@@ -967,6 +1054,34 @@ class IngestionRunBudgetTests(TransactionTestCase):
         self.assertIsNone(second["next_offset"])
         self.assertEqual(Decimal(run_report(run)["reserved_usd"]), Decimal("0.000001"))
         self.assertEqual(self.api_client.get(url, {"offset": -1}).status_code, 400)
+
+    def test_upload_revalidation_does_not_persist_exception_details(self):
+        sensitive = "provider credential=secret at /private/provider.py:42"
+        run = self.new_run("1")
+        metadata = _make_metadata(
+            preparation_identity=PREPARATION["fingerprint"],
+            parser_name="TextParser",
+            parser_version="1.0",
+            ingestion_run_id=str(run.pk),
+        )
+        upload, _ = stage_upload(self.token, _make_fake_pdf(), metadata, "safe-error")
+        upload.status = UploadStatus.PROCESSING
+        upload.processing_token = uuid4()
+        upload.processing_attempts = 1
+        upload.save()
+        with patch(
+            "opencontractserver.worker_uploads.run_policy.validate_preparation",
+            side_effect=RunPolicyError(sensitive),
+        ):
+            self.assertFalse(_process_single_upload(upload.pk, upload.processing_token))
+        upload.refresh_from_db()
+        self.assertEqual(upload.status, UploadStatus.PENDING)
+        self.assertEqual(upload.processing_attempts, 0)
+        response = self.api_client.get(f"/api/worker-uploads/runs/{run.pk}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["last_error"], "run_policy_error")
+        self.assertTrue(run.events.filter(code="run_policy_error").exists())
+        self.assertNotIn(sensitive, response.content.decode())
 
     def test_configuration_drift_keeps_accepted_upload_pending_without_an_attempt(self):
         run = self.new_run("1")

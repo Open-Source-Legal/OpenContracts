@@ -51,9 +51,10 @@ class IngestionRunCreateView(APIView):
         try:
             run = create_run(request.auth, **data)
         except RunPolicyError as exc:
+            code = exc.public_code
             return Response(
-                {"error": str(exc)},
-                status=409 if str(exc) == "run_identity_conflict" else 400,
+                {"error": code},
+                status=409 if code == "run_identity_conflict" else 400,
             )
         return Response(run_report(run), status=status.HTTP_201_CREATED)
 
@@ -78,5 +79,5 @@ class IngestionRunView(APIView):
         try:
             run = control_run(run.pk, **data)
         except RunPolicyError as exc:
-            return Response({"error": str(exc)}, status=409)
+            return Response({"error": exc.public_code}, status=409)
         return Response(run_report(run))
