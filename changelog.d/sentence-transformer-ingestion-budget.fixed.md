@@ -1,0 +1,1 @@
+- Support the shipped sentence-transformer service in policy-bound ingestion with explicit zero-provider-fee configuration through pipeline settings, pinned model identity, bounded requests, and existing retry and readiness checks. Infrastructure costs remain outside ingestion budgets.

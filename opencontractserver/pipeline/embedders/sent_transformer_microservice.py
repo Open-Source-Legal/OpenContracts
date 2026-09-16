@@ -1,4 +1,5 @@
 import logging
+import re
 import threading
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -11,6 +12,11 @@ from opencontractserver.constants.document_processing import (
     EMBEDDER_BATCH_REQUEST_TIMEOUT_SECONDS,
     EMBEDDER_SINGLE_REQUEST_TIMEOUT_SECONDS,
     MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE,
+    OPENAI_EMBEDDER_MAX_INPUT_CHARS,
+)
+from opencontractserver.constants.embeddings import (
+    MICROSERVICE_ACCOUNTED_EMBEDDING_VERSION,
+    MICROSERVICE_MODEL_REVISION_PATTERN,
 )
 from opencontractserver.pipeline.base.embedder import BaseEmbedder
 from opencontractserver.pipeline.base.exceptions import (
@@ -116,6 +122,7 @@ class MicroserviceEmbedder(BaseEmbedder):
     description = "Generates embeddings using a vector embeddings microservice."
     author = "OpenContracts Team"
     dependencies = ["numpy", "requests"]
+    accounting_version = MICROSERVICE_ACCOUNTED_EMBEDDING_VERSION
     vector_size = 384  # Default embedding size
     supported_file_types = [
         FileTypeEnum.PDF,
@@ -172,6 +179,37 @@ class MicroserviceEmbedder(BaseEmbedder):
                 )
             },
         )
+        embedding_model_revision: str = field(
+            default="",
+            metadata={
+                "pipeline_setting": PipelineSetting(
+                    setting_type=SettingType.OPTIONAL,
+                    description=(
+                        "Deployed model and immutable revision (model@revision). "
+                        "Required for policy-bound ingestion; update when the model changes."
+                    ),
+                    validation=lambda value: isinstance(value, str)
+                    and (
+                        not value
+                        or re.fullmatch(MICROSERVICE_MODEL_REVISION_PATTERN, value)
+                        is not None
+                    ),
+                )
+            },
+        )
+        no_external_provider_fees: bool = field(
+            default=False,
+            metadata={
+                "pipeline_setting": PipelineSetting(
+                    setting_type=SettingType.OPTIONAL,
+                    description=(
+                        "Operator confirms this self-hosted service has no external "
+                        "provider fees. Infrastructure costs are excluded from run budgets."
+                    ),
+                    validation=lambda value: type(value) is bool,
+                )
+            },
+        )
 
     def __init__(self, **kwargs):
         """Initialize MicroserviceEmbedder with settings from PipelineSettings."""
@@ -212,6 +250,30 @@ class MicroserviceEmbedder(BaseEmbedder):
         )
 
         return service_url, headers
+
+    def embed_text_accounted(self, text: str) -> tuple[list[float], int]:
+        """One bounded request for an explicitly approved self-hosted run.
+
+        Zero denotes billable provider tokens, not measured inference usage.
+        Infrastructure is outside the run budget. The run owns every retry;
+        neither the ordinary retrying session nor redirects may repeat a POST.
+        """
+        service_url, headers = self._get_service_config(self.get_component_settings())
+        with requests.Session() as session:
+            session.mount("http://", HTTPAdapter(max_retries=0))
+            session.mount("https://", HTTPAdapter(max_retries=0))
+            response = session.post(
+                f"{service_url.rstrip('/')}/embeddings",
+                json={"text": text[:OPENAI_EMBEDDER_MAX_INPUT_CHARS]},
+                headers=headers,
+                timeout=EMBEDDER_SINGLE_REQUEST_TIMEOUT_SECONDS,
+                allow_redirects=False,
+            )
+            if response.status_code != 200:
+                # Never expose a provider response, endpoint or credential.
+                raise ValueError("embedding_request_failed")
+            vector = normalize_embedding_vector(embedding_values(response.json()))
+        return vector, 0
 
     def _embed_text_impl(self, text: str, **all_kwargs) -> Optional[list[float]]:
         """

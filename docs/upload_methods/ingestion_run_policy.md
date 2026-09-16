@@ -23,11 +23,11 @@ Two modes are available:
 | Mode | Server processing |
 | --- | --- |
 | `prepared` (default) | Store prepared artifacts and any supplied vectors; no server provider calls. |
-| `server` | Store prepared artifacts and generate missing text embeddings through the priced, first-party OpenAI adapter. |
+| `server` | Store prepared artifacts and generate missing text embeddings through the priced OpenAI adapter or explicitly declared self-hosted sentence service. |
 
 Both modes suppress server parsing, conversion, thumbnails, multimodal fallback,
-and automatic corpus actions. Custom endpoints, unknown providers, and unknown
-prices cannot be admitted. The effective corpus/default provider, model,
+and automatic corpus actions. Custom OpenAI endpoints, unknown providers, and
+undeclared pricing cannot be admitted. The effective corpus/default provider, model,
 dimension, non-secret configuration fingerprint, adapter contract version, and
 configured pricing are checked at admission and
 again before each request. Changed configuration pauses execution; restoring the
@@ -35,7 +35,7 @@ approved configuration permits resume. The fingerprint includes operator-supplie
 `EMBEDDING_MODEL_REVISIONS`; bump that revision when a model changes in place.
 Changing the policy requires a new run. Generated vectors retain this fingerprint
 for readiness checks; unverified or stale vectors do not skip budgeted generation.
-The adapter version is `OpenAIEmbedder.accounting_version`; changes to its request
+The adapter version is the provider's `accounting_version`; changes to its request
 or accounting contract must bump that version. Formatting and comment edits do
 not invalidate an approved run.
 
@@ -56,7 +56,50 @@ is retained. This is not a cap on the entire deployment's invoice.
 
 ## Operator pricing
 
-For `server` mode, configure `INGESTION_RUN_PRICING` as a JSON environment value
+### Self-hosted sentence service
+
+Select the built-in `MicroserviceEmbedder` as the corpus or default embedder.
+In its pipeline settings GUI (or the existing `updatePipelineSettings` mutation),
+set `embedding_model_revision` to an identifier for the deployed model and immutable
+revision, such as `multi-qa-MiniLM-L6-cos-v1@<revision>`, and set the boolean
+`no_external_provider_fees` to `true` only when the service incurs no external
+provider fees. Keep the existing service URL and authentication configuration.
+No pricing environment variable or infrastructure configuration change is required. An existing
+`EMBEDDING_MODEL_REVISIONS` entry is accepted when the component revision is unset.
+
+For example, the `componentSettings` input to `updatePipelineSettings` can include
+the following entry (retain any other configured non-secret options; credentials
+continue to use `updateComponentSecrets`):
+
+```json
+{
+  "opencontractserver.pipeline.embedders.sent_transformer_microservice.MicroserviceEmbedder": {
+    "embeddings_microservice_url": "http://vector-embedder:8000",
+    "embedding_model_revision": "multi-qa-MiniLM-L6-cos-v1@pinned-revision",
+    "no_external_provider_fees": true
+  }
+}
+```
+
+The service has a fixed 384-dimensional output contract. The run pins its model
+identity, configuration fingerprint, endpoint fingerprint and adapter version;
+update the revision setting whenever the deployed model changes in place.
+The configured identity is an operator declaration, not remote model attestation.
+Credentials and raw endpoints are not included in run reports. Billing settings
+do not change vector identity, and unset new settings preserve legacy fingerprints.
+
+This adapter reserves and settles **zero provider fees**, so a zero USD ceiling
+is valid in `server` mode. `accounted_tokens: 0` denotes zero billable provider
+tokens, not measured inference token usage. **Infrastructure costs remain excluded**;
+this setting does not imply free computation. Each attempt sends one bounded text
+request (at most 30,000 characters, 30-second timeout), without HTTP retries or
+redirects. The same persisted attempts, explicit retry limit and readiness checks
+apply as for paid embeddings. Missing declarations, configuration changes, invalid
+vectors and request failures fail closed; no paid-provider fallback is allowed.
+
+### OpenAI
+
+For OpenAI `server` mode, configure `INGESTION_RUN_PRICING` as a JSON environment value
 with `version` and `openai_usd_per_million_tokens`. The latter maps each permitted
 OpenAI embedding model name to its positive USD rate, expressed as a decimal
 string. Set an operator-maintained version whenever prices change. No rates are
@@ -97,9 +140,16 @@ python scripts/remote_ingest/oc_remote_ingest.py run-status
 ```
 
 For server text embeddings, use `--no-embeddings --run-embedding-mode server`
-with `run-create`, supply a positive `--run-budget-usd`, and retain
+with `run-create`, supply `--run-budget-usd` (zero is valid for the declared
+self-hosted service; OpenAI requires enough allowance for its requests), and retain
 `--no-embeddings` for `run`. Existing target URL/token, source, ledger and parser
 options still apply. A ledger remains bound to its original run.
+
+```bash
+# After configuring the self-hosted service through pipeline settings:
+python scripts/remote_ingest/oc_remote_ingest.py --no-embeddings --run-embedding-mode server --run-budget-usd 0 run-create
+python scripts/remote_ingest/oc_remote_ingest.py --no-embeddings run
+```
 
 - `run-pause`: retain receipts, checkpoints and reservations, and stop admission.
 - `run-resume`: resume after restoring policy settings; optional
