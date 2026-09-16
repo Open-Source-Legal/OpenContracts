@@ -1,4 +1,5 @@
 export { GlobalSettingsPanel } from "./GlobalSettingsPanel";
+export { AutomationCredentialManagement } from "./AutomationCredentialManagement";
 export { GlobalAgentManagement } from "./GlobalAgentManagement";
 export { SystemSettings } from "./SystemSettings";
 export { WorkerAccountManagement } from "./WorkerAccountManagement";

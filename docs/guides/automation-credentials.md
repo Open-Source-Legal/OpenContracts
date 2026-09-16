@@ -10,6 +10,28 @@ endpoints; those retain their existing authentication contracts.
 
 ## Provision and manage
 
+Active superusers can use **Admin Settings → Automation Credentials**
+(`/admin/automation-credentials`) to list, inspect, mint, rotate and revoke
+credentials, including ones created by the CLI. Search for an existing active
+principal by name or stable user ID, choose explicit scopes and corpuses (or
+explicitly allow all corpuses), and set a positive lifetime (default: 30 days).
+The scope picker and CLI use the same server-side `Scope` catalog.
+
+Mint/rotate show the token in a one-time copy/dismiss dialog. Dismissing,
+leaving the page or signing out clears it; it is not written to Apollo cache,
+local storage or session storage. Metadata remains available for inspection.
+Rotation and revocation require confirmation in the credential detail dialog.
+
+The authenticated GraphQL API exposes `automationCredentials(limit:, offset:)`,
+`automationCredential(id:)`, `automationCredentialScopes` and the paginated
+`automationCredentialChoices(kind:, search:, limit:, offset:)` selector
+(`kind` is `principal` or `corpus`). Pages default to 20 and are capped at 100.
+Writes are `mintAutomationCredential`, `rotateAutomationCredential` and
+`revokeAutomationCredential`; only mint/rotate return a `token`. Credential IDs
+are UUIDs; principal and corpus IDs are stable database IDs. These operations
+require an active superuser login; **automation tokens cannot manage credentials**,
+even when their principal is a superuser. Management responses use `no-store`.
+
 An operator with access to `manage.py` can bind a credential to an **existing
 active user**. Choose a dedicated service user and grant its corpus permissions
 through the normal permission system. The command neither creates users nor
@@ -31,7 +53,9 @@ The CLI defaults to a 30-day lifetime and rejects nonpositive lifetimes. Mint
 and rotate emit JSON containing a new `token` exactly once. Store it securely;
 inspect returns metadata only, never the token or its hash. Only SHA-256 hashes
 of random 256-bit secrets are persisted. Audit events identify credentials and
-actors by ID, without authorization headers or secret prefixes.
+actors by ID, without authorization headers or secret prefixes. Lifecycle audit
+events record the acting administrator as `actor_id` separately from the bound
+`principal_id`; CLI operations have no application actor (`actor_id=None`).
 
 ## Capability boundaries
 

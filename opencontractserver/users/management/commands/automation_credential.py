@@ -1,14 +1,13 @@
 """Server-operator interface; secrets are printed only on mint/rotate."""
 
 import json
-from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
-from django.utils import timezone
 from rest_framework.exceptions import APIException
 
+from opencontractserver.constants.users import AUTOMATION_CREDENTIAL_DEFAULT_DAYS
 from opencontractserver.users.models import AutomationCredential
 from opencontractserver.users.services import automation_credentials as credentials
 
@@ -30,7 +29,9 @@ class Command(BaseCommand):
         corpuses = mint.add_mutually_exclusive_group(required=True)
         corpuses.add_argument("--corpus", action="append", type=int)
         corpuses.add_argument("--all-corpuses", action="store_true")
-        mint.add_argument("--expires-days", type=int, default=30)
+        mint.add_argument(
+            "--expires-days", type=int, default=AUTOMATION_CREDENTIAL_DEFAULT_DAYS
+        )
         for operation in ("inspect", "rotate", "revoke"):
             commands.add_parser(operation).add_argument("id")
 
@@ -45,7 +46,7 @@ class Command(BaseCommand):
                     name=options["name"],
                     scopes=options["scope"],
                     corpus_ids=None if options["all_corpuses"] else options["corpus"],
-                    expires_at=timezone.now() + timedelta(days=options["expires_days"]),
+                    expires_at=credentials.expiry_from_days(options["expires_days"]),
                 )
             elif operation == "rotate":
                 credential, token = credentials.rotate(options["id"])
