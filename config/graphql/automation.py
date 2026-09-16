@@ -46,6 +46,10 @@ OPERATIONS = {
         "authorityNamespaces": (Scope.AUTHORITY_ADMIN, None),
         "authorityKeyEquivalences": (Scope.AUTHORITY_ADMIN, None),
         "authorityFrontier": (Scope.AUTHORITY_ADMIN, None),
+        "pipelineSettings": (Scope.PIPELINE_READ, None),
+        "pipelineComponents": (Scope.PIPELINE_READ, None),
+        "supportedMimeTypes": (Scope.PIPELINE_READ, None),
+        "convertibleExtensions": (Scope.PIPELINE_READ, None),
     },
     "Mutation": {
         "createCorpus": (Scope.CORPUS_CREATE, None),
@@ -70,6 +74,7 @@ OPERATIONS = {
         "approveAuthorityFrontier": (Scope.AUTHORITY_ADMIN, None),
         "deleteAuthorityFrontier": (Scope.AUTHORITY_ADMIN, None),
         "runAuthorityDiscovery": (Scope.AUTHORITY_ADMIN, None),
+        "updatePipelineSettings": (Scope.PIPELINE_CONFIGURE, None),
     },
 }
 
@@ -121,6 +126,21 @@ OBJECT_FIELDS = {
     "AdminWorkerUploadPageType": {"items"},
     "AdminCorpusImportPageType": {"items"},
     "AdminBulkImportSessionPageType": {"items"},
+    "PipelineComponentsType": {
+        "parsers",
+        "embedders",
+        "thumbnailers",
+        "postProcessors",
+        "rerankers",
+        "enrichers",
+        "llmProviders",
+        "fileConverters",
+    },
+    "PipelineComponentType": {"settingsSchema"},
+    "SupportedMimeTypeType": {"stageCoverage"},
+    "UpdatePipelineSettingsMutation": {"pipelineSettings"},
+    # PipelineSettingsType.modifiedBy is deliberately not an allowed edge.
+    # Reset and component/tool secret mutations require a future separate scope.
 }
 
 
@@ -145,6 +165,14 @@ def _check(user, schema, parent, selection_set, fragments, variables, *, root=Fa
             args = get_argument_values(field, node, variables)
             require_scope(user, scope, args.get(corpus_arg) if corpus_arg else None)
             if scope == Scope.AUTHORITY_ADMIN and not is_authority_admin(user):
+                raise PermissionDenied(DENIED)
+            # Interactive readers retain their existing resolver permissions.
+            # Automation pipeline administration is explicitly superuser-only,
+            # including otherwise-public registry metadata.
+            if (
+                scope in (Scope.PIPELINE_READ, Scope.PIPELINE_CONFIGURE)
+                and not user.is_superuser
+            ):
                 raise PermissionDenied(DENIED)
             if name == "installAuthorityPack":
                 require_scope(user, Scope.CORPUS_CREATE)

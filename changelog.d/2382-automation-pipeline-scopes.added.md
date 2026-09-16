@@ -1,0 +1,1 @@
+- Add explicit `pipeline:read` and `pipeline:configure` automation scopes for superusers with all-corpus authorization. Permit component schemas and non-secret settings updates while denying user traversal, reset and secret management (#2382).

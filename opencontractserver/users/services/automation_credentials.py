@@ -29,6 +29,8 @@ class Scope(str, Enum):
     INGESTION_READ = "ingestion:read"
     INGESTION_REPAIR = "ingestion:repair"
     AUTHORITY_ADMIN = "authority:admin"
+    PIPELINE_READ = "pipeline:read"
+    PIPELINE_CONFIGURE = "pipeline:configure"
 
 
 def corpus_pk(value):
