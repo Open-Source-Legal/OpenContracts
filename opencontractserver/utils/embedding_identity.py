@@ -7,14 +7,16 @@ import logging
 
 from django.conf import settings
 
+from opencontractserver.constants.embeddings import MICROSERVICE_EMBEDDER_PATH
+
 logger = logging.getLogger(__name__)
 
 
 def embedding_configuration(embedder) -> str:
     """Hash model, dimension and non-secret settings; never expose credentials.
 
-    Operators must bump EMBEDDING_MODEL_REVISIONS when a service changes its
-    model in place without changing its URL or component settings.
+    Operators must update the component's model revision or
+    EMBEDDING_MODEL_REVISIONS when a service changes its model in place.
     """
     path = f"{type(embedder).__module__}.{type(embedder).__name__}"
     config = embedder.get_component_settings()
@@ -31,6 +33,12 @@ def embedding_configuration(embedder) -> str:
             word in key.lower() for word in ("key", "token", "secret", "password")
         )
     }
+    if path == MICROSERVICE_EMBEDDER_PATH:
+        # Billing does not alter vectors. Preserve legacy identities until the
+        # operator supplies the newly supported model revision setting.
+        config.pop("no_external_provider_fees", None)
+        if not config.get("embedding_model_revision"):
+            config.pop("embedding_model_revision", None)
     payload = [
         path,
         embedder.vector_size,
