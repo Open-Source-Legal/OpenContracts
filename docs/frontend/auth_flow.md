@@ -16,8 +16,13 @@ JWT backends never create sessions; their `get_user` shares
 would behave the same. Disabling an account removes its authenticated access on
 the next request; public access and other valid credentials are unaffected.
 
-1. `AuthGate` waits for the SDK's `isLoading` state to settle. In local-password
-   deployments it instead reads a candidate JWT from sessionStorage.
+1. `Auth0ProviderWithHistory` keeps the application unmounted until the SDK
+   finishes initializing and React Router commits callback cleanup. Child effects
+   run before parent effects: mounting `App` earlier lets its route manager strip
+   OAuth `code`/`state` before the SDK reads them. Waiting for the router also
+   prevents a stale callback location from overwriting the login return path.
+   `AuthGate` then obtains a candidate access token. In local-password deployments
+   it instead reads a candidate JWT from sessionStorage.
 2. AuthGate clears the old Apollo store before publishing credentials.
 3. `useBackendSession` sends a `GET_ME` request with that credential and
    `fetchPolicy: "no-cache"`. A stored token or SDK profile alone does not grant
