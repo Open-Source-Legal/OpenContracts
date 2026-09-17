@@ -183,13 +183,17 @@ def _resolve_Query_corpus_references(root, info, corpus_id, **kwargs):
             Q(source_annotation__document_id=doc_pk) | Q(target_document_id=doc_pk)
         )
     # Pull the FK targets the type resolves in one pass — without this each
-    # CorpusReferenceType row fires a separate query per FK (N+1).
-    return qs.select_related(
-        "source_annotation",
-        "corpus",
-        "target_document",
-        "target_annotation",
-        "target_corpus",
+    # CorpusReferenceType row fires a separate query per FK (N+1). The
+    # current-target annotation likewise resolves ``currentTargetDocument`` /
+    # ``targetIsSuperseded`` for the whole page in the same SELECT.
+    return CorpusReferenceService.annotate_current_target(
+        qs.select_related(
+            "source_annotation",
+            "corpus",
+            "target_document",
+            "target_annotation",
+            "target_corpus",
+        )
     )
 
 

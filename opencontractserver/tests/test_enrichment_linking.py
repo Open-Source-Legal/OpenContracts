@@ -60,11 +60,13 @@ class CrossCorpusLinkingTests(TestCase):
         assert ref.target_corpus_id == auth["corpus_id"]
         assert ref.target_document is not None
         # Canonical in-app document path INTO THE AUTHORITY CORPUS (the slug
-        # shape the frontend router serves: /d/:userIdent/:corpusIdent/:docIdent).
+        # shape the frontend router serves: /d/:userIdent/:corpusIdent/:docIdent),
+        # pinned to the cited version (``?v=1``) so it keeps resolving after
+        # the authority is amended — see test_reference_versioning.py.
         auth_corpus = Corpus.objects.select_related("creator").get(pk=auth["corpus_id"])
         assert ref.source_annotation.link_url == (
             f"/d/{auth_corpus.creator.slug}/{auth_corpus.slug}"
-            f"/{ref.target_document.slug}"
+            f"/{ref.target_document.slug}?v=1"
         )
         # No DGCL doc for the Securities Act citation -> still external.
         sa = CorpusReference.objects.get(
@@ -102,7 +104,7 @@ class CrossCorpusLinkingTests(TestCase):
         ref = CorpusReference.objects.get(corpus=self.corpus, canonical_key="dgcl:145")
         assert ref.target_document is not None
         assert ref.source_annotation.link_url == (
-            f"/d/{auth_corpus.creator.slug}/renamed-dgcl/{ref.target_document.slug}"
+            f"/d/{auth_corpus.creator.slug}/renamed-dgcl/{ref.target_document.slug}?v=1"
         )
 
     def test_link_is_idempotent(self):
@@ -355,10 +357,11 @@ class CrossCorpusLinkingTests(TestCase):
         # The navigable (public) corpus wins over the lower-id private mirror.
         assert ref.target_corpus_id == auth_corpus.id
         assert ref.target_corpus_id != private_mirror.id
-        # …and the rendered mention link points into the public authority corpus.
+        # …and the rendered mention link points into the public authority corpus,
+        # pinned to the cited version.
         assert ref.source_annotation.link_url == (
             f"/d/{auth_corpus.creator.slug}/{auth_corpus.slug}"
-            f"/{ref.target_document.slug}"
+            f"/{ref.target_document.slug}?v=1"
         )
 
     def test_resolved_target_without_current_path_is_not_promoted(self):

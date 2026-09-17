@@ -7,7 +7,8 @@ per-object guardian rows in v1.
 
 from __future__ import annotations
 
-from django.db.models import Q
+from django.db.models import F, OuterRef, Q, Subquery
+from django.db.models.functions import Coalesce
 
 from opencontractserver.annotations.models import CorpusReference
 from opencontractserver.corpuses.models import Corpus
@@ -136,6 +137,78 @@ class CorpusReferenceService(BaseService):
     @classmethod
     def for_corpus(cls, user, corpus_id: int):
         return cls.visible_to_user(user).filter(corpus_id=corpus_id)
+
+    # ------------------------------------------------------------------ #
+    # Version-pinned targets: "as cited" vs. "current"                     #
+    # ------------------------------------------------------------------ #
+    # ``target_document`` is write-once (the version current when the citation
+    # was linked — see ``EnrichmentService._link_external``). The current text
+    # is derived, never stored: the ``is_current`` row in the pinned version's
+    # tree that still has an active path in the corpus the link points into.
+    # Two attributes carry it on a row: ``current_target_document_id`` and
+    # ``target_is_current``. Querysets get them in bulk from
+    # :meth:`annotate_current_target`; single rows fall back to one query in
+    # :meth:`current_target_document_id`.
+
+    CURRENT_TARGET_ATTR = "current_target_document_id"
+    TARGET_IS_CURRENT_ATTR = "target_is_current"
+
+    @classmethod
+    def annotate_current_target(cls, qs):
+        """Annotate ``current_target_document_id`` and ``target_is_current``.
+
+        One correlated subquery, no per-row work. LAW refs link into
+        ``target_corpus``; DOCUMENT refs target a sibling in the row's own
+        corpus (``target_corpus`` is null), hence the ``Coalesce``.
+        """
+        current = Document.objects.filter(
+            version_tree_id=OuterRef("target_document__version_tree_id"),
+            is_current=True,
+            path_records__corpus_id=Coalesce(
+                OuterRef("target_corpus_id"), OuterRef("corpus_id")
+            ),
+            path_records__is_current=True,
+            path_records__is_deleted=False,
+        ).values("id")[:1]
+        return qs.annotate(
+            **{
+                cls.CURRENT_TARGET_ATTR: Subquery(current),
+                cls.TARGET_IS_CURRENT_ATTR: F("target_document__is_current"),
+            }
+        )
+
+    @classmethod
+    def current_target_document_id(cls, ref: CorpusReference) -> int | None:
+        """The current version's id for ``ref``'s pinned target, or ``None``.
+
+        Reads the bulk annotation when present; otherwise computes it once and
+        caches it on the instance so GraphQL field resolvers stay cheap.
+        """
+        if cls.CURRENT_TARGET_ATTR in ref.__dict__:
+            return ref.__dict__[cls.CURRENT_TARGET_ATTR]
+        current_id: int | None = None
+        target_is_current: bool | None = None
+        if ref.target_document_id is not None:
+            row = (
+                cls.annotate_current_target(CorpusReference.objects.filter(pk=ref.pk))
+                .values_list(cls.CURRENT_TARGET_ATTR, cls.TARGET_IS_CURRENT_ATTR)
+                .first()
+            )
+            if row is not None:
+                current_id, target_is_current = row
+        ref.__dict__[cls.CURRENT_TARGET_ATTR] = current_id
+        ref.__dict__[cls.TARGET_IS_CURRENT_ATTR] = target_is_current
+        return current_id
+
+    @classmethod
+    def target_is_superseded(cls, ref: CorpusReference) -> bool:
+        """``True`` when the pinned target is no longer its tree's current
+        version. ``False`` for unresolved refs."""
+        if ref.target_document_id is None:
+            return False
+        if cls.TARGET_IS_CURRENT_ATTR not in ref.__dict__:
+            cls.current_target_document_id(ref)
+        return ref.__dict__[cls.TARGET_IS_CURRENT_ATTR] is False
 
     @classmethod
     def for_corpus_by_source(cls, user, corpus_id: int):

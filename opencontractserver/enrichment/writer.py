@@ -25,7 +25,11 @@ from opencontractserver.annotations.models import (
     CorpusReference,
     Relationship,
 )
-from opencontractserver.documents.models import Document, DocumentRelationship
+from opencontractserver.documents.models import (
+    Document,
+    DocumentPath,
+    DocumentRelationship,
+)
 from opencontractserver.enrichment import constants as C
 from opencontractserver.enrichment.authorities import (
     classify_canonical_key,
@@ -70,6 +74,9 @@ class EnrichmentWriter:
         # Target-document slugs, prefetched once per write() so mention links
         # can carry the canonical /d/ path without a per-mention query.
         self._doc_slugs: dict[int, str | None] = {}
+        # Target version numbers in this corpus, so doc->doc mention links pin
+        # the cited version (``?v=N``) like the law-link pass does.
+        self._doc_versions: dict[int, int] = {}
         # Per-source-document PlasmaPDF layers (None = not a PDF / unavailable
         # → span fallback). Built lazily and kept for the run: resolutions
         # arrive grouped per document, and a layer is reused by every mention
@@ -321,6 +328,7 @@ class EnrichmentWriter:
                 corpus_creator_slug=self.corpus.creator.slug,
                 corpus_slug=self.corpus.slug,
                 document_slug=self._doc_slugs.get(res.target_document_id),
+                version_number=self._doc_versions.get(res.target_document_id),
             )
 
         if projected is not None:
@@ -383,6 +391,13 @@ class EnrichmentWriter:
         target_ids = {r.target_document_id for r in resolutions if r.target_document_id}
         self._doc_slugs = dict(
             Document.objects.filter(id__in=target_ids).values_list("id", "slug")
+        )
+        # Every path node of a Document in a corpus carries the same
+        # version_number (it increments only on content changes).
+        self._doc_versions = dict(
+            DocumentPath.objects.filter(
+                document_id__in=target_ids, corpus=self.corpus
+            ).values_list("document_id", "version_number")
         )
         # Prefetch the AuthorityNamespace classification for every law-ref prefix
         # in one query so persist-time backfill (_ensure_corpus_reference) never

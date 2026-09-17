@@ -2127,6 +2127,42 @@ class CorpusReferenceType(Node):
     ) -> None | (Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]):
         return resolve_visible_fk(self, info, "target_corpus_id", "CorpusType")
 
+    @strawberry.field(
+        name="targetIsSuperseded",
+        description=(
+            "True when the pinned targetDocument (the version current when this "
+            "citation was linked) is no longer the current version of its "
+            "document. False for unresolved references."
+        ),
+    )
+    def target_is_superseded(self, info: strawberry.Info) -> bool:
+        from opencontractserver.enrichment.services import CorpusReferenceService
+
+        return CorpusReferenceService.target_is_superseded(self)
+
+    @strawberry.field(
+        name="currentTargetDocument",
+        description=(
+            "The current version of the pinned targetDocument's document, if "
+            "the caller may see it: the is_current row in the same version "
+            "tree with an active path in the target corpus. Equals "
+            "targetDocument unless targetIsSuperseded."
+        ),
+    )
+    def current_target_document(
+        self, info: strawberry.Info
+    ) -> None | (
+        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
+    ):
+        from opencontractserver.enrichment.services import CorpusReferenceService
+
+        # Ensures the id attribute is present (bulk annotation or one query),
+        # then applies DocumentType visibility exactly like targetDocument.
+        CorpusReferenceService.current_target_document_id(self)
+        return resolve_visible_fk(
+            self, info, CorpusReferenceService.CURRENT_TARGET_ATTR, "DocumentType"
+        )
+
     @strawberry.field(name="canonicalKey")
     def canonical_key(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "canonical_key", None))

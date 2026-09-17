@@ -996,17 +996,27 @@ class EnrichmentService:
         the corpus's *audience floor*: anonymous for a public corpus (only
         public authorities may link), the creator otherwise.
 
-        The pass is bidirectional:
+        Targets are **write-once — "as cited"** (see
+        ``docs/architecture/reference-web-versioning.md``). The pass is:
 
-        * **promote** — an EXTERNAL ref whose target is audience-visible becomes
-          RESOLVED;
-        * **demote** — a RESOLVED ref whose target is no longer audience-visible
-          (authority went private, was deleted, …) reverts to EXTERNAL,
+        * **promote** — an EXTERNAL ref whose key resolves for the audience
+          becomes RESOLVED, pinned to the authority version current *now*;
+        * **keep** — a RESOLVED ref keeps its pinned version while the key
+          still resolves to a document in the pinned version's
+          ``version_tree_id`` and the pinned row is still audience-visible with
+          a path in the chosen target corpus. An authority version-up therefore
+          never rewrites what a citation resolved to; the current text is a
+          derived read (``CorpusReferenceService.current_target_document_id``);
+        * **re-point** — only when the key moved to a different version tree
+          (pack rebuilt under a new document) or the pinned row is no longer
+          navigable for the audience;
+        * **demote** — a RESOLVED ref whose key no longer resolves for the
+          audience (authority went private, was deleted, …) reverts to
+          EXTERNAL, so a public corpus can never render a broken link.
 
-        so a public corpus can never render a broken link. Pass 2
-        (``_restamp_mention_links``) then mirrors each mention's ``link_url``
-        onto its ref's resolution state — set when resolved, cleared when not —
-        which also repairs slug drift on still-resolved mentions.
+        Pass 2 (``_restamp_mention_links``) then mirrors each mention's
+        ``link_url`` onto its ref's state — a version-pinned link when
+        resolved, cleared when not.
         """
         from opencontractserver.documents.models import Document, DocumentPath
         from opencontractserver.enrichment.authorities import find_authority_target
@@ -1015,15 +1025,15 @@ class EnrichmentService:
         # only public authorities may link; a private corpus uses its creator.
         audience = None if corpus.is_public else user
 
-        # Materialize once: this queryset is walked twice (build the target
-        # cache below, then promote/demote). Left lazy, a concurrent apply() on
-        # the same corpus could insert rows that pass 2 sees but that were absent
-        # when the cache was built in pass 1 — those refs would be silently
-        # skipped (#1996).
+        # Materialize once: this queryset is walked several times (target
+        # cache, pinned-candidate set, promote/demote). Left lazy, a concurrent
+        # apply() on the same corpus could insert rows that a later pass sees
+        # but that were absent when the cache was built — those refs would be
+        # silently skipped (#1996).
         refs = list(
             CorpusReference.objects.filter(corpus=corpus, reference_type=C.REF_LAW)
             .exclude(canonical_key=None)
-            .select_related("source_annotation")
+            .select_related("source_annotation", "target_document")
         )
         # Resolve each distinct key once under the audience floor.
         target_cache: dict[str, Document | None] = {}
@@ -1067,6 +1077,36 @@ class EnrichmentService:
                 and incumbent not in audience_visible_corpus_ids
             ):
                 path_corpus_cache[doc_id] = path_corpus_id
+
+        # Pinned rows that MAY be kept: same version tree as the key's current
+        # resolution. Two batch queries decide keepability — the pinned row
+        # must still be audience-visible (an authority published only after
+        # v1 leaves v1 private) and must have a path node in the corpus the
+        # link points into (version trees are corpus-isolated, so a pinned
+        # version without a node there is not navigable via ``?v=``).
+        pinned_candidate_ids: set[int] = set()
+        for ref in refs:
+            current = target_cache.get(ref.canonical_key or "")
+            if (
+                ref.target_document_id is not None
+                and current is not None
+                and ref.target_document.version_tree_id == current.version_tree_id
+            ):
+                pinned_candidate_ids.add(ref.target_document_id)
+        keepable_pinned_ids: set[int] = set()
+        pinned_path_pairs: set[tuple[int, int]] = set()
+        if pinned_candidate_ids:
+            keepable_pinned_ids = set(
+                Document.objects.visible_to_user(audience)
+                .filter(id__in=pinned_candidate_ids)
+                .values_list("id", flat=True)
+            )
+            pinned_path_pairs = set(
+                DocumentPath.objects.filter(
+                    document_id__in=keepable_pinned_ids
+                ).values_list("document_id", "corpus_id")
+            )
+
         now = timezone.now()
         promoted: list[CorpusReference] = []
         demoted: list[CorpusReference] = []
@@ -1074,7 +1114,7 @@ class EnrichmentService:
             key = ref.canonical_key
             if not key:  # queryset excludes None; guard for type-narrowing
                 continue
-            target = target_cache.get(key)
+            current = target_cache.get(key)
             # A navigable link needs BOTH a resolved authority document and a
             # current corpus path to point into. The corpus is absent only in
             # the tiny TOCTOU window where the target's path is deleted between
@@ -1082,16 +1122,28 @@ class EnrichmentService:
             # query above; treat that as unresolved so a stale RESOLVED ref is
             # demoted rather than left pointing at a broken link.
             target_corpus_id = (
-                path_corpus_cache.get(target.id) if target is not None else None
+                path_corpus_cache.get(current.id) if current is not None else None
             )
-            if target is not None and target_corpus_id is not None:
-                if (
-                    ref.target_document_id != target.id
-                    or ref.resolution_status != C.STATUS_RESOLVED
-                ):
-                    ref.target_document = target
+            if current is not None and target_corpus_id is not None:
+                keep_pinned = (
+                    ref.target_document_id in keepable_pinned_ids
+                    and (ref.target_document_id, target_corpus_id) in pinned_path_pairs
+                )
+                target_id = ref.target_document_id if keep_pinned else current.id
+                changed = False
+                if ref.target_document_id != target_id:
+                    ref.target_document = current
+                    # A pinned section annotation belonged to the previous
+                    # target row; it cannot survive a re-point.
+                    ref.target_annotation_id = None
+                    changed = True
+                if ref.target_corpus_id != target_corpus_id:
                     ref.target_corpus_id = target_corpus_id
+                    changed = True
+                if ref.resolution_status != C.STATUS_RESOLVED:
                     ref.resolution_status = C.STATUS_RESOLVED
+                    changed = True
+                if changed:
                     # bulk_update bypasses auto_now — stamp ``modified``.
                     ref.modified = now
                     promoted.append(ref)
@@ -1103,6 +1155,7 @@ class EnrichmentService:
                 # vanished mid-pass — degrade so the corpus never renders a
                 # broken link.
                 ref.target_document_id = None
+                ref.target_annotation_id = None
                 ref.target_corpus_id = None
                 ref.resolution_status = C.STATUS_EXTERNAL
                 ref.modified = now
@@ -1113,7 +1166,13 @@ class EnrichmentService:
         if promoted or demoted:
             CorpusReference.objects.bulk_update(
                 promoted + demoted,
-                ["target_document", "target_corpus", "resolution_status", "modified"],
+                [
+                    "target_document",
+                    "target_annotation",
+                    "target_corpus",
+                    "resolution_status",
+                    "modified",
+                ],
             )
         restamped = self._restamp_mention_links(corpus)
         return {
@@ -1127,15 +1186,21 @@ class EnrichmentService:
         """Mirror each law/document mention's ``link_url`` onto its ref's state.
 
         The canonical slug path is the only shape the frontend router serves
-        (anything else 404s). A RESOLVED ref's mention gets the link into the
-        target (authority) corpus; an EXTERNAL ref's mention gets ``None`` — so a
-        demoted reference (its authority no longer audience-visible) stops
-        rendering as a clickable link instead of pointing at a 404. LAW refs
-        link into ``target_corpus``; DOCUMENT refs target a sibling document of
-        the source corpus (``target_corpus`` is null). Only mentions whose
-        stored link differs are written back.
+        (anything else 404s). A RESOLVED ref's mention gets a link into the
+        target (authority) corpus **pinned to the target's version**
+        (``?v=N``): slugs are minted per version, so a bare slug link 404s the
+        moment the cited version is superseded, whereas a pinned link keeps
+        opening the text as it stood when cited (the document page's version
+        badge is the "newer text exists" affordance). An EXTERNAL ref's mention
+        gets ``None`` — so a demoted reference (its authority no longer
+        audience-visible) stops rendering as a clickable link instead of
+        pointing at a 404. LAW refs link into ``target_corpus``; DOCUMENT refs
+        target a sibling document of the source corpus (``target_corpus`` is
+        null). Only mentions whose stored link differs are written back.
         """
         from django.db.models import Q
+
+        from opencontractserver.documents.models import DocumentPath
 
         # Bound the scan to refs that can actually change: either RESOLVED (need
         # a link computed/refreshed) or carrying a non-null mention link_url
@@ -1143,7 +1208,7 @@ class EnrichmentService:
         # unresolved with an already-null link, so the loop below would compute
         # link_url=None and skip the write — loading them only inflates memory
         # (tens of thousands of unresolved refs on a large corpus).
-        refs = (
+        refs = list(
             CorpusReference.objects.filter(
                 corpus=corpus,
                 reference_type__in=(C.REF_LAW, C.REF_DOCUMENT),
@@ -1156,6 +1221,24 @@ class EnrichmentService:
                 "source_annotation", "target_document", "target_corpus__creator"
             )
         )
+        # The pinned version number of every resolved target in the corpus its
+        # link points into, in one query. Every path node of a Document in a
+        # corpus carries the same version_number (it increments only on
+        # content changes), so any node will do.
+        link_pairs = {
+            (ref.target_document_id, (ref.target_corpus_id or corpus.id))
+            for ref in refs
+            if ref.resolution_status == C.STATUS_RESOLVED
+            and ref.target_document_id is not None
+        }
+        version_by_pair: dict[tuple[int, int], int] = {}
+        if link_pairs:
+            version_rows = DocumentPath.objects.filter(
+                document_id__in={d for d, _ in link_pairs},
+                corpus_id__in={c for _, c in link_pairs},
+            ).values_list("document_id", "corpus_id", "version_number")
+            for doc_id, corpus_id, version_number in version_rows:
+                version_by_pair[(doc_id, corpus_id)] = version_number
         now = timezone.now()
         changed: dict[int, Annotation] = {}
         for ref in refs:
@@ -1172,6 +1255,9 @@ class EnrichmentService:
                     corpus_creator_slug=target_corpus.creator.slug,
                     corpus_slug=target_corpus.slug,
                     document_slug=target_document.slug,
+                    version_number=version_by_pair.get(
+                        (target_document.id, target_corpus.id)
+                    ),
                 )
             else:
                 # Unresolved / demoted — no clickable link.

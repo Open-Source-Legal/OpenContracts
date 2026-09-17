@@ -1119,6 +1119,16 @@ type CorpusReferenceType implements Node {
   targetAnnotation: AnnotationType
   targetDocument: DocumentType
   targetCorpus: CorpusType
+
+  """
+  True when the pinned targetDocument (the version current when this citation was linked) is no longer the current version of its document. False for unresolved references.
+  """
+  targetIsSuperseded: Boolean!
+
+  """
+  The current version of the pinned targetDocument's document, if the caller may see it: the is_current row in the same version tree with an active path in the target corpus. Equals targetDocument unless targetIsSuperseded.
+  """
+  currentTargetDocument: DocumentType
   canonicalKey: String
   jurisdiction: String
   authorityType: AnnotationsCorpusReferenceAuthorityTypeChoices

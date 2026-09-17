@@ -155,12 +155,14 @@ class EnrichmentWriterTests(TestCase):
         assert doc_ref.target_document_id == self.exhibit_in_corpus.id
         # The mention annotation carries the canonical in-app document path
         # (the slug shape the frontend router actually serves — see
-        # frontend/src/App.tsx /d/:userIdent/:corpusIdent/:docIdent).
+        # frontend/src/App.tsx /d/:userIdent/:corpusIdent/:docIdent), pinned
+        # to the exhibit's version (``?v=1``) so it survives a re-upload —
+        # see test_reference_versioning.py.
         self.corpus.refresh_from_db()
         self.exhibit_in_corpus.refresh_from_db()
         assert doc_ref.source_annotation.link_url == (
             f"/d/{self.corpus.creator.slug}/{self.corpus.slug}"
-            f"/{self.exhibit_in_corpus.slug}"
+            f"/{self.exhibit_in_corpus.slug}?v=1"
         )
 
     def test_section_reference_creates_relationship_or_external_ref(self):
@@ -333,7 +335,7 @@ class EnrichmentWriterTests(TestCase):
         self.exhibit_in_corpus.refresh_from_db()
         assert doc_ref.source_annotation.link_url == (
             f"/d/{self.corpus.creator.slug}/renamed-s1-corpus"
-            f"/{self.exhibit_in_corpus.slug}"
+            f"/{self.exhibit_in_corpus.slug}?v=1"
         )
 
     def test_defined_terms_opt_in_only(self):
