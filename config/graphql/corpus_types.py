@@ -1194,6 +1194,13 @@ class CorpusType(Node):
     def inbound_references(
         self,
         info: strawberry.Info,
+        include_historical: Annotated[
+            bool | None,
+            strawberry.argument(
+                name="includeHistorical",
+                description="Also include references whose source mention lives on a superseded (or soft-deleted) version of its document. Default false.",
+            ),
+        ] = strawberry.UNSET,
         offset: Annotated[
             int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
@@ -1222,7 +1229,15 @@ class CorpusType(Node):
                 "last": last,
             }
         )
-        resolved = getattr(self, "inbound_references", None)
+        from opencontractserver.enrichment.services import CorpusReferenceService
+
+        # Route through the service: visibility (MIN of source/target document
+        # and corpus permissions) plus the superseded-source default.
+        resolved = CorpusReferenceService.inbound_to_corpus(
+            info.context.user,
+            self.pk,
+            include_historical=bool(include_historical),
+        )
         return resolve_django_connection(
             resolved=resolved,
             info=info,

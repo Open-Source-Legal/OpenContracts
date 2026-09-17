@@ -3138,7 +3138,17 @@ type CorpusType implements Node {
   ): AnnotationTypeConnection!
   notes(offset: Int, before: String, after: String, first: Int, last: Int): NoteTypeConnection!
   references(offset: Int, before: String, after: String, first: Int, last: Int): CorpusReferenceTypeConnection!
-  inboundReferences(offset: Int, before: String, after: String, first: Int, last: Int): CorpusReferenceTypeConnection!
+  inboundReferences(
+    """
+    Also include references whose source mention lives on a superseded (or soft-deleted) version of its document. Default false.
+    """
+    includeHistorical: Boolean
+    offset: Int
+    before: String
+    after: String
+    first: Int
+    last: Int
+  ): CorpusReferenceTypeConnection!
   authorityNamespaces(offset: Int, before: String, after: String, first: Int, last: Int): AuthorityNamespaceNodeConnection!
   analyses(offset: Int, before: String, after: String, first: Int, last: Int): AnalysisTypeConnection!
   extracts(offset: Int, before: String, after: String, first: Int, last: Int): ExtractTypeConnection!
@@ -4022,7 +4032,17 @@ type DocumentType implements Node {
     orderBy: String
   ): AnnotationTypeConnection!
   notes(offset: Int, before: String, after: String, first: Int, last: Int): NoteTypeConnection!
-  inboundReferences(offset: Int, before: String, after: String, first: Int, last: Int): CorpusReferenceTypeConnection!
+  inboundReferences(
+    """
+    Also include references whose source mention lives on a superseded (or soft-deleted) version of its document. Default false.
+    """
+    includeHistorical: Boolean
+    offset: Int
+    before: String
+    after: String
+    first: Int
+    last: Int
+  ): CorpusReferenceTypeConnection!
   frontierEntries(offset: Int, before: String, after: String, first: Int, last: Int): AuthorityFrontierNodeConnection!
   includedInAnalyses(offset: Int, before: String, after: String, first: Int, last: Int): AnalysisTypeConnection!
   extracts(offset: Int, before: String, after: String, first: Int, last: Int): ExtractTypeConnection!
@@ -7522,6 +7542,11 @@ type Query {
     Restrict to references touching this document on EITHER side (source mention's document or resolved target document) — the single-fetch shape the document References panel needs.
     """
     documentId: ID
+
+    """
+    Also return references whose source mention lives on a superseded (or soft-deleted) version of its document. Default false: current views show each citation once, from the current version.
+    """
+    includeHistorical: Boolean
     offset: Int
     before: String
     after: String

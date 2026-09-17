@@ -384,3 +384,237 @@ class PinnedReferenceTargetTests(TestCase):
         for edge in edges:
             self.assertTrue(edge["node"]["targetIsSuperseded"])
             self.assertIsNone(edge["node"]["currentTargetDocument"])
+
+
+class SupersededSourceVisibilityTests(TestCase):
+    """A citing document's version-up must not leak history into current views."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="owner2", password="p")
+        self.corpus = Corpus.objects.create(title="Filings", creator=self.user)
+        doc = Document.objects.create(title="Acme S-1 primary", creator=self.user)
+        doc.txt_extract_file.save("s1.txt", ContentFile(S1_TEXT.encode("utf-8")))
+        self.corpus.add_document(document=doc, user=self.user)
+        exhibit = Document.objects.create(
+            title="Acme S-1 (2024-09-30) - Exhibit 1.1: EX-1.1", creator=self.user
+        )
+        exhibit.txt_extract_file.save("ex11.txt", ContentFile(b"underwriting"))
+        self.corpus.add_document(document=exhibit, user=self.user)
+        self.v1 = Document.objects.get(
+            path_records__corpus=self.corpus, title="Acme S-1 primary"
+        )
+        self.auth = AuthorityCorpusBootstrapper().bootstrap(
+            creator_id=self.user.id,
+            corpus_title="Delaware General Corporation Law",
+            corpus_slug="dgcl2",
+            sections=[
+                AuthoritySection(key="dgcl:145", heading="DGCL § 145", text="..145..")
+            ],
+        )
+        self.authority_doc = Document.objects.get(pk=self.auth["document_ids"][0])
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+
+    def _reupload_primary(self) -> Document:
+        from opencontractserver.documents.versioning import import_document
+
+        path = DocumentPath.objects.get(
+            document=self.v1, corpus=self.corpus, is_current=True
+        ).path
+        v2, status, _ = import_document(
+            corpus=self.corpus,
+            path=path,
+            content=(S1_TEXT + " Amended.").encode("utf-8"),
+            user=self.user,
+            file_type="text/plain",
+        )
+        self.assertEqual(status, "updated")
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+        return v2
+
+    def _ctx(self, user=None):
+        return type("Request", (), {"user": user or self.user})()
+
+    def test_history_is_kept_on_the_superseded_version(self):
+        v2 = self._reupload_primary()
+        on_v1 = CorpusReference.objects.filter(
+            source_annotation__document=self.v1, canonical_key="dgcl:145"
+        )
+        on_v2 = CorpusReference.objects.filter(
+            source_annotation__document=v2, canonical_key="dgcl:145"
+        )
+        self.assertEqual(on_v1.count(), 1)
+        self.assertEqual(on_v2.count(), 1)
+        self.assertEqual(on_v1.get().target_document_id, self.authority_doc.id)
+
+    def test_service_hides_superseded_sources_by_default(self):
+        v2 = self._reupload_primary()
+        default_sources = set(
+            CorpusReferenceService.for_corpus(self.user, self.corpus.id)
+            .filter(canonical_key="dgcl:145")
+            .values_list("source_annotation__document_id", flat=True)
+        )
+        self.assertEqual(default_sources, {v2.id})
+        historical_sources = set(
+            CorpusReferenceService.for_corpus(
+                self.user, self.corpus.id, include_historical=True
+            )
+            .filter(canonical_key="dgcl:145")
+            .values_list("source_annotation__document_id", flat=True)
+        )
+        self.assertEqual(historical_sources, {self.v1.id, v2.id})
+
+    def test_soft_deleted_source_documents_are_hidden_by_default(self):
+        from opencontractserver.documents.versioning import delete_document
+
+        path = DocumentPath.objects.get(
+            document=self.v1, corpus=self.corpus, is_current=True
+        ).path
+        delete_document(corpus=self.corpus, path=path, user=self.user)
+        self.assertFalse(
+            CorpusReferenceService.for_corpus(self.user, self.corpus.id)
+            .filter(canonical_key="dgcl:145")
+            .exists()
+        )
+        self.assertTrue(
+            CorpusReferenceService.for_corpus(
+                self.user, self.corpus.id, include_historical=True
+            )
+            .filter(canonical_key="dgcl:145")
+            .exists()
+        )
+
+    def test_graphql_corpus_references_and_inbound_default_to_current(self):
+        v2 = self._reupload_primary()
+        query = """
+            query($corpusId: ID!, $docId: ID!, $hist: Boolean) {
+              corpusReferences(
+                corpusId: $corpusId, canonicalKey: "dgcl:145", includeHistorical: $hist
+              ) { edges { node { sourceAnnotation { document { id } } } } }
+              document(id: $docId) {
+                inboundReferences(includeHistorical: $hist) {
+                  edges { node { sourceAnnotation { document { id } } } }
+                }
+              }
+            }
+        """
+        variables = {
+            "corpusId": to_global_id("CorpusType", self.corpus.id),
+            "docId": to_global_id("DocumentType", self.authority_doc.id),
+        }
+        client = Client(schema)
+
+        def sources(payload, key):
+            return {
+                e["node"]["sourceAnnotation"]["document"]["id"]
+                for e in payload[key]["edges"]
+            }
+
+        out = client.execute(
+            query, variables={**variables, "hist": False}, context_value=self._ctx()
+        )
+        self.assertNotIn("errors", out, out)
+        v2_gid = {to_global_id("DocumentType", v2.id)}
+        self.assertEqual(sources(out["data"], "corpusReferences"), v2_gid)
+        self.assertEqual(sources(out["data"]["document"], "inboundReferences"), v2_gid)
+
+        out = client.execute(
+            query, variables={**variables, "hist": True}, context_value=self._ctx()
+        )
+        self.assertNotIn("errors", out, out)
+        both = {to_global_id("DocumentType", d) for d in (self.v1.id, v2.id)}
+        self.assertEqual(sources(out["data"], "corpusReferences"), both)
+        self.assertEqual(sources(out["data"]["document"], "inboundReferences"), both)
+
+    def test_document_graph_projection_ignores_superseded_sources(self):
+        from opencontractserver.documents.models import DocumentRelationship
+        from opencontractserver.documents.services.relationships import (
+            DocumentRelationshipService,
+        )
+
+        exhibit = Document.objects.get(
+            path_records__corpus=self.corpus, title__startswith="Acme S-1 (2024"
+        )
+        self.assertTrue(
+            DocumentRelationship.objects.filter(
+                source_document=self.v1, target_document=exhibit
+            ).exists()
+        )
+        v2 = self._reupload_primary()
+        # Projection rebuilt from current sources only.
+        self.assertFalse(
+            DocumentRelationship.objects.filter(source_document=self.v1).exists()
+        )
+        self.assertTrue(
+            DocumentRelationship.objects.filter(
+                source_document=v2, target_document=exhibit
+            ).exists()
+        )
+        visible = DocumentRelationshipService.get_visible_relationships(
+            self.user, corpus_id=self.corpus.id
+        )
+        self.assertEqual(
+            set(visible.values_list("source_document_id", flat=True)), {v2.id}
+        )
+
+    def test_document_graph_projects_onto_current_target_version(self):
+        """Re-uploading the cited exhibit: the pinned reference keeps v1, the
+        graph edge points at the exhibit's current version."""
+        from opencontractserver.documents.models import DocumentRelationship
+        from opencontractserver.documents.versioning import import_document
+
+        exhibit_v1 = Document.objects.get(
+            path_records__corpus=self.corpus, title__startswith="Acme S-1 (2024"
+        )
+        path = DocumentPath.objects.get(
+            document=exhibit_v1, corpus=self.corpus, is_current=True
+        ).path
+        exhibit_v2, status, _ = import_document(
+            corpus=self.corpus,
+            path=path,
+            content=b"underwriting agreement, amended",
+            user=self.user,
+            file_type="text/plain",
+        )
+        self.assertEqual(status, "updated")
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+
+        ref = CorpusReference.objects.get(
+            corpus=self.corpus,
+            reference_type=C.REF_DOCUMENT,
+            source_annotation__document=self.v1,
+        )
+        self.assertEqual(ref.target_document_id, exhibit_v1.id)
+        self.assertTrue(CorpusReferenceService.target_is_superseded(ref))
+        self.assertTrue(
+            DocumentRelationship.objects.filter(
+                source_document=self.v1, target_document=exhibit_v2
+            ).exists()
+        )
+        self.assertFalse(
+            DocumentRelationship.objects.filter(
+                source_document=self.v1, target_document=exhibit_v1
+            ).exists()
+        )
+
+    def test_user_authored_relationship_to_superseded_version_is_hidden(self):
+        from opencontractserver.documents.models import DocumentRelationship
+        from opencontractserver.documents.services.relationships import (
+            DocumentRelationshipService,
+        )
+
+        exhibit = Document.objects.get(
+            path_records__corpus=self.corpus, title__startswith="Acme S-1 (2024"
+        )
+        DocumentRelationship.objects.create(
+            source_document=self.v1,
+            target_document=exhibit,
+            relationship_type="NOTES",
+            corpus=self.corpus,
+            creator=self.user,
+            data={"note": "hand made"},
+        )
+        self._reupload_primary()
+        visible = DocumentRelationshipService.get_visible_relationships(
+            self.user, corpus_id=self.corpus.id, relationship_type="NOTES"
+        )
+        self.assertFalse(visible.filter(source_document=self.v1).exists())

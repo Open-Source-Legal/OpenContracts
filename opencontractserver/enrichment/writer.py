@@ -469,14 +469,31 @@ class EnrichmentWriter:
         ``data``; user-authored rows are never deleted, and a user-authored
         row for the same (source, target, label) pair already satisfies the
         projection (no duplicate is added).
+
+        The projection is a *current-state* view: references from superseded
+        source versions are ignored and each pinned target is projected onto
+        the current version of its tree in this corpus, so a re-uploaded
+        document neither ghosts its old version into the graph nor keeps
+        edges pointing at a superseded exhibit. History stays on the
+        ``CorpusReference`` rows themselves.
         """
-        expected = set(
-            CorpusReference.objects.filter(
-                corpus=self.corpus,
-                reference_type=C.REF_DOCUMENT,
-                target_document__isnull=False,
-            ).values_list("source_annotation__document_id", "target_document_id")
+        from opencontractserver.enrichment.services.corpus_reference_service import (
+            CorpusReferenceService,
         )
+
+        current_target = CorpusReferenceService.CURRENT_TARGET_ATTR
+        expected = {
+            (src, tgt)
+            for src, tgt in CorpusReferenceService.annotate_current_target(
+                CorpusReference.objects.filter(
+                    corpus=self.corpus,
+                    reference_type=C.REF_DOCUMENT,
+                    target_document__isnull=False,
+                    source_annotation__document__is_current=True,
+                )
+            ).values_list("source_annotation__document_id", current_target)
+            if tgt is not None and src != tgt
+        }
 
         # Materialise the current projection once — we both prune stale rows
         # and read coverage from it, with a delete in between; evaluating the

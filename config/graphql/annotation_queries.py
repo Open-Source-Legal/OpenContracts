@@ -156,7 +156,11 @@ def _resolve_Query_corpus_references(root, info, corpus_id, **kwargs):
     if not str(pk_str).isdigit():
         return CorpusReference.objects.none()
     pk = int(pk_str)
-    qs = CorpusReferenceService.for_corpus(info.context.user, pk)
+    qs = CorpusReferenceService.for_corpus(
+        info.context.user,
+        pk,
+        include_historical=bool(kwargs.get("include_historical")),
+    )
     if kwargs.get("reference_type"):
         qs = qs.filter(reference_type=kwargs["reference_type"])
     if kwargs.get("canonical_key"):
@@ -215,6 +219,13 @@ def q_corpus_references(
             description="Restrict to references touching this document on EITHER side (source mention's document or resolved target document) — the single-fetch shape the document References panel needs.",
         ),
     ] = strawberry.UNSET,
+    include_historical: Annotated[
+        bool | None,
+        strawberry.argument(
+            name="includeHistorical",
+            description="Also return references whose source mention lives on a superseded (or soft-deleted) version of its document. Default false: current views show each citation once, from the current version.",
+        ),
+    ] = strawberry.UNSET,
     offset: Annotated[
         int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
@@ -236,6 +247,7 @@ def q_corpus_references(
             "reference_type": reference_type,
             "canonical_key": canonical_key,
             "document_id": document_id,
+            "include_historical": include_historical,
             "offset": offset,
             "before": before,
             "after": after,

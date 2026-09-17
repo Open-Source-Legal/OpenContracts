@@ -153,8 +153,13 @@ class DocumentRelationshipService(BaseService):
 
         # Return a lazy values queryset — Django will embed this as a SQL
         # subquery when used with ``__in``, avoiding materialisation into
-        # Python memory.
-        visible_qs = Document.objects.visible_to_user(user).values("id")
+        # Python memory. Superseded versions (``is_current=False``) are never
+        # relationship endpoints in current views: a re-uploaded document's
+        # previous version keeps its rows as history but must not surface as
+        # a ghost node (docs/architecture/reference-web-versioning.md).
+        visible_qs = (
+            Document.objects.visible_to_user(user).filter(is_current=True).values("id")
+        )
 
         # Cache on request if available
         if request is not None:

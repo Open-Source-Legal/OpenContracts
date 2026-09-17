@@ -7,12 +7,12 @@ per-object guardian rows in v1.
 
 from __future__ import annotations
 
-from django.db.models import F, OuterRef, Q, Subquery
+from django.db.models import Exists, F, OuterRef, Q, Subquery
 from django.db.models.functions import Coalesce
 
 from opencontractserver.annotations.models import CorpusReference
 from opencontractserver.corpuses.models import Corpus
-from opencontractserver.documents.models import Document
+from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.enrichment import constants as C
 from opencontractserver.shared.services.base import BaseService
 
@@ -89,8 +89,51 @@ class CorpusReferenceService(BaseService):
             )
         )
 
+    # ------------------------------------------------------------------ #
+    # Superseded sources                                                   #
+    # ------------------------------------------------------------------ #
+    # A citing document's version-up leaves the previous version's mentions
+    # and references in place — that is the history. Current views must not
+    # show them (the same citation would appear once per version, and
+    # citations from documents soft-deleted from the corpus would linger), so
+    # every read surface defaults to sources with an ACTIVE path in the
+    # reference's corpus and exposes ``include_historical`` to opt back in.
+
+    SOURCE_ACTIVE_ATTR = "source_is_active"
+    SOURCE_HAS_PATH_ATTR = "source_has_path"
+
     @classmethod
-    def visible_to_user_by_source(cls, user):
+    def _only_active_sources(cls, qs):
+        """Drop references whose source annotation's document is a superseded
+        or soft-deleted version in the reference's corpus.
+
+        "Superseded or soft-deleted" means the document HAS ``DocumentPath``
+        rows in that corpus but none that is current and not deleted. A
+        document with no path rows there at all (never placed through the
+        versioning primitive) passes through unchanged, as do
+        structural-annotation sources (``document=None``), mirroring
+        :meth:`_source_visible_q`. Expressed as ``Exists`` so the multi-valued
+        path join never duplicates rows.
+        """
+        paths = DocumentPath.objects.filter(
+            document_id=OuterRef("source_annotation__document_id"),
+            corpus_id=OuterRef("corpus_id"),
+        )
+        return qs.annotate(
+            **{
+                cls.SOURCE_HAS_PATH_ATTR: Exists(paths),
+                cls.SOURCE_ACTIVE_ATTR: Exists(
+                    paths.filter(is_current=True, is_deleted=False)
+                ),
+            }
+        ).filter(
+            Q(source_annotation__document__isnull=True)
+            | Q(**{cls.SOURCE_HAS_PATH_ATTR: False})
+            | Q(**{cls.SOURCE_ACTIVE_ATTR: True})
+        )
+
+    @classmethod
+    def visible_to_user_by_source(cls, user, *, include_historical: bool = False):
         """References whose parent corpus AND source annotation are visible.
 
         Enforces corpus READ and source-annotation visibility, but does NOT
@@ -107,12 +150,13 @@ class CorpusReferenceService(BaseService):
         references whose target is invisible.
         """
         visible_corpora, visible_documents = cls._build_visibility_querysets(user)
-        return CorpusReference.objects.filter(
+        qs = CorpusReference.objects.filter(
             cls._source_visible_q(visible_corpora, visible_documents)
         )
+        return qs if include_historical else cls._only_active_sources(qs)
 
     @classmethod
-    def visible_to_user(cls, user):
+    def visible_to_user(cls, user, *, include_historical: bool = False):
         """Return only references whose exposed graph is visible to ``user``.
 
         Corpus references are reachable from a readable corpus, but each row
@@ -129,14 +173,37 @@ class CorpusReferenceService(BaseService):
         references are not dropped before they can be degraded.
         """
         visible_corpora, visible_documents = cls._build_visibility_querysets(user)
-        return CorpusReference.objects.filter(
+        qs = CorpusReference.objects.filter(
             cls._source_visible_q(visible_corpora, visible_documents)
             & cls._target_visible_q(visible_corpora, visible_documents)
         )
+        return qs if include_historical else cls._only_active_sources(qs)
 
     @classmethod
-    def for_corpus(cls, user, corpus_id: int):
-        return cls.visible_to_user(user).filter(corpus_id=corpus_id)
+    def for_corpus(cls, user, corpus_id: int, *, include_historical: bool = False):
+        return cls.visible_to_user(user, include_historical=include_historical).filter(
+            corpus_id=corpus_id
+        )
+
+    @classmethod
+    def inbound_to_document(
+        cls, user, document_id: int, *, include_historical: bool = False
+    ):
+        """References resolved onto ``document_id`` (the pinned target), for
+        ``DocumentType.inboundReferences``."""
+        return cls.visible_to_user(user, include_historical=include_historical).filter(
+            target_document_id=document_id
+        )
+
+    @classmethod
+    def inbound_to_corpus(
+        cls, user, corpus_id: int, *, include_historical: bool = False
+    ):
+        """References from other corpora resolved into ``corpus_id``, for
+        ``CorpusType.inboundReferences``."""
+        return cls.visible_to_user(user, include_historical=include_historical).filter(
+            target_corpus_id=corpus_id
+        )
 
     # ------------------------------------------------------------------ #
     # Version-pinned targets: "as cited" vs. "current"                     #
@@ -211,7 +278,9 @@ class CorpusReferenceService(BaseService):
         return ref.__dict__[cls.TARGET_IS_CURRENT_ATTR] is False
 
     @classmethod
-    def for_corpus_by_source(cls, user, corpus_id: int):
+    def for_corpus_by_source(
+        cls, user, corpus_id: int, *, include_historical: bool = False
+    ):
         """Corpus-scoped variant of :meth:`visible_to_user_by_source`.
 
         For callers that ghost invisible targets themselves (the governance
@@ -219,7 +288,9 @@ class CorpusReferenceService(BaseService):
         authority crawl frontier seed), so target-hidden references must not be
         pre-filtered out.
         """
-        return cls.visible_to_user_by_source(user).filter(corpus_id=corpus_id)
+        return cls.visible_to_user_by_source(
+            user, include_historical=include_historical
+        ).filter(corpus_id=corpus_id)
 
     @classmethod
     def wanted_authorities(
