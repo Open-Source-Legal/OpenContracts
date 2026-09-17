@@ -47,6 +47,9 @@ from opencontractserver.shared.mixins import HasEmbeddingMixin
 from opencontractserver.shared.Models import BaseOCModel
 from opencontractserver.shared.utils import calc_oc_file_path
 
+from .annotation_version_models import (  # noqa: F401
+    AnnotationVersionDecision,
+)
 from .authority_pack_models import (  # noqa: F401
     AuthorityPackActivation,
     AuthorityPackArtifact,

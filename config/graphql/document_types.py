@@ -2365,6 +2365,31 @@ class DocumentType(Node):
         return _resolve_DocumentType_version_number(self, info, **kwargs)
 
     @strawberry.field(
+        name="staleAnnotationCount",
+        description=(
+            "Human annotations on this document's previous version that have "
+            "no review decision for this version yet. 0 when there is no "
+            "previous version."
+        ),
+    )
+    def stale_annotation_count(
+        self,
+        info: strawberry.Info,
+        corpus_id: Annotated[
+            strawberry.ID | None, strawberry.argument(name="corpusId")
+        ] = strawberry.UNSET,
+    ) -> int:
+        from opencontractserver.annotations.services import (
+            AnnotationVersionReviewService,
+        )
+
+        corpus_pk: int | None = None
+        if corpus_id not in (None, strawberry.UNSET):
+            _, pk_str = from_global_id(corpus_id)
+            corpus_pk = int(pk_str) if str(pk_str).isdigit() else None
+        return AnnotationVersionReviewService.stale_count(self, corpus_pk)
+
+    @strawberry.field(
         name="hasVersionHistory",
         description="True if this document has multiple versions (parent exists)",
     )

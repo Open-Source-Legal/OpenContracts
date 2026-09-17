@@ -38,6 +38,7 @@ from graphql import GraphQLError
 from config.graphql import enums
 from config.graphql._util import strip_unset
 from config.graphql.annotation_types import (
+    AnnotationVersionReviewEntryType,
     AuthorityDetailType,
     AuthorityFrontierStateCountType,
     AuthorityFrontierStatsType,
@@ -1864,7 +1865,75 @@ def q_global_geographic_annotations(
     return _resolve_Query_global_geographic_annotations(None, info, **kwargs)
 
 
+def q_annotation_version_review(
+    info: strawberry.Info,
+    document_id: Annotated[
+        strawberry.ID,
+        strawberry.argument(
+            name="documentId",
+            description="The NEW version to review against; entries are the human annotations on its previous version.",
+        ),
+    ] = strawberry.UNSET,
+    corpus_id: Annotated[
+        strawberry.ID | None,
+        strawberry.argument(
+            name="corpusId",
+            description="Restrict to annotations made in this corpus.",
+        ),
+    ] = strawberry.UNSET,
+) -> list[
+    Annotated[
+        AnnotationVersionReviewEntryType,
+        strawberry.lazy("config.graphql.annotation_types"),
+    ]
+]:
+    """Human annotations on the previous version of ``documentId`` with their
+    review state (STALE / REAPPROVED / CORRECTED / DROPPED) and, for STALE
+    entries, a proposed placement. Empty when the document has no previous
+    version or is not visible to the caller."""
+    from opencontractserver.annotations.services import AnnotationVersionReviewService
+    from opencontractserver.documents.models import Document
+    from opencontractserver.shared.services.base import BaseService
+
+    doc_pk_str = from_global_id(document_id)[1]
+    if not str(doc_pk_str).isdigit():
+        return []
+    document = BaseService.get_or_none(
+        Document, int(doc_pk_str), info.context.user, request=info.context
+    )
+    if document is None:
+        return []
+    corpus_pk: int | None = None
+    if corpus_id not in (None, strawberry.UNSET):
+        corpus_pk_str = from_global_id(corpus_id)[1]
+        if not str(corpus_pk_str).isdigit():
+            return []
+        corpus_pk = int(corpus_pk_str)
+    entries = AnnotationVersionReviewService.entries(
+        info.context.user, document, corpus_pk
+    )
+    return [
+        AnnotationVersionReviewEntryType(
+            annotation=e.annotation,
+            state=e.state,
+            successor_id=e.decision.successor_id if e.decision else None,
+            proposed_json=e.proposal.json if e.proposal else None,
+            proposed_page=e.proposal.page if e.proposal else None,
+            proposed_annotation_type=(
+                e.proposal.annotation_type if e.proposal else None
+            ),
+            proposed_raw_text=e.proposal.raw_text if e.proposal else None,
+        )
+        for e in entries
+    ]
+
+
 QUERY_FIELDS = {
+    "annotation_version_review": strawberry.field(
+        resolver=q_annotation_version_review,
+        name="annotationVersionReview",
+        description="Human annotations on the previous version of a document with their review state relative to it (STALE / REAPPROVED / CORRECTED / DROPPED) and a proposed placement for stale ones. Powers the carried-over annotations panel.",
+    ),
     "corpus_references": strawberry.field(
         resolver=q_corpus_references, name="corpusReferences"
     ),

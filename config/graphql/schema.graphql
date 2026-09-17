@@ -766,6 +766,11 @@ type AnnotationType implements Node {
   """If set, this annotation was created by a corpus action agent"""
   corpusAction: CorpusActionType
   structural: Boolean!
+
+  """
+  For a human annotation on a document version that has a successor version: STALE (no review decision yet), REAPPROVED, CORRECTED or DROPPED. Null for machine-made annotations and for annotations on the latest version.
+  """
+  versionState: String
   data: GenericScalar
   isGroundingSource: Boolean!
   isPublic: Boolean!
@@ -4085,6 +4090,11 @@ type DocumentType implements Node {
 
   """Content version number in this corpus (from DocumentPath)"""
   versionNumber(corpusId: ID!): Int
+
+  """
+  Human annotations on this document's previous version that have no review decision for this version yet. 0 when there is no previous version.
+  """
+  staleAnnotationCount(corpusId: ID): Int!
 
   """True if this document has multiple versions (parent exists)"""
   hasVersionHistory: Boolean
@@ -7533,6 +7543,18 @@ type Query {
   corpusActionExecutions(corpusId: ID, documentId: ID, corpusActionId: ID, status: String, actionType: String, since: DateTime, offset: Int, before: String, after: String, first: Int, last: Int): CorpusActionExecutionTypeConnection
   corpusActionTrailStats(corpusId: ID!, since: DateTime): CorpusActionTrailStatsType
   documentCorpusActions(documentId: ID!, corpusId: ID): DocumentCorpusActionsType
+  """
+  Human annotations on the previous version of a document with their review state relative to it (STALE / REAPPROVED / CORRECTED / DROPPED) and a proposed placement for stale ones. Powers the carried-over annotations panel.
+  """
+  annotationVersionReview(
+    """
+    The NEW version to review against; entries are the human annotations on its previous version.
+    """
+    documentId: ID!
+
+    """Restrict to annotations made in this corpus."""
+    corpusId: ID
+  ): [AnnotationVersionReviewEntryType!]!
   corpusReferences(
     corpusId: ID!
     referenceType: String
@@ -8251,6 +8273,39 @@ enum LabelType {
 }
 
 type Mutation {
+  """
+  Re-approve or correct a stale human annotation on the next document version (creates the successor annotation and records the decision).
+  """
+  carryForwardAnnotation(
+    """The human annotation on the superseded version."""
+    annotationId: ID!
+
+    """The direct successor version to carry it onto."""
+    targetDocumentId: ID!
+
+    """
+    Annotation payload on the new version: {start, end, text} for SPAN_LABEL or the PAWLs token payload for TOKEN_LABEL (typically the proposedJson from annotationVersionReview).
+    """
+    json: GenericScalar!
+
+    """Page of the payload."""
+    page: Int!
+
+    """SPAN_LABEL or TOKEN_LABEL."""
+    annotationType: String!
+
+    """Text covered by the payload."""
+    rawText: String!
+
+    """Override label; defaults to the original annotation's label."""
+    annotationLabelId: ID
+  ): CarryForwardAnnotation
+
+  """
+  Record that a stale human annotation no longer applies on the next document version.
+  """
+  dropStaleAnnotation(annotationId: ID!, targetDocumentId: ID!): DropStaleAnnotation
+
   mintAutomationCredential(userId: ID!, name: String!, scopes: [String!]!, corpusIds: [ID!] = null, allCorpuses: Boolean! = false, expiresDays: Int! = 30): AutomationCredentialSecret!
   rotateAutomationCredential(id: UUID!): AutomationCredentialSecret!
   revokeAutomationCredential(id: UUID!): AutomationCredentialMetadata!
@@ -10567,4 +10622,54 @@ type AutomationCredentialChoice {
 type AutomationCredentialChoicePage {
   items: [AutomationCredentialChoice!]!
   totalCount: Int!
+}
+
+"""
+One human annotation from the previous version of a document, with its review state relative to the requested version. STALE entries carry a proposed placement (exact-text match in the new version) when one could be found; decided entries carry the decision and, for REAPPROVED / CORRECTED, the successor annotation.
+"""
+type AnnotationVersionReviewEntryType {
+  """The annotation on the previous version."""
+  annotation: AnnotationType!
+
+  """STALE, REAPPROVED, CORRECTED or DROPPED."""
+  state: String!
+
+  """The carried-forward annotation on the new version, if any."""
+  successor: AnnotationType
+
+  """Suggested annotation payload on the new version (STALE only)."""
+  proposedJson: GenericScalar
+  proposedPage: Int
+
+  """SPAN_LABEL or TOKEN_LABEL for the proposed payload."""
+  proposedAnnotationType: String
+  proposedRawText: String
+}
+
+"""
+Carry a human annotation from a superseded document version onto its successor. Creates an ordinary annotation on the target version and records the decision: REAPPROVED when text and label are unchanged, CORRECTED otherwise.
+
+Permission requirements:
+- READ on the annotation
+- UPDATE on the target document
+"""
+type CarryForwardAnnotation {
+  ok: Boolean
+  message: String
+
+  """REAPPROVED or CORRECTED when ok."""
+  decision: String
+  successor: AnnotationType
+}
+
+"""
+Record that a human annotation from a superseded document version no longer applies on its successor (decision DROPPED).
+
+Permission requirements:
+- READ on the annotation
+- UPDATE on the target document
+"""
+type DropStaleAnnotation {
+  ok: Boolean
+  message: String
 }

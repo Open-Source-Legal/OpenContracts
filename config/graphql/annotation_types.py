@@ -352,6 +352,24 @@ class AnnotationType(Node):
     structural: bool = strawberry.field(name="structural", default=None)
 
     @strawberry.field(
+        name="versionState",
+        description=(
+            "For a human annotation on a document version that has a successor "
+            "version: STALE (no review decision yet), REAPPROVED, CORRECTED or "
+            "DROPPED. Null for machine-made annotations and for annotations on "
+            "the latest version."
+        ),
+    )
+    def version_state(self, info: strawberry.Info) -> str | None:
+        from opencontractserver.annotations.services import (
+            AnnotationVersionReviewService,
+        )
+
+        return AnnotationVersionReviewService.state_for_annotation(
+            self, request=info.context
+        )
+
+    @strawberry.field(
         name="linkUrl",
         description="Target URL opened when the annotation is clicked. Only meaningful for annotations labelled OC_URL.",
     )
@@ -2219,6 +2237,58 @@ class CorpusReferenceType(Node):
 
 
 register_type("CorpusReferenceType", CorpusReferenceType, model=CorpusReference)
+
+
+@strawberry.type(
+    name="AnnotationVersionReviewEntryType",
+    description=(
+        "One human annotation from the previous version of a document, with "
+        "its review state relative to the requested version. STALE entries "
+        "carry a proposed placement (exact-text match in the new version) when "
+        "one could be found; decided entries carry the decision and, for "
+        "REAPPROVED / CORRECTED, the successor annotation."
+    ),
+)
+class AnnotationVersionReviewEntryType:
+    annotation: AnnotationType = strawberry.field(
+        name="annotation",
+        description="The annotation on the previous version.",
+        default=None,
+    )
+    state: str = strawberry.field(
+        name="state",
+        description="STALE, REAPPROVED, CORRECTED or DROPPED.",
+        default=None,
+    )
+    successor_id: strawberry.Private[int | None] = None
+
+    @strawberry.field(
+        name="successor",
+        description="The carried-forward annotation on the new version, if any.",
+    )
+    def successor(self, info: strawberry.Info) -> AnnotationType | None:
+        # Independently private resource: apply AnnotationType visibility.
+        return resolve_visible_fk(self, info, "successor_id", "AnnotationType")
+
+    proposed_json: GenericScalar | None = strawberry.field(
+        name="proposedJson",
+        description="Suggested annotation payload on the new version (STALE only).",
+        default=None,
+    )
+    proposed_page: int | None = strawberry.field(name="proposedPage", default=None)
+    proposed_annotation_type: str | None = strawberry.field(
+        name="proposedAnnotationType",
+        description="SPAN_LABEL or TOKEN_LABEL for the proposed payload.",
+        default=None,
+    )
+    proposed_raw_text: str | None = strawberry.field(
+        name="proposedRawText", default=None
+    )
+
+
+register_type(
+    "AnnotationVersionReviewEntryType", AnnotationVersionReviewEntryType, model=None
+)
 
 
 CorpusReferenceTypeConnection = make_connection_types(

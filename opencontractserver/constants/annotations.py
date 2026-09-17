@@ -202,3 +202,24 @@ ANNOTATION_COUNT_CACHE_PREFIX = "oc:annotation_count:v1"
 # research's to choose. This is only the fallback for callers that express no
 # preference; the two agreeing today is coincidence, not a contract.
 ANNOTATION_TEXT_SEARCH_DEFAULT_LIMIT = 10
+
+# --------------------------------------------------------------------------- #
+# Annotation version review (docs/architecture/reference-web-versioning.md)   #
+# --------------------------------------------------------------------------- #
+# Human annotations stay pinned to the document version they were drawn on.
+# After a version-up, each one is STALE relative to the new version until a
+# reviewer records a decision against it. The three stored decisions are the
+# values of ``AnnotationVersionDecision.decision``; STALE is derived (no row).
+ANNOTATION_VERSION_STATE_STALE = "STALE"
+ANNOTATION_VERSION_DECISION_REAPPROVED = "REAPPROVED"
+ANNOTATION_VERSION_DECISION_CORRECTED = "CORRECTED"
+ANNOTATION_VERSION_DECISION_DROPPED = "DROPPED"
+ANNOTATION_VERSION_DECISIONS = (
+    ANNOTATION_VERSION_DECISION_REAPPROVED,
+    ANNOTATION_VERSION_DECISION_CORRECTED,
+    ANNOTATION_VERSION_DECISION_DROPPED,
+)
+ANNOTATION_VERSION_STATES = (
+    ANNOTATION_VERSION_STATE_STALE,
+    *ANNOTATION_VERSION_DECISIONS,
+)

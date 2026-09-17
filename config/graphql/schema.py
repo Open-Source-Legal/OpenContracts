@@ -27,6 +27,7 @@ from config.graphql import analysis_mutations as _analysis_mutations
 from config.graphql import annotation_mutations as _annotation_mutations
 from config.graphql import annotation_queries as _annotation_queries
 from config.graphql import annotation_types as _annotation_types
+from config.graphql import annotation_version_mutations as _annotation_version_mutations
 from config.graphql import authority_frontier_mutations as _authority_frontier_mutations
 from config.graphql import authority_mapping_mutations as _authority_mapping_mutations
 from config.graphql import (
@@ -114,6 +115,7 @@ _mutation_ns: dict[str, Any] = {}
 _mutation_ns.update(_agent_mutations.MUTATION_FIELDS)
 _mutation_ns.update(_analysis_mutations.MUTATION_FIELDS)
 _mutation_ns.update(_annotation_mutations.MUTATION_FIELDS)
+_mutation_ns.update(_annotation_version_mutations.MUTATION_FIELDS)
 _mutation_ns.update(_authority_frontier_mutations.MUTATION_FIELDS)
 _mutation_ns.update(_authority_mapping_mutations.MUTATION_FIELDS)
 _mutation_ns.update(_authority_namespace_mutations.MUTATION_FIELDS)

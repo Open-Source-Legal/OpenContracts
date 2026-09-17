@@ -11,6 +11,11 @@ Phase 3 of the service-layer centralization roadmap — see
 from opencontractserver.annotations.services.annotation_service import (
     AnnotationService,
 )
+from opencontractserver.annotations.services.annotation_version_review_service import (
+    AnnotationVersionReviewService,
+    ProposedPlacement,
+    ReviewEntry,
+)
 from opencontractserver.annotations.services.geographic_service import (
     BBox,
     GeographicAnnotationService,
@@ -22,6 +27,9 @@ from opencontractserver.annotations.services.relationship_service import (
 
 __all__ = [
     "AnnotationService",
+    "AnnotationVersionReviewService",
+    "ProposedPlacement",
+    "ReviewEntry",
     "BBox",
     "GeographicAnnotationService",
     "GeographicPin",
