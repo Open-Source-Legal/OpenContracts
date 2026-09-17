@@ -227,10 +227,10 @@ const settingsItems: SettingItem[] = [
     id: "automation-credentials",
     title: "Automation Credentials",
     description:
-      "Mint, inspect, rotate and revoke scoped credentials for existing users.",
+      "Create credentials for your account and oversee credential revocation.",
     icon: KeyRound,
     gradient: `linear-gradient(135deg, ${OS_LEGAL_COLORS.accent} 0%, ${OS_LEGAL_COLORS.accentHover} 100%)`,
-    route: "/admin/automation-credentials",
+    route: "/automation-credentials",
   },
   {
     id: "badges",

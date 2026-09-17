@@ -21,7 +21,11 @@ import { backendUserObj } from "../../graphql/cache";
 import { AutomationCredentialManagement } from "./AutomationCredentialManagement";
 import { GlobalSettingsPanel } from "./GlobalSettingsPanel";
 
-const admin = { id: "1", email: "admin@example.test", isSuperuser: true };
+const admin = {
+  id: btoa("UserType:7"),
+  email: "admin@example.test",
+  isSuperuser: true,
+};
 const cliCredential = {
   id: "f47ac10b-58cc-4372-a567-0e02b2c3d479",
   name: "CLI importer",
@@ -41,6 +45,7 @@ function setup({
   failMutation = false,
   failRotate = false,
   detailStatus = "active",
+  ownerId = "7",
 } = {}) {
   let revoked = false;
   const requests = vi.fn((operation: Operation) => {
@@ -68,6 +73,7 @@ function setup({
         return {
           automationCredential: {
             ...cliCredential,
+            userId: ownerId,
             status: revoked ? "revoked" : detailStatus,
           },
         };
@@ -135,9 +141,6 @@ function setup({
 
 async function fillMint() {
   await userEvent.click(screen.getByRole("button", { name: "New credential" }));
-  await userEvent.click(
-    await screen.findByRole("radio", { name: "service (ID 7)" })
-  );
   await userEvent.type(screen.getByLabelText("Name"), "Nightly import");
   await userEvent.click(
     await screen.findByRole("checkbox", { name: "corpus:read" })
@@ -162,14 +165,14 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("Automation credential administration", () => {
+describe("Automation credential management", () => {
   it("links the page from admin settings", async () => {
     render(
       <MemoryRouter>
         <Routes>
           <Route path="/" element={<GlobalSettingsPanel />} />
           <Route
-            path="/admin/automation-credentials"
+            path="/automation-credentials"
             element={<p>Credential management destination</p>}
           />
         </Routes>
@@ -181,24 +184,70 @@ describe("Automation credential administration", () => {
     expect(screen.getByText("Credential management destination")).toBeVisible();
   });
 
-  it("does not load management data for anonymous or non-superuser visitors", () => {
+  it("does not load management data for anonymous visitors", () => {
     backendUserObj(null);
     const { requests } = setup();
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "superuser login is required"
-    );
-    act(() => {
-      backendUserObj({ ...admin, isSuperuser: false });
-    });
+    expect(screen.getByRole("alert")).toHaveTextContent("login is required");
     expect(
       screen.queryByRole("button", { name: "New credential" })
     ).not.toBeInTheDocument();
     expect(requests).not.toHaveBeenCalled();
   });
 
+  it("lets regular users mint for their account without admin controls", async () => {
+    backendUserObj({ ...admin, isSuperuser: false });
+    const { requests } = setup();
+    await fillMint();
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Allow all corpuses (including future corpuses)")
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "Back to admin settings" })
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Mint credential" })
+    );
+    expect(await screen.findByText(issuedToken)).toBeVisible();
+    expect(
+      requests.mock.calls.find(
+        ([op]) => op.operationName === "MintAutomationCredential"
+      )?.[0].variables
+    ).toEqual({
+      name: "Nightly import",
+      scopes: ["corpus:read"],
+      corpusIds: ["42"],
+      allCorpuses: false,
+      expiresDays: 30,
+    });
+  });
+
+  it("lets admins revoke another user's credential without offering rotation", async () => {
+    setup({ ownerId: "8" });
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Inspect CLI importer" })
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).queryByRole("button", { name: "Rotate" })
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Revoke" })
+    );
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Confirm revoke" })
+    );
+    expect(await screen.findByText("revoked")).toBeVisible();
+    expect(screen.queryByText(issuedToken)).not.toBeInTheDocument();
+  });
+
   it("requires explicit inputs and keeps a minted token only until dismissed", async () => {
     const { requests, client, unmount } = setup();
     await fillMint();
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+    expect(
+      requests.mock.calls.some(([op]) => op.variables.kind === "principal")
+    ).toBe(false);
     const mint = screen.getByRole("button", { name: "Mint credential" });
     const days = screen.getByLabelText("Expires in days");
     expect(days).toHaveValue(30);
@@ -227,7 +276,6 @@ describe("Automation credential administration", () => {
       ([op]) => op.operationName === "MintAutomationCredential"
     )?.[0];
     expect(operation?.variables).toEqual({
-      userId: "7",
       name: "Nightly import",
       scopes: ["corpus:read"],
       corpusIds: ["42"],
