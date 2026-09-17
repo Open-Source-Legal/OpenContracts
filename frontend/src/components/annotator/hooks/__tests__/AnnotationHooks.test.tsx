@@ -242,6 +242,16 @@ describe("AnnotationHooks", () => {
       expect(result.current.pdfAnnotations.annotations).toHaveLength(2);
       expect(result.current.pdfAnnotations.annotations[1].id).toBe("ann-2");
       expect(result.current.pdfAnnotations.unsavedChanges).toBe(true);
+      // Saving a review and refreshing the viewer can deliver the same ID.
+      act(() => {
+        result.current.addMultipleAnnotations([
+          makeSpan("ann-2", 10, 17, "updated"),
+        ]);
+      });
+      expect(result.current.pdfAnnotations.annotations).toHaveLength(2);
+      expect(result.current.pdfAnnotations.annotations[1].rawText).toBe(
+        "updated"
+      );
     });
 
     it("replaceAnnotations swaps in a fresh array", () => {

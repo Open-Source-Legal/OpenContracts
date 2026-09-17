@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
-import { useLazyQuery, useReactiveVar } from "@apollo/client";
+import { useLazyQuery, useQuery, useReactiveVar } from "@apollo/client";
 import { useLocation, useNavigate } from "react-router-dom";
 import styled from "styled-components";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
@@ -7,6 +7,8 @@ import { ChevronUp, ChevronDown } from "lucide-react";
 import { Spinner } from "@os-legal/ui";
 import { selectedDocVersion } from "../../graphql/cache";
 import { GET_CORPUS_VERSIONS } from "../../graphql/queries";
+import { GET_ANNOTATION_REVIEW_STATUS } from "../../graphql/annotationVersionReview";
+import { getDocumentVersionUrl } from "../../utils/navigationUtils";
 
 interface CorpusVersion {
   versionNumber: number;
@@ -178,6 +180,10 @@ interface DocumentVersionSelectorProps {
 export const DocumentVersionSelector: React.FC<
   DocumentVersionSelectorProps
 > = ({ documentId, corpusId }) => {
+  const { data: reviewStatus } = useQuery(GET_ANNOTATION_REVIEW_STATUS, {
+    variables: { documentId, corpusId },
+  });
+  const staleCount = reviewStatus?.document?.staleAnnotationCount ?? 0;
   const [isOpen, setIsOpen] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState<number>(-1);
   const location = useLocation();
@@ -222,26 +228,13 @@ export const DocumentVersionSelector: React.FC<
   }, [sortedVersions, currentVersion]);
 
   const handleVersionSelect = useCallback(
-    (versionNumber: number, isCurrent: boolean) => {
+    (version: CorpusVersion) => {
       setIsOpen(false);
       setFocusedIndex(-1);
-      const searchParams = new URLSearchParams(location.search);
-
-      if (isCurrent) {
-        // Remove ?v= param to go to latest version
-        searchParams.delete("v");
-      } else {
-        searchParams.set("v", String(versionNumber));
-      }
-
-      const newSearch = searchParams.toString();
-      const newSearchStr = newSearch ? `?${newSearch}` : "";
-      // Use replace when the result is equivalent to the current URL
-      // to avoid polluting browser history on redundant clicks.
-      const isNoop = newSearchStr === location.search;
-      navigate({ search: newSearchStr }, { replace: isNoop });
+      const url = getDocumentVersionUrl(location, version);
+      navigate(url, { replace: url === location.pathname + location.search });
     },
-    [location.search, navigate]
+    [location, navigate]
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -301,7 +294,7 @@ export const DocumentVersionSelector: React.FC<
         case " ": {
           if (focusedIndex >= 0 && focusedIndex < sortedVersions.length) {
             const version = sortedVersions[focusedIndex];
-            handleVersionSelect(version.versionNumber, version.isCurrent);
+            handleVersionSelect(version);
             pillRef.current?.focus();
           }
           event.preventDefault();
@@ -369,6 +362,7 @@ export const DocumentVersionSelector: React.FC<
         }
       >
         v{displayVersion ?? "?"}
+        {staleCount > 0 && <span> · {staleCount} stale</span>}
         <span style={{ fontSize: "9px", opacity: 0.7 }}>
           / {sortedVersions.length}
         </span>
@@ -398,12 +392,7 @@ export const DocumentVersionSelector: React.FC<
                   id={`version-option-${version.versionNumber}`}
                   $isActive={isActive}
                   $isFocused={index === focusedIndex}
-                  onClick={() =>
-                    handleVersionSelect(
-                      version.versionNumber,
-                      version.isCurrent
-                    )
-                  }
+                  onClick={() => handleVersionSelect(version)}
                   onMouseEnter={() => setFocusedIndex(index)}
                   role="option"
                   aria-selected={isActive}

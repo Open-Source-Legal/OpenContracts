@@ -9,6 +9,12 @@ This document defines the architectural conventions for how annotations, vector 
 ### P1: Version Immutability
 Every annotation, embedding, and processing result is permanently tied to a specific Document version. These artifacts never migrate between versions, preserving complete historical accuracy.
 
+Human annotations can be explicitly reviewed for the next version. Approval or
+correction creates a new annotation and an `AnnotationVersionDecision` linking
+the original evidence to its successor; dropping records a decision only. The
+old row and its within-document relationships remain unchanged. See
+[annotation review and relationship versioning](reference-web-versioning.md).
+
 ### P2: Default to Current
 All queries default to the latest version (`Document.is_current=True`) unless a specific version is explicitly requested. This represents the "working set" users interact with.
 
