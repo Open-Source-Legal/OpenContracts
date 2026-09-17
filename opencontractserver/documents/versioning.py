@@ -228,6 +228,46 @@ def calculate_content_version(document: Document) -> int:
     return count
 
 
+def _carry_document_relationships(old_doc, new_doc, corpus):
+    """Copy user-authored links for this hop, leaving the old rows as history."""
+    from opencontractserver.documents.models import DocumentRelationship
+
+    active_ids = DocumentPath.objects.filter(
+        corpus=corpus,
+        is_current=True,
+        is_deleted=False,
+    ).values("document_id")
+    relationships = DocumentRelationship.objects.filter(
+        Q(source_document=old_doc, target_document_id__in=active_ids)
+        | Q(target_document=old_doc, source_document_id__in=active_ids),
+        corpus=corpus,
+    )
+    copies = []
+    for relationship in relationships:
+        if isinstance(relationship.data, dict) and "analysis_id" in relationship.data:
+            continue
+        copies.append(
+            DocumentRelationship(
+                source_document_id=(
+                    new_doc.pk
+                    if relationship.source_document_id == old_doc.pk
+                    else relationship.source_document_id
+                ),
+                target_document_id=(
+                    new_doc.pk
+                    if relationship.target_document_id == old_doc.pk
+                    else relationship.target_document_id
+                ),
+                corpus=corpus,
+                creator_id=relationship.creator_id,
+                annotation_label_id=relationship.annotation_label_id,
+                relationship_type=relationship.relationship_type,
+                data=relationship.data,
+            )
+        )
+    DocumentRelationship.objects.bulk_create(copies)
+
+
 def import_document(
     corpus: Corpus,
     path: str,
@@ -545,6 +585,8 @@ def import_document(
                     **path_kwargs,
                 },
             )
+
+            _carry_document_relationships(old_doc, new_doc, corpus)
 
             logger.info(
                 f"Updated {path} in corpus {corpus.id}: "

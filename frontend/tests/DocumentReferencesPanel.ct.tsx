@@ -94,21 +94,73 @@ const REFERENCE_ROWS = [
   },
 ];
 
-const makeMock = (rows: typeof REFERENCE_ROWS) => ({
+const makeMock = (rows: typeof REFERENCE_ROWS, includeHistorical = false) => ({
   request: {
     query: GET_CORPUS_REFERENCES_FOR_DOCUMENT,
-    variables: { corpusId: CORPUS_ID, documentId: DOC_ID },
+    variables: {
+      corpusId: CORPUS_ID,
+      documentId: DOC_ID,
+      includeHistorical,
+    },
   },
   result: {
     data: {
       corpusReferences: {
-        edges: rows.map((node) => ({ node })),
+        edges: rows.map((node) => ({
+          node: {
+            targetIsSuperseded: false,
+            targetVersionNumber: null,
+            currentTargetVersionNumber: null,
+            currentTargetDocument: null,
+            targetCorpus: null,
+            corpus: null,
+            ...node,
+          },
+        })),
       },
     },
   },
 });
 
 test.describe("DocumentReferencesPanel", () => {
+  test("keeps the cited version link beside a separate current version link", async ({
+    mount,
+    page,
+  }) => {
+    const rows = [
+      {
+        ...REFERENCE_ROWS[0],
+        sourceAnnotation: {
+          ...REFERENCE_ROWS[0].sourceAnnotation,
+          linkUrl: "/d/owner/dgcl/dgcl-145?v=1",
+        },
+        targetIsSuperseded: true,
+        targetVersionNumber: 1,
+        currentTargetVersionNumber: 3,
+        currentTargetDocument: {
+          id: "current-law",
+          title: "DGCL § 145",
+          slug: "dgcl-145-3",
+        },
+        targetCorpus: { slug: "dgcl", creator: { slug: "owner" } },
+      },
+    ];
+    await mount(
+      <MemoryRouter>
+        <MockedProvider mocks={[makeMock(rows)]} addTypename={false}>
+          <DocumentReferencesPanel documentId={DOC_ID} corpusId={CORPUS_ID} />
+        </MockedProvider>
+      </MemoryRouter>
+    );
+    await expect(page.getByRole("link", { name: "cited v1" })).toHaveAttribute(
+      "href",
+      "/d/owner/dgcl/dgcl-145?v=1"
+    );
+    await expect(
+      page.getByRole("link", { name: "current v3" })
+    ).toHaveAttribute("href", "/d/owner/dgcl/dgcl-145-3");
+  });
+
   test("splits outbound and inbound, grouping repeat citations", async ({
     mount,
     page,
@@ -323,14 +375,18 @@ test.describe("DocumentReferencesPanel", () => {
     await component.unmount();
   });
 
-  test("shows the empty state when the document has no references", async ({
+  test("can reveal historical citations from the empty current view", async ({
     mount,
     page,
   }) => {
     const component = await mount(
       <MemoryRouter>
         <MockedProvider
-          mocks={[makeMock([]), makeMock([])]}
+          mocks={[
+            makeMock([]),
+            makeMock([REFERENCE_ROWS[4]], true),
+            makeMock([]),
+          ]}
           addTypename={false}
         >
           <DocumentReferencesPanel documentId={DOC_ID} corpusId={CORPUS_ID} />
@@ -341,6 +397,19 @@ test.describe("DocumentReferencesPanel", () => {
     await expect(
       page.locator('[data-testid="references-panel-empty"]')
     ).toBeVisible({ timeout: 10000 });
+
+    await page
+      .getByRole("checkbox", { name: "Show superseded versions" })
+      .check();
+    await expect(
+      page.getByText(REFERENCE_ROWS[4].sourceAnnotation.document.title)
+    ).toBeVisible();
+    await page
+      .getByRole("checkbox", { name: "Show superseded versions" })
+      .uncheck();
+    await expect(
+      page.locator('[data-testid="references-panel-empty"]')
+    ).toBeVisible();
 
     await component.unmount();
   });

@@ -17,6 +17,7 @@ def document_in_corpus_path(
     corpus_creator_slug: str | None,
     corpus_slug: str | None,
     document_slug: str | None,
+    version_number: int | None = None,
 ) -> str | None:
     """Return ``/d/{corpus_creator_slug}/{corpus_slug}/{document_slug}``.
 
@@ -25,4 +26,5 @@ def document_in_corpus_path(
     """
     if not (corpus_creator_slug and corpus_slug and document_slug):
         return None
-    return f"/d/{corpus_creator_slug}/{corpus_slug}/{document_slug}"
+    path = f"/d/{corpus_creator_slug}/{corpus_slug}/{document_slug}"
+    return f"{path}?v={version_number}" if version_number is not None else path

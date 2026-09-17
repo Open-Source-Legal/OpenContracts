@@ -121,6 +121,33 @@ Partial failures during bulk restore are handled gracefully &mdash; successfully
 restored documents are removed from the trash while failed ones remain with an
 error message.
 
+## Reviewing annotations after an update
+
+The document header shows how many annotations from the previous version are
+still **stale**. Open **Carried-over annotations** to review them:
+
+1. **Approve** accepts a unique exact text match proposed on the new version.
+2. **Place** lets you select a corrected passage using the normal annotation
+   tools. The selected passage and label become the successor annotation.
+3. **Drop** records that the annotation no longer applies.
+
+![Reviewing annotations from the previous version](../assets/images/screenshots/auto/versioning--annotation-review--stale.png)
+
+Each decision records its reviewer and time. You need edit permission on both
+the document and its corpus. Read-only viewers can inspect the review. Old
+annotations retain their original text and placement, with their review state
+visible when viewing the older version. The next upload reviews annotations
+on the immediately preceding version.
+
+Handwritten document-to-document links follow updated documents automatically.
+Relationships between individual annotations remain with the old version;
+re-create those after reviewing their endpoints.
+
+Citation links open the version originally cited. In **References**, **Cited vN**
+opens that evidence and **Current vN** opens the newer text when available.
+Enable **Show superseded versions** to include citations from older source
+documents. The version selector can switch back to the latest version.
+
 ## Technical Details
 
 ### Architecture

@@ -64,7 +64,7 @@ class CrossCorpusLinkingTests(TestCase):
         auth_corpus = Corpus.objects.select_related("creator").get(pk=auth["corpus_id"])
         assert ref.source_annotation.link_url == (
             f"/d/{auth_corpus.creator.slug}/{auth_corpus.slug}"
-            f"/{ref.target_document.slug}"
+            f"/{ref.target_document.slug}?v=1"
         )
         # No DGCL doc for the Securities Act citation -> still external.
         sa = CorpusReference.objects.get(
@@ -102,7 +102,7 @@ class CrossCorpusLinkingTests(TestCase):
         ref = CorpusReference.objects.get(corpus=self.corpus, canonical_key="dgcl:145")
         assert ref.target_document is not None
         assert ref.source_annotation.link_url == (
-            f"/d/{auth_corpus.creator.slug}/renamed-dgcl/{ref.target_document.slug}"
+            f"/d/{auth_corpus.creator.slug}/renamed-dgcl/{ref.target_document.slug}?v=1"
         )
 
     def test_link_is_idempotent(self):
@@ -358,7 +358,7 @@ class CrossCorpusLinkingTests(TestCase):
         # …and the rendered mention link points into the public authority corpus.
         assert ref.source_annotation.link_url == (
             f"/d/{auth_corpus.creator.slug}/{auth_corpus.slug}"
-            f"/{ref.target_document.slug}"
+            f"/{ref.target_document.slug}?v=1"
         )
 
     def test_resolved_target_without_current_path_is_not_promoted(self):

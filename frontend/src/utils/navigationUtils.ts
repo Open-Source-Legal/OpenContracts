@@ -341,6 +341,29 @@ export function buildQueryParams(params: QueryParams): string {
   return query ? `?${query}` : "";
 }
 
+/** Switch a corpus document version, preserving the other viewer parameters. */
+export function getDocumentVersionUrl(
+  location: { pathname: string; search: string },
+  version: {
+    documentSlug: string | null;
+    versionNumber: number;
+    isCurrent: boolean;
+  }
+): string {
+  const search = new URLSearchParams(location.search);
+  if (version.isCurrent) search.delete("v");
+  else search.set("v", String(version.versionNumber));
+  // Slugs belong to individual versions. Removing ?v alone leaves the old
+  // slug behind, which cannot resolve as a current document.
+  const pathname = version.documentSlug
+    ? location.pathname.replace(
+        /[^/]+\/?$/,
+        encodeURIComponent(version.documentSlug)
+      )
+    : location.pathname;
+  return pathname + (search.size ? `?${search}` : "");
+}
+
 /**
  * Builds the URL for a corpus
  * Always uses slug-based URL with /c/ prefix

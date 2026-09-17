@@ -1467,6 +1467,50 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
         ]
 
 
+class AnnotationVersionDecision(django.db.models.Model):
+    """A human review of one annotation against the immediately following version."""
+
+    class Decision(django.db.models.TextChoices):
+        REAPPROVED = "REAPPROVED", "Re-approved"
+        CORRECTED = "CORRECTED", "Corrected"
+        DROPPED = "DROPPED", "Dropped"
+
+    annotation = django.db.models.ForeignKey(
+        Annotation, on_delete=django.db.models.CASCADE, related_name="version_decisions"
+    )
+    target_document = django.db.models.ForeignKey(
+        "documents.Document",
+        on_delete=django.db.models.CASCADE,
+        related_name="annotation_version_decisions",
+    )
+    decision = django.db.models.CharField(max_length=16, choices=Decision.choices)
+    successor = django.db.models.ForeignKey(
+        Annotation,
+        on_delete=django.db.models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="predecessor_decisions",
+    )
+    creator = django.db.models.ForeignKey(
+        django.conf.settings.AUTH_USER_MODEL, on_delete=django.db.models.CASCADE
+    )
+    created = django.db.models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            django.db.models.UniqueConstraint(
+                fields=["annotation", "target_document"],
+                name="unique_annotation_version_decision",
+            ),
+            django.db.models.CheckConstraint(
+                condition=django.db.models.Q(
+                    decision__in=["REAPPROVED", "CORRECTED", "DROPPED"]
+                ),
+                name="annotation_version_decision_valid",
+            ),
+        ]
+
+
 # Model for Django Guardian permissions.
 class AnnotationUserObjectPermission(UserObjectPermissionBase):
     content_object = django.db.models.ForeignKey(
