@@ -8216,7 +8216,7 @@ enum LabelType {
 }
 
 type Mutation {
-  mintAutomationCredential(userId: ID!, name: String!, scopes: [String!]!, corpusIds: [ID!] = null, allCorpuses: Boolean! = false, expiresDays: Int! = 30): AutomationCredentialSecret!
+  mintAutomationCredential(name: String!, scopes: [String!]!, userId: ID = null, corpusIds: [ID!] = null, allCorpuses: Boolean! = false, expiresDays: Int! = 30): AutomationCredentialSecret!
   rotateAutomationCredential(id: UUID!): AutomationCredentialSecret!
   revokeAutomationCredential(id: UUID!): AutomationCredentialMetadata!
   """Create a new agent configuration (admin/corpus owner only)."""

@@ -138,6 +138,23 @@ test.describe("NavMenu Component", () => {
   });
 
   test.describe("User Menu Items", () => {
+    test("regular users can navigate to their automation credentials", async ({
+      mount,
+      page,
+    }) => {
+      await mount(
+        <NavMenuTestWrapper mockUser={mockRegularUser} showLocation />
+      );
+      await page.locator("text=Test User").click();
+      await expect(
+        page.getByText("Admin Settings", { exact: true })
+      ).toBeHidden();
+      await page.getByText("Automation Credentials", { exact: true }).click();
+      await expect(page.getByLabel("Current path")).toHaveText(
+        "/automation-credentials"
+      );
+    });
+
     test("should show Exports, Profile, and Logout for regular user", async ({
       mount,
       page,
