@@ -63,10 +63,15 @@ the new text, most keep pointing at the old row — nondeterministic from the
 user's point of view.
 
 **G3 — Old mention links 404.**
-`link_url` carries the version's slug with no `?v=`. Once that version is
-superseded, `slug_queries.py::_resolve_document_in_corpus_by_slugs` requires
-`path_records__is_current=True` and returns nothing. `_restamp_mention_links`
-repairs this only when G2 lets relink run.
+`link_url` carries the version's slug with no `?v=`. Without a version,
+`slug_queries.py::_resolve_document_in_corpus_by_slugs` requires
+`path_records__is_current=True`, so a superseded slug resolves to nothing.
+The resolver, the `documentInCorpusBySlugs(versionNumber:)` argument and the
+frontend `?v=` route param already handle versioned lookups end to end; the
+only missing piece is that nothing writes `?v=N` into `link_url`
+(`utils/frontend_paths.py::document_in_corpus_path` has no version
+parameter). `_restamp_mention_links` repairs the slug only when G2 lets
+relink run.
 
 **G4 — Citing-document version-up leaks history into current views.**
 Re-uploading a contract creates v2; enrichment (CorpusAction or a manual
