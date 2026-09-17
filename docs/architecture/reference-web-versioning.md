@@ -20,9 +20,11 @@ The fix is one invariant, no new tables, no migration:
 > version tree. Derived rows are re-derived; user-authored document-level
 > rows are carried forward.**
 
-We do **not** version annotations or relationships. Re-anchoring spans
-across amended text is a separate, hard problem and is explicitly out of
-scope (see *Not in scope*).
+We do **not** version annotations or relationships, and we do not try to
+re-anchor human annotations automatically across amended text. What we do
+is make their state visible: after a version-up, every human annotation on
+the previous version is **stale** until a person **re-approves** it,
+**corrects** it, or **drops** it on the new version (change 5).
 
 ## Ground truth (what exists)
 
@@ -100,7 +102,7 @@ structural annotations are version-specific derived artefacts and are
 correctly re-derived on the new version. `AuthorityRelationship` is already
 right.
 
-## Design — four changes
+## Design — five changes
 
 ### 1. `CorpusReference.target_*` is write-once: "as cited"
 
@@ -175,6 +177,58 @@ unique constraint is satisfied because `new_doc` is a new pk. One helper in
 they are re-derived by the next run (change 3 already keeps the projection
 honest). G5 closed.
 
+### 5. Human annotations: surface stale vs. re-approved vs. corrected
+
+Annotations stay pinned to the version they were drawn on. We add **one
+small decision table** and derive everything else:
+
+```
+AnnotationVersionDecision
+  annotation        FK Annotation   (the one on the OLD version)
+  target_document   FK Document     (the NEW version it was reviewed against)
+  decision          REAPPROVED | CORRECTED | DROPPED
+  successor         FK Annotation, null   (the row on the new version, if any)
+  creator, created
+  unique (annotation, target_document)
+```
+
+States, derived per human (non-structural) annotation on `current.parent`:
+
+| State | Meaning |
+|---|---|
+| **stale** | no decision row targeting the current version |
+| **re-approved** | decision `REAPPROVED`; successor has the same `raw_text` and label |
+| **corrected** | decision `CORRECTED`; successor differs in text, bounds or label |
+| **dropped** | decision `DROPPED`; reviewer said it no longer applies |
+
+Only the parent hop is reviewed (v1→v2, then v2→v3 reviews v2's rows
+including successors). That keeps the stale set bounded and each hop
+auditable; there is no transitive lineage to maintain.
+
+Workflow, in one service (`AnnotationVersionReviewService`):
+
+- `pending(document, corpus)` — human annotations on `document.parent`
+  with no decision for `document`, each with a **proposed placement**:
+  exact `raw_text` match in the new version's `txt_extract_file`, projected
+  onto PDF tokens via `opencontractserver/utils/span_projection.py` (the
+  same helper the enrichment writer uses). Plain-text authority sections
+  match almost always; PDFs fall back to manual placement.
+- `carry_forward(annotation, target_document, placement)` — creates the
+  successor as an ordinary annotation on the new version and writes the
+  decision. `REAPPROVED` if text and label are unchanged from the proposal,
+  else `CORRECTED`. The successor is a normal row: no annotation versioning.
+- `drop(annotation, target_document)` — decision only.
+
+GraphQL: one query `annotationVersionReview(documentId, corpusId)` returning
+`{annotation, state, proposedPlacement, successor}` rows, two mutations
+(`carryForwardAnnotation`, `dropStaleAnnotation`), and
+`DocumentType.staleAnnotationCount(corpusId)` so the existing version badge
+can show "3 stale". `AnnotationType.versionState` exposes the same enum on
+an old version's page so each annotation there wears its chip.
+
+This is the one schema change in the plan: one table, one migration,
+nothing on `Annotation` itself.
+
 ### Frontend (small)
 
 `DocumentReferencesPanel`: query the two new fields; on an inbound/outbound
@@ -182,18 +236,25 @@ row where `targetIsSuperseded`, render a quiet "cited v1 · current v3" badge
 whose second half links to `currentTargetDocument`. No new state, no new
 routes.
 
+Version badge: append the stale count when non-zero. Document page: a
+"Carried-over annotations" panel on the current version listing
+`pending()` rows with **Approve** (accept proposal), **Place** (manual, then
+saves as corrected), and **Drop**; on an older version each human
+annotation shows its state chip.
+
 ## Not in scope (deliberately)
 
-- **Re-anchoring human annotations / `Relationship`s across amended text.**
-  Offsets shift; this is the general annotation-versioning problem. If it is
-  ever wanted for authorities specifically, the cheap first cut is exact
-  `raw_text` match on the new version's `txt_extract_file` — plain-text
-  sections make that unusually tractable — but it is a separate change.
+- **Automatic re-anchoring of human annotations.** Offsets shift; deciding
+  that an annotation still holds on amended text is a human call. Change 5
+  proposes a placement by exact text match and records the decision; it
+  never moves or silently copies an annotation. `Relationship`s between
+  human annotations follow the same rule: re-created by the reviewer on the
+  new version, never migrated.
 - **Storing a "tracks current law" mode per reference.** Change 1 + the
   derived field give both answers from one row; a stored mode would be a
   second source of truth.
-- **Schema changes.** None are needed. `version_tree_id` and
-  `canonical_key` already exist and are indexed.
+- **Schema changes beyond the decision table.** Changes 1–4 need none;
+  `version_tree_id` and `canonical_key` already exist and are indexed.
 
 ## Tests (unit + isolated integration, all backend unless noted)
 
@@ -215,12 +276,24 @@ routes.
    re-upload.
 5. `test_schema_parity.py` — regenerate `schema.graphql` for the two fields
    and one argument.
-6. Playwright CT — References panel renders the superseded badge and both
-   links from a mocked `corpusReferences` payload.
+6. `test_annotation_version_review.py` (new) — after `import_document`
+   version-up: every human annotation on v1 is `stale` and structural ones
+   are excluded; `pending()` proposes an exact-text placement for a plain
+   text authority and `None` when the text was removed; `carry_forward`
+   with the proposal yields `REAPPROVED`, with an edited span or label
+   yields `CORRECTED`; `drop` yields `DROPPED`; a v3 version-up reviews v2's
+   successors, not v1's rows; the unique constraint rejects a second
+   decision for the same pair; permission: reviewer needs UPDATE on the
+   document.
+7. Playwright CT — References panel renders the superseded badge and both
+   links; the carried-over panel renders stale rows with Approve / Place /
+   Drop and the version badge shows the stale count.
 
 ## Size
 
-Backend ≈ 150–250 LOC across `enrichment_service.py`,
+Changes 1–4: backend ≈ 150–250 LOC across `enrichment_service.py`,
 `corpus_reference_service.py`, `relationships.py`, `writer.py`,
-`frontend_paths.py`, `versioning.py`, two GraphQL types; frontend ≈ 60 LOC.
-No migration. One PR, or two if the frontend badge is split out.
+`frontend_paths.py`, `versioning.py`, two GraphQL types; frontend ≈ 60 LOC;
+no migration. Change 5: one model + migration, one service, one query, two
+mutations, ≈ 250 LOC backend plus the review panel. Ship as two PRs: links
+(1–4) first, annotation review (5) second.
