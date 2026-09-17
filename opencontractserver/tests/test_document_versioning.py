@@ -2273,3 +2273,130 @@ class PathHistoryFolderTrackingTestCase(TestCase):
         self.assertIsNone(history[0]["folder_id"])  # Created at root
         self.assertEqual(history[1]["folder_id"], self.folder1.id)  # Moved to folder1
         self.assertEqual(history[2]["folder_id"], self.folder1.id)  # Updated in folder1
+
+
+class RelationshipCarryForwardTestCase(TestCase):
+    """User-authored document relationships follow a document across a
+    version-up; enrichment-owned projections do not; history is preserved.
+    (docs/architecture/reference-web-versioning.md, change 4)
+    """
+
+    def setUp(self):
+        from opencontractserver.annotations.models import AnnotationLabel
+
+        self.user = User.objects.create_user(username="carrier", password="test123")
+        self.corpus = Corpus.objects.create(title="Carry Corpus", creator=self.user)
+        self.label = AnnotationLabel.objects.create(
+            text="RELATES_TO", creator=self.user, label_type="RELATIONSHIP_LABEL"
+        )
+        self.a_v1, _, _ = import_document(
+            corpus=self.corpus,
+            path="/a.txt",
+            content=b"document a v1",
+            user=self.user,
+            title="A",
+        )
+        self.b, _, _ = import_document(
+            corpus=self.corpus,
+            path="/b.txt",
+            content=b"document b",
+            user=self.user,
+            title="B",
+        )
+
+    def _rel(self, source, target, **kwargs):
+        from opencontractserver.documents.models import DocumentRelationship
+
+        defaults = {
+            "relationship_type": "RELATIONSHIP",
+            "annotation_label": self.label,
+            "corpus": self.corpus,
+            "creator": self.user,
+        }
+        defaults.update(kwargs)
+        return DocumentRelationship.objects.create(
+            source_document=source, target_document=target, **defaults
+        )
+
+    def _version_up_a(self):
+        a_v2, status, _ = import_document(
+            corpus=self.corpus,
+            path="/a.txt",
+            content=b"document a v2",
+            user=self.user,
+        )
+        self.assertEqual(status, "updated")
+        return a_v2
+
+    def test_outbound_and_inbound_user_relationships_follow_the_document(self):
+        from opencontractserver.documents.models import DocumentRelationship
+
+        out_rel = self._rel(self.a_v1, self.b, data={"why": "cites"})
+        in_rel = self._rel(
+            self.b,
+            self.a_v1,
+            annotation_label=None,
+            relationship_type="NOTES",
+            data={"note": "see A"},
+        )
+        a_v2 = self._version_up_a()
+
+        # History preserved on the superseded version.
+        self.assertTrue(DocumentRelationship.objects.filter(pk=out_rel.pk).exists())
+        self.assertTrue(DocumentRelationship.objects.filter(pk=in_rel.pk).exists())
+
+        carried_out = DocumentRelationship.objects.get(
+            source_document=a_v2, target_document=self.b
+        )
+        self.assertEqual(carried_out.annotation_label, self.label)
+        self.assertEqual(carried_out.data, {"why": "cites"})
+        self.assertEqual(carried_out.creator, self.user)
+        self.assertEqual(carried_out.corpus, self.corpus)
+        carried_in = DocumentRelationship.objects.get(
+            source_document=self.b, target_document=a_v2
+        )
+        self.assertEqual(carried_in.relationship_type, "NOTES")
+        self.assertEqual(carried_in.data, {"note": "see A"})
+
+    def test_enrichment_owned_projection_rows_are_not_copied(self):
+        from opencontractserver.documents.models import DocumentRelationship
+
+        self._rel(self.a_v1, self.b, data={"analysis_id": 42})
+        a_v2 = self._version_up_a()
+        self.assertFalse(
+            DocumentRelationship.objects.filter(source_document=a_v2).exists()
+        )
+
+    def test_carry_forward_chains_across_successive_versions(self):
+        from opencontractserver.documents.models import DocumentRelationship
+
+        self._rel(self.a_v1, self.b)
+        a_v2 = self._version_up_a()
+        a_v3, status, _ = import_document(
+            corpus=self.corpus, path="/a.txt", content=b"document a v3", user=self.user
+        )
+        self.assertEqual(status, "updated")
+        self.assertEqual(
+            set(
+                DocumentRelationship.objects.filter(target_document=self.b).values_list(
+                    "source_document_id", flat=True
+                )
+            ),
+            {self.a_v1.id, a_v2.id, a_v3.id},
+        )
+
+    def test_carry_forward_is_idempotent_for_typed_relationships(self):
+        from opencontractserver.documents.models import DocumentRelationship
+        from opencontractserver.documents.versioning import (
+            carry_forward_document_relationships,
+        )
+
+        self._rel(self.a_v1, self.b)
+        a_v2 = self._version_up_a()
+        self.assertEqual(carry_forward_document_relationships(self.a_v1, a_v2), 0)
+        self.assertEqual(
+            DocumentRelationship.objects.filter(
+                source_document=a_v2, target_document=self.b
+            ).count(),
+            1,
+        )

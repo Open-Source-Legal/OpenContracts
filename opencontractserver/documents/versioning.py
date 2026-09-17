@@ -38,7 +38,11 @@ from django.db.models import Q
 
 from opencontractserver.constants.document_processing import TEXT_MIMETYPES
 from opencontractserver.corpuses.models import Corpus, CorpusFolder
-from opencontractserver.documents.models import Document, DocumentPath
+from opencontractserver.documents.models import (
+    Document,
+    DocumentPath,
+    DocumentRelationship,
+)
 
 if TYPE_CHECKING:
     from opencontractserver.users.models import User
@@ -226,6 +230,59 @@ def calculate_content_version(document: Document) -> int:
         count += 1
         current = current.parent
     return count
+
+
+def carry_forward_document_relationships(old_doc: Document, new_doc: Document) -> int:
+    """Copy user-authored ``DocumentRelationship`` rows from a superseded
+    version onto its successor.
+
+    A hand-made relationship or note between documents A and B is about the
+    *logical* documents, so it must follow A when A is re-uploaded. The old
+    row stays on the previous version as history; the successor gets an
+    equivalent row with the same label, type, corpus, data and creator.
+    Enrichment-owned rows (``data`` carries ``analysis_id``) are a derived
+    projection that the next enrichment run rebuilds against current
+    versions, so they are not copied. Returns the number of rows created.
+    See ``docs/architecture/reference-web-versioning.md`` (change 4).
+    """
+    created = 0
+    rows = DocumentRelationship.objects.filter(
+        Q(source_document=old_doc) | Q(target_document=old_doc)
+    ).select_related("annotation_label", "corpus", "creator")
+    for rel in rows:
+        if isinstance(rel.data, dict) and "analysis_id" in rel.data:
+            continue
+        source = (
+            new_doc if rel.source_document_id == old_doc.id else rel.source_document
+        )
+        target = (
+            new_doc if rel.target_document_id == old_doc.id else rel.target_document
+        )
+        if source.id == target.id:
+            continue
+        identity = {
+            "source_document": source,
+            "target_document": target,
+            "relationship_type": rel.relationship_type,
+            "annotation_label": rel.annotation_label,
+            "corpus": rel.corpus,
+        }
+        payload = {
+            "data": rel.data,
+            "creator": rel.creator,
+            "is_public": rel.is_public,
+        }
+        if rel.relationship_type == "RELATIONSHIP":
+            # Unique per (source, target, label): idempotent on re-entry.
+            _, was_created = DocumentRelationship.objects.get_or_create(
+                **identity, defaults=payload
+            )
+        else:
+            # NOTES may legitimately repeat between the same pair; carry each.
+            DocumentRelationship.objects.create(**identity, **payload)
+            was_created = True
+        created += int(was_created)
+    return created
 
 
 def import_document(
@@ -545,6 +602,16 @@ def import_document(
                     **path_kwargs,
                 },
             )
+
+            carried = carry_forward_document_relationships(old_doc, new_doc)
+            if carried:
+                logger.info(
+                    "Carried %s user-authored document relationship(s) from doc "
+                    "%s to doc %s",
+                    carried,
+                    old_doc.id,
+                    new_doc.id,
+                )
 
             logger.info(
                 f"Updated {path} in corpus {corpus.id}: "
