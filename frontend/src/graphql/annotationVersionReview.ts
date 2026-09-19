@@ -125,8 +125,10 @@ export const DROP_STALE_ANNOTATION = gql`
   ${REVIEW_FIELDS}
 `;
 
+// ``GetDocumentAnnotationsOnly`` is deliberately absent: its only observer is
+// a ``skip: true`` handle, so Apollo parks it in standby and a name refetch
+// only logs a warning. Decisions reach the viewer through the mutation result.
 export const REVIEW_REFETCH_QUERIES = [
   "AnnotationReviewStatus",
   "AnnotationVersionReview",
-  "GetDocumentAnnotationsOnly",
 ];

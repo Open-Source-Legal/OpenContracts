@@ -161,6 +161,50 @@ test.describe("DocumentReferencesPanel", () => {
     ).toHaveAttribute("href", "/d/owner/dgcl/dgcl-145-3");
   });
 
+  test("routes an external cited version through the app's URL safety gate", async ({
+    mount,
+    page,
+  }) => {
+    // ``link_url`` may be an absolute external citation (LAW references point
+    // at the statute's own site). An in-tab router navigation would tear the
+    // SPA down, so the link must open the same way every other reference does.
+    const external = "https://delcode.delaware.gov/title8/c001/sc04/#145";
+    const rows = [
+      {
+        ...REFERENCE_ROWS[0],
+        sourceAnnotation: {
+          ...REFERENCE_ROWS[0].sourceAnnotation,
+          linkUrl: external,
+        },
+        targetIsSuperseded: true,
+        targetVersionNumber: 1,
+      },
+    ];
+    await mount(
+      <MemoryRouter>
+        <MockedProvider mocks={[makeMock(rows)]} addTypename={false}>
+          <DocumentReferencesPanel documentId={DOC_ID} corpusId={CORPUS_ID} />
+        </MockedProvider>
+      </MemoryRouter>
+    );
+    // The CT harness page is already loaded, so stub the real window here.
+    await page.evaluate(() => {
+      (window as any).__openedUrls = [];
+      window.open = ((url: string) => {
+        (window as any).__openedUrls.push(url);
+        return null;
+      }) as any;
+    });
+    await page.getByRole("link", { name: "cited v1" }).click();
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__openedUrls))
+      .toEqual([external]);
+    // Still mounted: the click never navigated the app away.
+    await expect(
+      page.getByTestId("references-panel-outbound-row").first()
+    ).toBeVisible();
+  });
+
   test("splits outbound and inbound, grouping repeat citations", async ({
     mount,
     page,

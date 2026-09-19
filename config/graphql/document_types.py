@@ -34,6 +34,7 @@ from typing import Annotated, Any
 
 import strawberry
 from django.contrib.auth import get_user_model
+from django.core.exceptions import PermissionDenied
 from django.db.models import QuerySet
 from graphql import GraphQLError
 
@@ -1787,9 +1788,15 @@ class DocumentType(Node):
             AnnotationVersionReviewService,
         )
 
-        return AnnotationVersionReviewService.stale_count(
-            info.context.user, self.id, _pk(corpus_id, "CorpusType")
-        )
+        try:
+            return AnnotationVersionReviewService.stale_count(
+                info.context.user, self.id, _pk(corpus_id, "CorpusType")
+            )
+        except PermissionDenied:
+            # The field is non-null, so raising here would null the whole
+            # document. A corpus the caller cannot reach simply has nothing
+            # to review.
+            return 0
 
     @strawberry.field(name="frontierEntries")
     def frontier_entries(

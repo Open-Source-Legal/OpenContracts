@@ -354,11 +354,15 @@ export function getDocumentVersionUrl(
   if (version.isCurrent) search.delete("v");
   else search.set("v", String(version.versionNumber));
   // Slugs belong to individual versions. Removing ?v alone leaves the old
-  // slug behind, which cannot resolve as a current document.
-  const pathname = version.documentSlug
+  // slug behind, which cannot resolve as a current document. Only a document
+  // route ends in a document slug — the viewer is a route-independent overlay
+  // and must not rewrite a corpus's last segment.
+  const rewritable =
+    version.documentSlug && parseRoute(location.pathname).type === "document";
+  const pathname = rewritable
     ? location.pathname.replace(
         /[^/]+\/?$/,
-        encodeURIComponent(version.documentSlug)
+        encodeURIComponent(version.documentSlug as string)
       )
     : location.pathname;
   return pathname + (search.size ? `?${search}` : "");

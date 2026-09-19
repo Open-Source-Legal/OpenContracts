@@ -15,7 +15,7 @@ brotli>=1.2.0  # decoder for httpx Content-Encoding: br responses (e.g. OpenAI A
 
 # Django
 # ------------------------------------------------------------------------------
-django==5.2.16  # https://www.djangoproject.com/
+django==5.2.17  # https://www.djangoproject.com/
 django-environ==0.14.0  # https://github.com/joke2k/django-environ
 django-redis==7.0.0  # https://github.com/jazzband/django-redis
 django-filter==26.1  # https://github.com/carltongibson/django-filter
@@ -72,11 +72,11 @@ django-guardian
 
 # GraphQL
 # ------------------------------------------------------------------------------
-strawberry-graphql==0.327.3  # code-first GraphQL; replaced graphene-django (schema parity pinned by config/graphql/schema.graphql)
+strawberry-graphql==0.327.7  # code-first GraphQL; replaced graphene-django (schema parity pinned by config/graphql/schema.graphql)
 
 # Telemetry
 # ------------------------------------------------------------------------------
-posthog==7.47.1  # https://github.com/posthog/posthog-python
+posthog==7.53.0  # https://github.com/posthog/posthog-python
 
 # Model Context Protocol
 # ------------------------------------------------------------------------------

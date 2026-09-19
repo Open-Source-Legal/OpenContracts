@@ -265,6 +265,7 @@ function ReferenceVersionLinks({
 }: {
   reference: CorpusReferenceRow;
 }) {
+  const navigate = useNavigate();
   if (!reference.targetIsSuperseded) return null;
   const target = reference.currentTargetDocument;
   const corpus = reference.targetCorpus || reference.corpus;
@@ -272,12 +273,21 @@ function ReferenceVersionLinks({
     target?.slug && corpus?.slug && corpus.creator?.slug
       ? `/d/${corpus.creator.slug}/${corpus.slug}/${target.slug}`
       : null;
+  const citedUrl = reference.sourceAnnotation?.linkUrl;
   return (
     <VersionLinks>
-      {reference.sourceAnnotation?.linkUrl ? (
-        <Link to={reference.sourceAnnotation.linkUrl}>
+      {citedUrl ? (
+        // A pinned citation may point outside the app, so it gets the same
+        // scheme check and new-tab handling as every other reference link.
+        <a
+          href={citedUrl}
+          onClick={(event) => {
+            event.preventDefault();
+            openSafeUrl(citedUrl, navigate);
+          }}
+        >
           cited v{reference.targetVersionNumber}
-        </Link>
+        </a>
       ) : (
         <span>cited v{reference.targetVersionNumber}</span>
       )}

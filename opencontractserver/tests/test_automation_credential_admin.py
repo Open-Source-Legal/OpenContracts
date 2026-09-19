@@ -1,17 +1,21 @@
-"""Exercise the admin API through HTTP, including CLI interoperability."""
+"""Exercise self-service credential boundaries through HTTP and the CLI."""
 
 import io
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import Any
+from unittest.mock import patch
 from uuid import uuid4
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
-from django.test import TestCase, override_settings
+from django.db import OperationalError, connection, connections, transaction
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 from graphql import GraphQLObjectType
-from guardian.shortcuts import get_perms
+from guardian.shortcuts import assign_perm, get_perms
+from psycopg2.errors import LockNotAvailable
 from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework.test import APIClient
 
@@ -19,6 +23,7 @@ from config.graphql.schema import schema
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.users.models import AutomationCredential
 from opencontractserver.users.services import automation_credentials as credentials
+from opencontractserver.utils.ids import to_global_id
 
 METADATA = """
     id userId username name scopes corpusIds status
@@ -33,6 +38,7 @@ mutation Mint($user: ID!, $name: String!, $scopes: [String!]!, $corpuses: [ID!],
   }
 }
 """
+SELF_MINT = MINT.replace("$user: ID!, ", "").replace("userId: $user, ", "")
 
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=False)
@@ -68,20 +74,20 @@ class AutomationCredentialAdminTests(TestCase):
 
     def mint_arguments(self, **overrides):
         return {
-            "user": str(self.principal.pk),
+            "user": str(self.admin.pk),
             "name": "nightly",
             "scopes": ["corpus:read"],
             "corpuses": [str(self.corpus.pk)],
             **overrides,
         }
 
-    def cli_credential(self):
+    def cli_credential(self, user=None):
         output = io.StringIO()
         call_command(
             "automation_credential",
             "mint",
             "--user",
-            self.principal.username,
+            (user or self.admin).username,
             "--name",
             "from CLI",
             "--scope",
@@ -91,12 +97,21 @@ class AutomationCredentialAdminTests(TestCase):
         )
         return json.loads(output.getvalue())
 
-    def test_mint_defaults_to_thirty_days_without_granting_principal_permissions(self):
+    def test_regular_user_mints_for_self_with_thirty_day_expiry_and_unchanged_permissions(
+        self,
+    ):
+        self.client.force_login(self.principal)
+        self.corpus.creator = self.principal
+        self.corpus.save()
+        permissions_before = get_perms(self.principal, self.corpus)
         before = timezone.now()
         with self.assertLogs(credentials.logger.name, level="INFO") as logs:
-            result = self.data(MINT, self.mint_arguments())["mintAutomationCredential"]
+            result = self.data(SELF_MINT, self.mint_arguments())[
+                "mintAutomationCredential"
+            ]
         self.assertIn(
-            f"actor_id={self.admin.pk} principal_id={self.principal.pk}", logs.output[0]
+            f"actor_id={self.principal.pk} principal_id={self.principal.pk}",
+            logs.output[0],
         )
         self.assertNotIn(result["token"], "\n".join(logs.output))
         credential = AutomationCredential.objects.get(pk=result["credential"]["id"])
@@ -106,13 +121,13 @@ class AutomationCredentialAdminTests(TestCase):
         assert credential.expires_at is not None
         self.assertGreaterEqual(credential.expires_at, before + timedelta(days=30))
         self.assertLessEqual(credential.expires_at, timezone.now() + timedelta(days=30))
-        self.assertEqual(get_perms(self.principal, self.corpus), [])
+        self.assertEqual(get_perms(self.principal, self.corpus), permissions_before)
         self.assertEqual(
             credentials.authenticate_token(result["token"]).pk, credential.pk
         )
         self.assertNotIn(result["token"].split(".", 1)[1], credential.secret_hash)
 
-    def test_cli_credential_can_be_inspected_rotated_and_revoked_with_separate_audit_actor(
+    def test_own_cli_credential_can_be_inspected_rotated_and_revoked(
         self,
     ):
         original = self.cli_credential()
@@ -160,7 +175,7 @@ class AutomationCredentialAdminTests(TestCase):
         for event in ("rotated", "revoked"):
             entry = next(line for line in logs.output if f"credential {event}" in line)
             self.assertIn(
-                f"actor_id={self.admin.pk} principal_id={self.principal.pk}", entry
+                f"actor_id={self.admin.pk} principal_id={self.admin.pk}", entry
             )
         for token in (original["token"], rotated["token"]):
             self.assertNotIn(token, "\n".join(logs.output))
@@ -171,7 +186,7 @@ class AutomationCredentialAdminTests(TestCase):
         fields = metadata_type.fields
         self.assertEqual(set(fields), set(METADATA.split()))
 
-    def test_every_management_operation_requires_an_active_superuser_login(self):
+    def test_every_management_operation_requires_an_active_interactive_login(self):
         original = self.cli_credential()
         operations = [
             ("{ automationCredentials { totalCount } }", {}),
@@ -191,7 +206,7 @@ class AutomationCredentialAdminTests(TestCase):
                 {"id": original["id"]},
             ),
         ]
-        for actor in (None, self.principal, self.staff, self.inactive):
+        for actor in (None, self.inactive):
             self.client.logout()
             if actor:
                 self.client.force_login(actor)
@@ -199,7 +214,7 @@ class AutomationCredentialAdminTests(TestCase):
                 with self.subTest(actor=actor, query=query):
                     self.assertEqual(
                         self.graphql(query, variables).json()["errors"][0]["message"],
-                        "An active superuser login is required.",
+                        "An active login is required.",
                     )
         self.inactive.is_superuser = True
         with self.assertRaises(PermissionDenied):
@@ -277,84 +292,251 @@ class AutomationCredentialAdminTests(TestCase):
         ]
         self.assertIsNone(minted["credential"]["corpusIds"])
 
-    def test_lifecycle_writes_recheck_an_administrator_changed_since_authentication(
+    def test_lifecycle_writes_recheck_an_actor_deactivated_since_authentication(
         self,
     ):
         original = self.cli_credential()
         row = AutomationCredential.objects.get(pk=original["id"])
-        for change in ({"is_active": False}, {"is_superuser": False}):
-            get_user_model().objects.filter(pk=self.admin.pk).update(**change)
-            # self.admin still represents the active superuser loaded at auth.
-            for operation in ("mint", "rotate", "revoke"):
-                with self.subTest(change=change, operation=operation):
-                    with self.assertRaises(PermissionDenied):
-                        if operation == "mint":
-                            credentials.mint(
-                                user=self.principal,
-                                actor=self.admin,
-                                name="rejected",
-                                scopes=["corpus:read"],
-                                corpus_ids=None,
-                            )
-                        else:
-                            getattr(credentials, operation)(row.pk, actor=self.admin)
-                    row.refresh_from_db()
-                    self.assertIsNone(row.revoked_at)
-                    self.assertIsNone(row.rotated_at)
-                    self.assertEqual(AutomationCredential.objects.count(), 1)
-            get_user_model().objects.filter(pk=self.admin.pk).update(
-                is_active=True, is_superuser=True
-            )
+        get_user_model().objects.filter(pk=self.admin.pk).update(is_active=False)
+        # self.admin still represents the active superuser loaded at auth.
+        for operation in ("mint", "rotate", "revoke"):
+            with self.subTest(operation=operation):
+                with self.assertRaises(PermissionDenied):
+                    if operation == "mint":
+                        credentials.mint(
+                            user=self.admin,
+                            actor=self.admin,
+                            name="rejected",
+                            scopes=["corpus:read"],
+                            corpus_ids=None,
+                        )
+                    else:
+                        getattr(credentials, operation)(row.pk, actor=self.admin)
+                row.refresh_from_db()
+                self.assertIsNone(row.revoked_at)
+                self.assertIsNone(row.rotated_at)
+                self.assertEqual(AutomationCredential.objects.count(), 1)
+        get_user_model().objects.filter(pk=self.admin.pk).update(
+            is_active=True, is_superuser=True
+        )
         self.assertEqual(credentials.authenticate_token(original["token"]).pk, row.pk)
 
-    def test_mint_rechecks_a_principal_deactivated_after_selection(self):
+    def test_cli_mint_rechecks_a_principal_deactivated_since_loading(self):
         get_user_model().objects.filter(pk=self.principal.pk).update(is_active=False)
         with self.assertRaisesMessage(ValueError, "Principal must be active"):
             credentials.mint(
                 user=self.principal,
-                actor=self.admin,
                 name="rejected",
                 scopes=["corpus:read"],
                 corpus_ids=None,
             )
         self.assertFalse(AutomationCredential.objects.exists())
 
-    def test_choices_are_paginated_and_include_private_active_principals_by_id(self):
-        query = """query($kind: String!, $search: String!, $offset: Int!) {
-          automationCredentialChoices(kind: $kind, search: $search, limit: 1, offset: $offset) {
+    def test_even_admins_cannot_mint_or_rotate_another_users_token(self):
+        original = self.cli_credential(self.principal)
+        row = AutomationCredential.objects.get(pk=original["id"])
+        secret_hash = row.secret_hash
+        for actor in (self.admin, self.staff):
+            self.client.force_login(actor)
+            with self.subTest(actor=actor.username):
+                result = self.graphql(
+                    MINT, self.mint_arguments(user=str(self.principal.pk))
+                ).json()
+                self.assertIn("errors", result)
+                result = self.graphql(
+                    "mutation($id: UUID!) { rotateAutomationCredential(id: $id) { token } }",
+                    {"id": original["id"]},
+                ).json()
+                self.assertIn("errors", result)
+                row.refresh_from_db()
+                self.assertEqual(row.secret_hash, secret_hash)
+                self.assertIsNone(row.rotated_at)
+                self.assertEqual(AutomationCredential.objects.count(), 1)
+        self.assertEqual(credentials.authenticate_token(original["token"]).pk, row.pk)
+
+    def test_regular_users_only_list_inspect_rotate_and_revoke_their_own_tokens(self):
+        own_corpus = Corpus.objects.create(title="My corpus", creator=self.staff)
+        own, token = credentials.mint(
+            user=self.staff,
+            name="Mine",
+            scopes=["corpus:read"],
+            corpus_ids=[own_corpus.pk],
+        )
+        foreign = self.cli_credential()
+        self.client.force_login(self.staff)
+        page = self.data("{ automationCredentials { items { id } totalCount } }")[
+            "automationCredentials"
+        ]
+        self.assertEqual(page, {"items": [{"id": str(own.pk)}], "totalCount": 1})
+        inspect = "query($id: UUID!) { automationCredential(id: $id) { name } }"
+        self.assertEqual(
+            self.data(inspect, {"id": str(own.pk)})["automationCredential"],
+            {"name": "Mine"},
+        )
+        revoke = (
+            "mutation($id: UUID!) { revokeAutomationCredential(id: $id) { status } }"
+        )
+        for query in (inspect, revoke):
+            errors = []
+            for credential_id in (foreign["id"], str(uuid4())):
+                result = self.graphql(query, {"id": credential_id}).json()
+                errors.append(result["errors"][0]["message"])
+            self.assertEqual(errors, ["Invalid credential operation or arguments."] * 2)
+        rotated = self.data(
+            "mutation($id: UUID!) { rotateAutomationCredential(id: $id) { token } }",
+            {"id": str(own.pk)},
+        )["rotateAutomationCredential"]["token"]
+        with self.assertRaises(AuthenticationFailed):
+            credentials.authenticate_token(token)
+        self.assertEqual(credentials.authenticate_token(rotated).pk, own.pk)
+        self.assertEqual(
+            self.data(revoke, {"id": str(own.pk)})["revokeAutomationCredential"][
+                "status"
+            ],
+            "revoked",
+        )
+        self.assertEqual(
+            str(credentials.authenticate_token(foreign["token"]).pk), foreign["id"]
+        )
+
+    def test_admins_can_inspect_and_revoke_another_users_token(self):
+        original = self.cli_credential(self.principal)
+        page = self.data("{ automationCredentials { items { id } totalCount } }")[
+            "automationCredentials"
+        ]
+        self.assertEqual(page["items"], [{"id": original["id"]}])
+        self.assertEqual(
+            self.data(
+                "query($id: UUID!) { automationCredential(id: $id) { userId } }",
+                {"id": original["id"]},
+            )["automationCredential"]["userId"],
+            str(self.principal.pk),
+        )
+        with self.assertLogs(credentials.logger.name, level="INFO") as logs:
+            self.data(
+                "mutation($id: UUID!) { revokeAutomationCredential(id: $id) { id } }",
+                {"id": original["id"]},
+            )
+        self.assertIn(
+            f"actor_id={self.admin.pk} principal_id={self.principal.pk}", logs.output[0]
+        )
+        with self.assertRaises(AuthenticationFailed):
+            credentials.authenticate_token(original["token"])
+
+    def test_non_admin_choices_only_include_owned_corpuses_and_corpus_scopes(self):
+        owned = [
+            Corpus.objects.create(title=f"Contracts {i}", creator=self.principal)
+            for i in range(2)
+        ]
+        self.corpus.title = "Contracts shared"
+        self.corpus.is_public = True
+        self.corpus.save()
+        assign_perm("change_corpus", self.principal, self.corpus)
+        self.client.force_login(self.principal)
+        query = """query($offset: Int!, $search: String!) {
+          automationCredentialChoices(kind: "corpus", search: $search, limit: 1, offset: $offset) {
             totalCount items { id label }
           }
         }"""
-        page = self.data(
-            query, {"kind": "principal", "search": str(self.principal.pk), "offset": 0}
-        )["automationCredentialChoices"]
-        self.assertEqual(
-            page["items"],
-            [{"id": str(self.principal.pk), "label": self.principal.username}],
-        )
-        page = self.data(
-            query, {"kind": "principal", "search": "inactive", "offset": 0}
-        )["automationCredentialChoices"]
-        self.assertEqual(page["items"], [])
-        get_user_model().objects.create_user(username="service-other")
-        first = self.data(
-            query, {"kind": "principal", "search": "service", "offset": 0}
-        )["automationCredentialChoices"]
-        second = self.data(
-            query, {"kind": "principal", "search": "service", "offset": 1}
-        )["automationCredentialChoices"]
-        self.assertEqual(first["totalCount"], 2)
-        self.assertNotEqual(first["items"], second["items"])
-        page = self.data(query, {"kind": "corpus", "search": "Selected", "offset": 0})[
+        for offset, corpus in enumerate(owned):
+            page = self.data(query, {"offset": offset, "search": "Contracts"})[
+                "automationCredentialChoices"
+            ]
+            self.assertEqual(
+                page,
+                {
+                    "totalCount": 2,
+                    "items": [{"id": str(corpus.pk), "label": corpus.title}],
+                },
+            )
+        page = self.data(query, {"offset": 0, "search": str(self.corpus.pk)})[
             "automationCredentialChoices"
         ]
-        self.assertEqual(
-            page["items"], [{"id": str(self.corpus.pk), "label": self.corpus.title}]
-        )
+        self.assertEqual(page, {"totalCount": 0, "items": []})
         scopes = self.data("{ automationCredentialScopes }")[
             "automationCredentialScopes"
         ]
-        self.assertEqual(scopes, [scope.value for scope in credentials.Scope])
+        self.assertEqual(
+            set(scopes),
+            {
+                "corpus:read",
+                "corpus:configure",
+                "corpus:publish",
+                "document:import",
+                "ingestion:repair",
+            },
+        )
+        for actor in (self.principal, self.admin):
+            self.client.force_login(actor)
+            choices = self.data(
+                '{ automationCredentialChoices(kind: "principal") { items { id } totalCount } }'
+            )["automationCredentialChoices"]
+            self.assertEqual(
+                choices, {"items": [{"id": str(actor.pk)}], "totalCount": 1}
+            )
+
+    def test_non_admin_mint_rejects_global_scopes_and_foreign_corpuses(self):
+        owned = Corpus.objects.create(title="My corpus", creator=self.principal)
+        self.corpus.is_public = True
+        self.corpus.save()
+        assign_perm("change_corpus", self.principal, self.corpus)
+        self.client.force_login(self.principal)
+        cases = [
+            {"scopes": [scope]}
+            for scope in (
+                "corpus:create",
+                "ingestion:read",
+                "authority:admin",
+                "pipeline:read",
+                "pipeline:configure",
+            )
+        ] + [
+            {"all": True, "corpuses": None},
+            {"corpuses": [str(self.corpus.pk)]},
+            {"corpuses": [str(owned.pk), to_global_id("CorpusType", self.corpus.pk)]},
+            {"corpuses": []},
+        ]
+        for overrides in cases:
+            with self.subTest(overrides=overrides):
+                args = self.mint_arguments(
+                    user=str(self.principal.pk), corpuses=[str(owned.pk)]
+                )
+                args.update(overrides)
+                self.assertIn("errors", self.graphql(MINT, args).json())
+                self.assertFalse(AutomationCredential.objects.exists())
+        result = self.data(
+            MINT,
+            self.mint_arguments(
+                user=str(self.principal.pk),
+                corpuses=[to_global_id("CorpusType", owned.pk)],
+                scopes=["corpus:configure", "document:import"],
+            ),
+        )["mintAutomationCredential"]
+        self.assertEqual(result["credential"]["corpusIds"], [str(owned.pk)])
+        self.assertEqual(
+            credentials.authenticate_token(result["token"]).user_id, self.principal.pk
+        )
+
+    def test_demotion_rechecks_scope_and_corpus_limits_before_issuing_secrets(self):
+        original = self.cli_credential()
+        get_user_model().objects.filter(pk=self.admin.pk).update(is_superuser=False)
+        with self.assertRaises(PermissionDenied):
+            credentials.mint(
+                user=self.admin,
+                actor=self.admin,
+                name="Global",
+                scopes=["pipeline:configure"],
+                corpus_ids=None,
+            )
+        with self.assertRaises(PermissionDenied):
+            credentials.rotate(original["id"], actor=self.admin)
+        row = AutomationCredential.objects.get(pk=original["id"])
+        self.assertIsNone(row.rotated_at)
+        self.assertEqual(AutomationCredential.objects.count(), 1)
+        # Revocation must remain available even for an over-broad legacy credential.
+        credentials.revoke(row.pk, actor=self.admin)
+        with self.assertRaises(AuthenticationFailed):
+            credentials.authenticate_token(original["token"])
 
     def test_status_pagination_and_unusable_credentials_cannot_be_rotated(self):
         for status in ("active", "expired", "revoked", "inactive principal"):
@@ -397,3 +579,62 @@ class AutomationCredentialAdminTests(TestCase):
             {"offset": 0, "limit": 101},
         ):
             self.assertIn("errors", self.graphql(query, variables).json())
+
+
+@override_settings(CELERY_TASK_ALWAYS_EAGER=False)
+class CredentialIssuanceConcurrencyTests(TransactionTestCase):
+    def test_corpus_ownership_cannot_change_between_authorization_and_secret_issuance(
+        self,
+    ):
+        owner = get_user_model().objects.create_user(username="owner")
+        recipient = get_user_model().objects.create_user(username="recipient")
+        corpus = Corpus.objects.create(title="Owned corpus", creator=owner)
+        credential, _ = credentials.mint(
+            user=owner, name="Existing", scopes=["corpus:read"], corpus_ids=[corpus.pk]
+        )
+
+        def attempt_concurrent_transfer():
+            try:
+                with transaction.atomic():
+                    with connection.cursor() as cursor:
+                        cursor.execute("SET LOCAL lock_timeout = '200ms'")
+                    Corpus.objects.filter(pk=corpus.pk).update(creator=recipient)
+                return "transferred"
+            except OperationalError as exc:
+                if not isinstance(exc.__cause__, LockNotAvailable):
+                    raise
+                return "blocked"
+            finally:
+                connections.close_all()
+
+        new_secret = credentials._new_secret
+
+        def transfer_before_secret_is_saved(row):
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                result = executor.submit(attempt_concurrent_transfer).result(timeout=5)
+            self.assertEqual(result, "blocked")
+            return new_secret(row)
+
+        for operation in ("mint", "rotate"):
+            with self.subTest(operation=operation):
+                Corpus.objects.filter(pk=corpus.pk).update(creator=owner)
+                with patch.object(
+                    credentials, "_new_secret", transfer_before_secret_is_saved
+                ):
+                    if operation == "mint":
+                        _, token = credentials.mint(
+                            actor=owner,
+                            user=owner,
+                            name="New",
+                            scopes=["corpus:read"],
+                            corpus_ids=[corpus.pk],
+                        )
+                    else:
+                        _, token = credentials.rotate(credential.pk, actor=owner)
+                self.assertEqual(
+                    credentials.authenticate_token(token).user_id, owner.pk
+                )
+        # The lock must be released when the transaction completes.
+        self.assertEqual(attempt_concurrent_transfer(), "transferred")
+        corpus.refresh_from_db()
+        self.assertEqual(corpus.creator_id, recipient.pk)

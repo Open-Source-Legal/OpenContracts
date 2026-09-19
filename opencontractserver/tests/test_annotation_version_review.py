@@ -1,5 +1,7 @@
 """Human review creates a successor on the new document without rewriting history."""
 
+from types import SimpleNamespace
+
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
@@ -17,6 +19,7 @@ from opencontractserver.annotations.services.version_review import (
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.versioning import import_document
 from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.utils.ids import to_global_id
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 
@@ -224,10 +227,6 @@ class AnnotationVersionReviewTests(TestCase):
         )
 
     def test_graphql_exposes_review_state_and_refreshes_the_stale_count(self):
-        from types import SimpleNamespace
-
-        from graphql_relay import to_global_id
-
         from config.graphql.schema import schema
         from config.graphql.testing import Client
 
@@ -309,6 +308,40 @@ class AnnotationVersionReviewTests(TestCase):
             to_global_id("AnnotationType", self.notify.pk),
         )
         self.assertFalse(Relationship.objects.filter(document=self.v2).exists())
+
+    def test_a_further_version_retires_state_no_target_would_accept(self):
+        """A badge that no mutation honours is worse than no badge."""
+        self.assertEqual(Review.state_for_annotation(self.user, self.pay), "STALE")
+        self.assertEqual(Review.stale_count(self.user, self.v2.pk, self.corpus.pk), 3)
+
+        v3 = self.upload("Introduction. Pay promptly. Notify the new owner. Again.")
+
+        self.assertIsNone(Review.state_for_annotation(self.user, self.pay))
+        self.assertEqual(Review.stale_count(self.user, self.v2.pk, self.corpus.pk), 0)
+        for target in (self.v2, v3):
+            with self.subTest(target=target.pk), self.assertRaisesMessage(
+                ValidationError, "immediately following version"
+            ):
+                Review.carry_forward(self.user, self.pay.pk, target.pk)
+
+    def test_a_corpus_the_document_does_not_belong_to_counts_zero_stale(self):
+        """``staleAnnotationCount`` is non-null; denying it would null the document."""
+        from config.graphql.schema import schema
+        from config.graphql.testing import Client
+
+        unrelated = Corpus.objects.create(title="Elsewhere", creator=self.user)
+        client = Client(schema, context_value=SimpleNamespace(user=self.user))
+        result = client.execute(
+            """query($document: ID!, $corpus: ID!) {
+          document(id: $document) { id staleAnnotationCount(corpusId: $corpus) }
+        }""",
+            variable_values={
+                "document": to_global_id("DocumentType", self.v2.pk),
+                "corpus": to_global_id("CorpusType", unrelated.pk),
+            },
+        )
+        self.assertNotIn("errors", result, result)
+        self.assertEqual(result["data"]["document"]["staleAnnotationCount"], 0)
 
     def test_review_requires_update_on_both_document_and_corpus(self):
         reviewer = get_user_model().objects.create_user(username="reader")

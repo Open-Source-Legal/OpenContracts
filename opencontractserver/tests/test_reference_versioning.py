@@ -4,7 +4,6 @@ from types import SimpleNamespace
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
-from graphql_relay import to_global_id
 
 from config.graphql.testing import Client
 from opencontractserver.annotations.models import (
@@ -26,6 +25,7 @@ from opencontractserver.enrichment.services.governance_graph_service import (
     GovernanceGraphService,
 )
 from opencontractserver.enrichment.writer import EnrichmentWriter
+from opencontractserver.utils.ids import to_global_id
 
 
 class ReferenceVersioningTests(TestCase):

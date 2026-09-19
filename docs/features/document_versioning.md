@@ -137,7 +137,10 @@ Each decision records its reviewer and time. You need edit permission on both
 the document and its corpus. Read-only viewers can inspect the review. Old
 annotations retain their original text and placement, with their review state
 visible when viewing the older version. The next upload reviews annotations
-on the immediately preceding version.
+on the immediately preceding version. Review is a single hop: annotations left
+unreviewed when a further version arrives keep their original text and stop
+being offered for review, while decisions already recorded stay visible as
+history.
 
 Handwritten document-to-document links follow updated documents automatically.
 Relationships between individual annotations remain with the old version;
