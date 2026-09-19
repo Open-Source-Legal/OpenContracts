@@ -75,7 +75,6 @@ export const GET_AUTOMATION_CHOICES = gql`
 
 export const MINT_AUTOMATION_CREDENTIAL = gql`
   mutation MintAutomationCredential(
-    $userId: ID!
     $name: String!
     $scopes: [String!]!
     $corpusIds: [ID!]
@@ -83,7 +82,6 @@ export const MINT_AUTOMATION_CREDENTIAL = gql`
     $expiresDays: Int!
   ) {
     mintAutomationCredential(
-      userId: $userId
       name: $name
       scopes: $scopes
       corpusIds: $corpusIds

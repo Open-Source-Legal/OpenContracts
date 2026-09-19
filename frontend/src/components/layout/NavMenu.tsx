@@ -3,7 +3,15 @@ import { NavBar } from "@os-legal/ui";
 import type { NavItem, UserMenuItem } from "@os-legal/ui";
 import { useNavigate } from "react-router-dom";
 import styled from "styled-components";
-import { Download, User, Settings, LogOut, Cog, Layers } from "lucide-react";
+import {
+  Download,
+  User,
+  Settings,
+  LogOut,
+  Cog,
+  Layers,
+  KeyRound,
+} from "lucide-react";
 import { showExportModal, showUserSettingsModal } from "../../graphql/cache";
 import UserSettingsModal from "../modals/UserSettingsModal";
 import { VERSION_TAG } from "../../assets/configurations/constants";
@@ -160,6 +168,12 @@ export const NavMenu = () => {
           label: "Corpus Groups",
           icon: <Layers size={16} />,
           onClick: () => navigate("/corpus-groups"),
+        },
+        {
+          id: "automation-credentials",
+          label: "Automation Credentials",
+          icon: <KeyRound size={16} />,
+          onClick: () => navigate("/automation-credentials"),
         },
         ...(isSuperuser
           ? [

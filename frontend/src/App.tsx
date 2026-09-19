@@ -370,6 +370,10 @@ export const App = () => {
           <Route path="/admin/settings" element={<GlobalSettingsPanel />} />
           <Route
             path="/admin/automation-credentials"
+            element={<Navigate to="/automation-credentials" replace />}
+          />
+          <Route
+            path="/automation-credentials"
             element={<AutomationCredentialManagement />}
           />
           <Route path="/admin/agents" element={<GlobalAgentManagement />} />

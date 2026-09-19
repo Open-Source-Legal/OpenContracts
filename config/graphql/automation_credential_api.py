@@ -1,4 +1,4 @@
-"""Admin-only credential DTOs; no model/Node or secret-hash traversal."""
+"""Credential management DTOs; no model/Node or secret-hash traversal."""
 
 from contextlib import contextmanager
 from datetime import datetime
@@ -102,8 +102,8 @@ def q_credential(info: strawberry.Info, id: UUID) -> AutomationCredentialMetadat
 
 
 def q_scopes(info: strawberry.Info) -> list[str]:
-    with _management(info):
-        return [scope.value for scope in credentials.Scope]
+    with _management(info) as actor:
+        return credentials.management_scopes(actor)
 
 
 def q_choices(
@@ -128,15 +128,15 @@ def q_choices(
 
 def m_mint(
     info: strawberry.Info,
-    user_id: strawberry.ID,
     name: str,
     scopes: list[str],
+    user_id: strawberry.ID | None = None,
     corpus_ids: list[strawberry.ID] | None = None,
     all_corpuses: bool = False,
     expires_days: int = AUTOMATION_CREDENTIAL_DEFAULT_DAYS,
 ) -> AutomationCredentialSecret:
     with _management(info) as actor:
-        credential, token = credentials.mint_for_admin(
+        credential, token = credentials.mint_for_user(
             actor,
             user_id=user_id,
             name=name,

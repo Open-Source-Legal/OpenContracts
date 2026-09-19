@@ -10,12 +10,22 @@ endpoints; those retain their existing authentication contracts.
 
 ## Provision and manage
 
-Active superusers can use **Admin Settings → Automation Credentials**
-(`/admin/automation-credentials`) to list, inspect, mint, rotate and revoke
-credentials, including ones created by the CLI. Search for an existing active
-principal by name or stable user ID, choose explicit scopes and corpuses (or
-explicitly allow all corpuses), and set a positive lifetime (default: 30 days).
-The scope picker and CLI use the same server-side `Scope` catalog.
+Active users can use **Automation Credentials** in their user menu
+(`/automation-credentials`) to mint, inspect, rotate and revoke their own
+credentials, including ones created by the CLI. Tokens always belong to the
+signed-in account; admins cannot mint or rotate tokens for someone else.
+
+Non-admins must select one or more corpuses they created. Shared and public
+corpuses owned by others are excluded, and only `corpus:read`,
+`corpus:configure`, `corpus:publish`, `document:import` and `ingestion:repair`
+are offered. Unrestricted corpus access, corpus creation and global admin
+scopes are unavailable. Normal operation permissions still apply.
+
+Superusers retain all scopes and may select any corpuses or explicitly allow
+all corpuses for their own tokens. They can also list, inspect and revoke other
+users' credentials for oversight. **Admin Settings → Automation Credentials**
+and the old `/admin/automation-credentials` URL lead to the same page.
+All UI-issued credentials have a positive lifetime (default: 30 days).
 
 Mint/rotate show the token in a one-time copy/dismiss dialog. Dismissing,
 leaving the page or signing out clears it; it is not written to Apollo cache,
@@ -25,12 +35,16 @@ Rotation and revocation require confirmation in the credential detail dialog.
 The authenticated GraphQL API exposes `automationCredentials(limit:, offset:)`,
 `automationCredential(id:)`, `automationCredentialScopes` and the paginated
 `automationCredentialChoices(kind:, search:, limit:, offset:)` selector
-(`kind` is `principal` or `corpus`). Pages default to 20 and are capped at 100.
+(`kind: "corpus"` is filtered to the caller’s permitted choices; the legacy
+`kind: "principal"` selector returns only the caller). Pages default to 20
+and are capped at 100.
 Writes are `mintAutomationCredential`, `rotateAutomationCredential` and
 `revokeAutomationCredential`; only mint/rotate return a `token`. Credential IDs
-are UUIDs; principal and corpus IDs are stable database IDs. These operations
-require an active superuser login; **automation tokens cannot manage credentials**,
-even when their principal is a superuser. Management responses use `no-store`.
+are UUIDs; principal and corpus IDs are stable database IDs. Mint binds the
+caller automatically. Its optional legacy `userId` argument is accepted only
+when it matches that caller's database ID. These operations require an active
+interactive login; **automation tokens cannot manage credentials**, even when
+their principal is a superuser. Management responses use `no-store`.
 
 An operator with access to `manage.py` can bind a credential to an **existing
 active user**. Choose a dedicated service user and grant its corpus permissions
@@ -54,7 +68,7 @@ and rotate emit JSON containing a new `token` exactly once. Store it securely;
 inspect returns metadata only, never the token or its hash. Only SHA-256 hashes
 of random 256-bit secrets are persisted. Audit events identify credentials and
 actors by ID, without authorization headers or secret prefixes. Lifecycle audit
-events record the acting administrator as `actor_id` separately from the bound
+events record the signed-in user as `actor_id` separately from the bound
 `principal_id`; CLI operations have no application actor (`actor_id=None`).
 
 ## Capability boundaries
@@ -154,6 +168,9 @@ expiry and deactivation reject subsequent requests. Rotation atomically replaces
 the secret without changing the credential ID, scopes, corpus restrictions or
 expiry. The old secret stops authenticating immediately after commit. Rotation
 cannot revive an expired or revoked credential; mint a new one instead.
+Interactive rotation also rechecks the caller's current role and corpus
+ownership. If a previous admin or CLI credential exceeds a non-admin's current
+self-service limits, they can revoke it and mint a restricted replacement.
 
 Chunked uploads belong to both the actor and credential ID. Only that credential
 (including its rotated secret) can send parts, inspect status or complete the
