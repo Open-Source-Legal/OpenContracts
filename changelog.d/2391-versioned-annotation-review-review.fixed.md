@@ -3,7 +3,6 @@
 - Return `0` from `DocumentType.staleAnnotationCount` for a corpus the caller cannot reach (`config/graphql/document_types.py`); the field is non-null, so the denial nulled the entire `document` object.
 - Load the target document's text/token layer once per review decision instead of up to three times while the review locks are held (`opencontractserver/annotations/services/version_review.py`).
 - Open an external cited-version link through `openSafeUrl` rather than a router `Link` (`frontend/src/components/knowledge_base/document/DocumentReferencesPanel.tsx`); an absolute `link_url` navigated the tab away and tore down the SPA.
-- Release the pending review placement when a review mutation fails (`frontend/src/components/annotator/hooks/AnnotationHooks.tsx`). It used to stay armed, routing every later annotation drawn on that document into the review mutation and discarding it.
 - Rewrite the document slug only on document routes in `getDocumentVersionUrl` (`frontend/src/utils/navigationUtils.ts`); the viewer is a route-independent overlay, so picking a version from a corpus route replaced the corpus slug.
 - Drop the standby `GetDocumentAnnotationsOnly` refetch (`frontend/src/graphql/annotationVersionReview.ts`) and the unused `AnnotationVersionReviewService.pending()`.
 - Use the project's own `to_global_id` in the new versioning tests; they imported the removed `graphql_relay` package, which failed `test_graphql_dependencies` and errored `test_reference_versioning` collection in CI.

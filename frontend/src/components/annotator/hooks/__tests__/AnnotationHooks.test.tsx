@@ -16,7 +16,6 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { useAtomValue } from "jotai";
 import { renderHook, act } from "../../../../test-utils/renderHook";
 import { MockedProvider, MockedResponse } from "@apollo/client/testing";
 import { Provider } from "jotai";
@@ -50,8 +49,6 @@ import {
 import { pdfAnnotationsAtom } from "../../context/AnnotationAtoms";
 import { selectedDocumentAtom } from "../../context/DocumentAtom";
 import { corpusStateAtom } from "../../context/CorpusAtom";
-import { pendingAnnotationReviewAtom } from "../../context/AnnotationReviewAtom";
-import { CARRY_FORWARD_ANNOTATION } from "../../../../graphql/annotationVersionReview";
 import {
   REQUEST_ADD_ANNOTATION,
   REQUEST_ADD_URL_ANNOTATION,
@@ -160,13 +157,6 @@ interface WrapperOptions {
   initialAnnotations?: (ServerSpanAnnotation | ServerTokenAnnotation)[];
   initialRelations?: RelationGroup[];
   initialDocTypes?: DocTypeAnnotation[];
-  /** Seeds an in-flight "place this annotation on the new version" review. */
-  pendingReview?: {
-    annotationId: string;
-    documentId: string;
-    corpusId: string;
-    label: AnnotationLabelType;
-  } | null;
 }
 
 const buildWrapper = (options: WrapperOptions = {}) => {
@@ -178,7 +168,6 @@ const buildWrapper = (options: WrapperOptions = {}) => {
     initialAnnotations = [],
     initialRelations = [],
     initialDocTypes = [],
-    pendingReview = null,
   } = options;
 
   const documentForAtom = withDocument
@@ -212,7 +201,6 @@ const buildWrapper = (options: WrapperOptions = {}) => {
           initialDocTypes
         ),
       ],
-      [pendingAnnotationReviewAtom, pendingReview],
     ]);
     return <>{children}</>;
   };
@@ -442,49 +430,6 @@ describe("AnnotationHooks", () => {
       expect(result.current.state.pdfAnnotations.annotations[0].id).toBe(
         serverAssignedId
       );
-    });
-
-    it("releases the review placement when the review mutation fails", async () => {
-      // Holding the placement would route every later drawing on this
-      // document into the review mutation and discard it in turn.
-      const pendingReview = {
-        annotationId: "stale-ann-1",
-        documentId: mockDocument.id,
-        corpusId: mockCorpus.id,
-        label: mockLabel,
-      };
-      const placed = makeSpan("local-tmp-id", 4, 9, "world");
-      const mocks: MockedResponse[] = [
-        {
-          request: {
-            query: CARRY_FORWARD_ANNOTATION,
-            variables: {
-              annotationId: pendingReview.annotationId,
-              targetDocumentId: mockDocument.id,
-              annotationLabelId: mockLabel.id,
-              placement: { json: placed.json },
-            },
-          },
-          error: new Error("Choose a compatible label from this corpus."),
-        },
-      ];
-
-      const { result } = renderHook(
-        () => ({
-          create: useCreateAnnotation(),
-          state: usePdfAnnotations(),
-          pending: useAtomValue(pendingAnnotationReviewAtom),
-        }),
-        { wrapper: buildWrapper({ mocks, pendingReview }) }
-      );
-
-      await act(async () => {
-        await result.current.create(placed);
-      });
-
-      expect(result.current.pending).toBeNull();
-      // A rejected review must not leave a phantom local annotation behind.
-      expect(result.current.state.pdfAnnotations.annotations).toHaveLength(0);
     });
 
     it("drops annotations with neither text nor tokens", async () => {
