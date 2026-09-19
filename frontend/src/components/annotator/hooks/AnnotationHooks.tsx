@@ -275,6 +275,10 @@ export function useCreateAnnotation() {
     const reviewing =
       pendingReview?.documentId === selectedDocument.id &&
       pendingReview.corpusId === selectedCorpus.id;
+    const releasePlacement = () =>
+      setPendingReview((current) =>
+        current?.annotationId === pendingReview?.annotationId ? null : current
+      );
 
     try {
       const variablesToSend = {
@@ -345,12 +349,7 @@ export function useCreateAnnotation() {
         }
 
         addMultipleAnnotations([newAnnotation]);
-        if (reviewing)
-          setPendingReview((current) =>
-            current?.annotationId === pendingReview.annotationId
-              ? null
-              : current
-          );
+        if (reviewing) releasePlacement();
         toast.success(
           reviewing
             ? "Annotation review saved."
@@ -362,9 +361,16 @@ export function useCreateAnnotation() {
       toast.error(`Unable to add annotation: ${error}`);
     }
 
-    // Fallback: if mutation didn't add annotation, add locally
-    if (!annotationAddedLocally && !reviewing) {
-      addMultipleAnnotations([annotation]);
+    if (!annotationAddedLocally) {
+      if (reviewing) {
+        // Release the placement. Holding it would route every later drawing
+        // on this document into the review mutation and discard it, with no
+        // local annotation to show for any of them.
+        releasePlacement();
+      } else {
+        // Fallback: if the mutation didn't add the annotation, add it locally
+        addMultipleAnnotations([annotation]);
+      }
     }
   };
 
