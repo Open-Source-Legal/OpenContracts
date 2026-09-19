@@ -231,6 +231,13 @@ class AnnotationVersionReviewService(BaseService):
                 # exists that the review mutations would actually accept.
                 if cls._successor(user, annotation.document_id, annotation.corpus_id):
                     states = dict.fromkeys(human.values_list("pk", flat=True), "STALE")
+                # At most one decision per annotation, so nothing collides in
+                # the dict below: the row is unique per (annotation, target),
+                # and a document has at most one child — `parent` is set only
+                # by the version-up in `documents/versioning.py` (which
+                # supersedes the *current* version), while corpus add/fork
+                # roots a new content tree with `parent=None`. The ordering is
+                # therefore defensive, not load-bearing.
                 states.update(
                     AnnotationVersionDecision.objects.filter(annotation__in=human)
                     .order_by("target_document_id")
