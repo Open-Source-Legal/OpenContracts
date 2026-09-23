@@ -1,12 +1,13 @@
 import React from "react";
 import {
-  MessageSquare,
-  MessagesSquare,
-  Layers,
-  Database,
   BarChart3,
   BookOpen,
+  Database,
+  History,
+  Layers,
   Link2,
+  MessageSquare,
+  MessagesSquare,
 } from "lucide-react";
 import { AnalysisType, ExtractType } from "../../../../types/graphql-api";
 import { ChatPanelWidthMode } from "../../../annotator/context/UISettingsAtom";
@@ -178,6 +179,19 @@ export const DesktopSidebarTabs: React.FC<DesktopSidebarTabsProps> = ({
       >
         <Link2 />
         <span className="tab-label">References</span>
+      </SidebarTab>
+      <SidebarTab
+        $isActive={sidebarViewMode === "review"}
+        $panelOpen={panelOpen}
+        onClick={onTabClick("review")}
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.98 }}
+        data-testid="view-mode-review"
+        data-tooltip="Carried over"
+        aria-label="Annotations carried over from the previous version"
+      >
+        <History />
+        <span className="tab-label">Carried over</span>
       </SidebarTab>
       <SidebarTab
         $isActive={sidebarViewMode === "discussions"}

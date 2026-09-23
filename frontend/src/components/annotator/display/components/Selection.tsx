@@ -23,6 +23,7 @@ import RadialButtonCloud, {
 import { SelectionTokenGroup } from "./SelectionTokenGroup";
 import { EditLabelModal } from "../../components/modals/EditLabelModal";
 import { CreateUrlAnnotationModal } from "../../components/modals/CreateUrlAnnotationModal";
+import { AnnotationVersionStateChip } from "./AnnotationVersionStateChip";
 import {
   annotationChipLabel,
   isUrlAnnotation,
@@ -365,6 +366,9 @@ export const Selection: React.FC<SelectionProps> = ({
                         />
                       )}
                       <span>{annotationChipLabel(annotation)}</span>
+                      <AnnotationVersionStateChip
+                        state={annotation.versionState}
+                      />
                     </div>
                     {annotation.myPermissions.includes(
                       PermissionTypes.CAN_UPDATE

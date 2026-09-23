@@ -145,7 +145,8 @@ export function convertToServerAnnotation(
       allowComments ?? false,
       annotation.id,
       annotation.contentModalities,
-      annotation.linkUrl ?? null
+      annotation.linkUrl ?? null,
+      annotation.versionState ?? null
     );
   }
 
@@ -163,7 +164,8 @@ export function convertToServerAnnotation(
     allowComments ?? false,
     annotation.id,
     annotation.contentModalities,
-    annotation.linkUrl ?? null
+    annotation.linkUrl ?? null,
+    annotation.versionState ?? null
   );
 }
 

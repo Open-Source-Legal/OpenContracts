@@ -1161,7 +1161,14 @@ export interface CorpusReferenceRow {
     linkUrl?: string | null;
     document?: { id: string; title?: string | null } | null;
   } | null;
+  // The version the citation was linked against ("as cited"). Write-once on
+  // the backend; the link_url above pins it (``?v=N``).
   targetDocument?: { id: string; title?: string | null } | null;
+  // True when targetDocument has since been superseded by a newer version.
+  targetIsSuperseded?: boolean | null;
+  // The current version of the cited document (null when not visible or when
+  // it equals targetDocument).
+  currentTargetDocument?: { id: string; title?: string | null } | null;
 }
 
 export interface GetCorpusReferencesForDocumentInputType {
@@ -1195,6 +1202,11 @@ export const GET_CORPUS_REFERENCES_FOR_DOCUMENT = gql`
             }
           }
           targetDocument {
+            id
+            title
+          }
+          targetIsSuperseded
+          currentTargetDocument {
             id
             title
           }
@@ -5135,6 +5147,7 @@ export const GET_DOCUMENT_KNOWLEDGE_AND_ANNOTATIONS = gql`
         rawText
         json
         linkUrl
+        versionState
         myPermissions
         structural
         contentModalities
@@ -5247,6 +5260,7 @@ export const GET_DOCUMENT_ANNOTATIONS_ONLY = gql`
         rawText
         json
         linkUrl
+        versionState
         myPermissions
         structural
         contentModalities
@@ -7746,3 +7760,73 @@ export interface SystemDefaultLlmQueryResult {
     defaultLlm?: string | null;
   };
 }
+
+// ---------------- Annotation version review ----------------
+// Human annotations stay pinned to the document version they were drawn on.
+// After a version-up each one is STALE relative to the new version until a
+// reviewer re-approves, corrects or drops it (see
+// docs/architecture/reference-web-versioning.md, change 5).
+
+export type AnnotationVersionState =
+  | "STALE"
+  | "REAPPROVED"
+  | "CORRECTED"
+  | "DROPPED";
+
+export interface AnnotationVersionReviewEntry {
+  state: AnnotationVersionState;
+  annotation: {
+    id: string;
+    rawText?: string | null;
+    page?: number | null;
+    annotationLabel?: {
+      id: string;
+      text?: string | null;
+      color?: string | null;
+    } | null;
+  };
+  successor?: { id: string } | null;
+  proposedJson?: Record<string, unknown> | null;
+  proposedPage?: number | null;
+  proposedAnnotationType?: string | null;
+  proposedRawText?: string | null;
+}
+
+export interface GetAnnotationVersionReviewInput {
+  documentId: string;
+  corpusId?: string | null;
+}
+
+export interface GetAnnotationVersionReviewOutput {
+  annotationVersionReview: AnnotationVersionReviewEntry[];
+  document: { id: string; staleAnnotationCount: number } | null;
+}
+
+export const GET_ANNOTATION_VERSION_REVIEW = gql`
+  query annotationVersionReview($documentId: ID!, $corpusId: ID) {
+    annotationVersionReview(documentId: $documentId, corpusId: $corpusId) {
+      state
+      annotation {
+        id
+        rawText
+        page
+        annotationLabel {
+          id
+          text
+          color
+        }
+      }
+      successor {
+        id
+      }
+      proposedJson
+      proposedPage
+      proposedAnnotationType
+      proposedRawText
+    }
+    document(id: $documentId) {
+      id
+      staleAnnotationCount(corpusId: $corpusId)
+    }
+  }
+`;

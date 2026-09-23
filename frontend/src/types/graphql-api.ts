@@ -145,6 +145,9 @@ export type RawServerAnnotationType = Node & {
    * Null/absent for all other annotations.
    */
   linkUrl?: Maybe<Scalars["String"]>;
+  // Review state relative to the next document version (STALE / REAPPROVED /
+  // CORRECTED / DROPPED); null for machine-made rows and current versions.
+  versionState?: Maybe<Scalars["String"]>;
   corpus?: Maybe<CorpusType>;
   creator?: UserType;
   created?: Scalars["DateTime"];

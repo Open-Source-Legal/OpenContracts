@@ -78,5 +78,6 @@ export interface SidebarViewMode {
     | "extract"
     | "analysis"
     | "discussions"
-    | "references";
+    | "references"
+    | "review";
 }

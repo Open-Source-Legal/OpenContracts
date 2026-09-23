@@ -8,6 +8,7 @@ import {
   Check,
   CircleDashed,
   Clock,
+  History,
   Link2,
 } from "lucide-react";
 
@@ -122,6 +123,31 @@ const TypeChip = styled.span<{ $color: string }>`
   font-weight: 700;
   color: white;
   background: ${(p) => p.$color};
+`;
+
+const SupersededNote = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.15rem;
+  font-size: 0.6875rem;
+  color: ${OS_LEGAL_COLORS.textMuted};
+  svg {
+    width: 11px;
+    height: 11px;
+  }
+  .dot {
+    opacity: 0.6;
+  }
+  .current {
+    color: ${OS_LEGAL_COLORS.textSecondary};
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+    &:hover {
+      color: ${OS_LEGAL_COLORS.textPrimary};
+    }
+  }
 `;
 
 const RefContent = styled.div`
@@ -248,6 +274,11 @@ interface OutboundGroup {
   // Any mention in the group written by an in-flight (not-yet-finalized)
   // enrichment run — drives the "In progress" badge.
   provisional: boolean;
+  // The cited version has been superseded; the row's link still opens the
+  // text as cited (``?v=N``), and this points at the current text.
+  superseded: boolean;
+  currentTargetId?: string | null;
+  currentTargetTitle?: string | null;
 }
 
 export const DocumentReferencesPanel: React.FC<
@@ -293,6 +324,12 @@ export const DocumentReferencesPanel: React.FC<
         existing.linkUrl = existing.linkUrl || row.sourceAnnotation?.linkUrl;
         existing.provisional =
           existing.provisional || Boolean(row.isProvisional);
+        existing.superseded =
+          existing.superseded || Boolean(row.targetIsSuperseded);
+        existing.currentTargetId =
+          existing.currentTargetId || row.currentTargetDocument?.id;
+        existing.currentTargetTitle =
+          existing.currentTargetTitle || row.currentTargetDocument?.title;
         return;
       }
       const head =
@@ -314,6 +351,9 @@ export const DocumentReferencesPanel: React.FC<
         linkUrl: row.sourceAnnotation?.linkUrl,
         resolved: row.resolutionStatus === "RESOLVED",
         provisional: Boolean(row.isProvisional),
+        superseded: Boolean(row.targetIsSuperseded),
+        currentTargetId: row.currentTargetDocument?.id,
+        currentTargetTitle: row.currentTargetDocument?.title,
       });
     });
     return [...groups.values()].sort(
@@ -468,6 +508,42 @@ export const DocumentReferencesPanel: React.FC<
                       )}
                     </RefHead>
                     {group.snippet && <RefSnippet>{group.snippet}</RefSnippet>}
+                    {group.superseded && (
+                      <SupersededNote data-testid="references-panel-superseded">
+                        <History />
+                        Opens the text as cited
+                        {group.currentTargetId && (
+                          <>
+                            <span className="dot">·</span>
+                            <span
+                              role="link"
+                              tabIndex={0}
+                              className="current"
+                              title={
+                                group.currentTargetTitle ||
+                                "Open the current version"
+                              }
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void navigateToDocument(group.currentTargetId!);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  void navigateToDocument(
+                                    group.currentTargetId!
+                                  );
+                                }
+                              }}
+                              data-testid="references-panel-open-current"
+                            >
+                              newer text available
+                            </span>
+                          </>
+                        )}
+                      </SupersededNote>
+                    )}
                   </RefContent>
                   {/* Provisional takes precedence: the reference is still being
                       written by an in-flight run, so its linked/awaiting state

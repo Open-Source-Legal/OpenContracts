@@ -4475,3 +4475,70 @@ export interface SaveMessageToWorkspaceOutput {
     } | null;
   };
 }
+
+// ---------------- Annotation version review ----------------
+
+export const CARRY_FORWARD_ANNOTATION = gql`
+  mutation CarryForwardAnnotation(
+    $annotationId: ID!
+    $targetDocumentId: ID!
+    $json: GenericScalar!
+    $page: Int!
+    $annotationType: String!
+    $rawText: String!
+    $annotationLabelId: ID
+  ) {
+    carryForwardAnnotation(
+      annotationId: $annotationId
+      targetDocumentId: $targetDocumentId
+      json: $json
+      page: $page
+      annotationType: $annotationType
+      rawText: $rawText
+      annotationLabelId: $annotationLabelId
+    ) {
+      ok
+      message
+      decision
+      successor {
+        id
+      }
+    }
+  }
+`;
+export interface CarryForwardAnnotationInput {
+  annotationId: string;
+  targetDocumentId: string;
+  json: Record<string, unknown>;
+  page: number;
+  annotationType: string;
+  rawText: string;
+  annotationLabelId?: string | null;
+}
+export interface CarryForwardAnnotationOutput {
+  carryForwardAnnotation: {
+    ok: boolean;
+    message: string;
+    decision: string | null;
+    successor: { id: string } | null;
+  };
+}
+
+export const DROP_STALE_ANNOTATION = gql`
+  mutation DropStaleAnnotation($annotationId: ID!, $targetDocumentId: ID!) {
+    dropStaleAnnotation(
+      annotationId: $annotationId
+      targetDocumentId: $targetDocumentId
+    ) {
+      ok
+      message
+    }
+  }
+`;
+export interface DropStaleAnnotationInput {
+  annotationId: string;
+  targetDocumentId: string;
+}
+export interface DropStaleAnnotationOutput {
+  dropStaleAnnotation: { ok: boolean; message: string };
+}

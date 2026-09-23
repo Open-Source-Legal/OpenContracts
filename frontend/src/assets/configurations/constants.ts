@@ -1188,3 +1188,48 @@ export const WANTED_AUTHORITIES_MAX_ROWS = 5;
 // Defaults for the automation credential mint form.
 export const AUTOMATION_CREDENTIAL_DEFAULT_DAYS = 30;
 export const AUTOMATION_CREDENTIAL_NAME_MAX_LENGTH = 100;
+
+// ---------------------------------------------------------------------------
+// Annotation version review — docs/architecture/reference-web-versioning.md
+// ---------------------------------------------------------------------------
+// A human annotation is pinned to the document version it was drawn on. After
+// a version-up it is STALE relative to the new version until a reviewer
+// re-approves, corrects or drops it. Mirrors the backend enum in
+// opencontractserver/constants/annotations.py.
+export const ANNOTATION_VERSION_STATES = {
+  STALE: "STALE",
+  REAPPROVED: "REAPPROVED",
+  CORRECTED: "CORRECTED",
+  DROPPED: "DROPPED",
+} as const;
+
+export const ANNOTATION_VERSION_STATE_META: Record<
+  string,
+  { label: string; title: string; color: string; background: string }
+> = {
+  STALE: {
+    label: "Stale",
+    title:
+      "Drawn on the previous version of this document and not yet reviewed against the new text.",
+    color: "#B3412A",
+    background: "#FBEDE9",
+  },
+  REAPPROVED: {
+    label: "Re-approved",
+    title: "Confirmed unchanged on the new version.",
+    color: "#3A3A3A",
+    background: "#EFEFEF",
+  },
+  CORRECTED: {
+    label: "Corrected",
+    title: "Carried to the new version with an edited span or label.",
+    color: "#3A3A3A",
+    background: "#EFEFEF",
+  },
+  DROPPED: {
+    label: "Dropped",
+    title: "A reviewer decided this no longer applies on the new version.",
+    color: "#6B6B6B",
+    background: "#F4F4F4",
+  },
+};

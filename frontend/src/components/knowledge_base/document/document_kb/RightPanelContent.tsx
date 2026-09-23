@@ -1,11 +1,12 @@
 import React, { Dispatch, SetStateAction } from "react";
 import { useReactiveVar } from "@apollo/client";
 import {
-  Database,
   BarChart3,
   BookOpen,
-  ChevronsUpDown,
   ChevronsDownUp,
+  ChevronsUpDown,
+  Database,
+  History,
   Link2,
 } from "lucide-react";
 import {
@@ -46,6 +47,7 @@ import { SingleDocumentExtractResults } from "../../../annotator/sidebar/SingleD
 import { DocumentDiscussionsContent } from "../../../discussions/DocumentDiscussionsContent";
 import { DocumentAnnotationIndex } from "../../../corpuses/DocumentAnnotationIndex";
 import { DocumentReferencesPanel } from "../DocumentReferencesPanel";
+import { DocumentAnnotationReviewPanel } from "../DocumentAnnotationReviewPanel";
 
 export interface RightPanelContentProps {
   /** Whether the right panel is currently shown */
@@ -302,6 +304,30 @@ export const RightPanelContent: React.FC<RightPanelContentProps> = ({
         </SidebarHeader>
         <ScrollableFillPanel>
           <DocumentReferencesPanel
+            documentId={documentId}
+            corpusId={corpusId}
+          />
+        </ScrollableFillPanel>
+      </FlexColumnPanel>
+    );
+  }
+
+  // Handle review mode — human annotations carried over from the previous
+  // version: stale until re-approved, corrected or dropped.
+  if (sidebarViewMode === "review") {
+    return (
+      <FlexColumnPanel>
+        <SidebarHeader>
+          <History size={20} style={{ color: OS_LEGAL_COLORS.primaryBlue }} />
+          <SidebarHeaderContent>
+            <SidebarHeaderTitle>Carried over</SidebarHeaderTitle>
+            <SidebarHeaderSubtitle>
+              Annotations from the previous version awaiting review
+            </SidebarHeaderSubtitle>
+          </SidebarHeaderContent>
+        </SidebarHeader>
+        <ScrollableFillPanel>
+          <DocumentAnnotationReviewPanel
             documentId={documentId}
             corpusId={corpusId}
           />

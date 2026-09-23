@@ -85,7 +85,8 @@ export class ServerSpanAnnotation {
     public readonly canComment: boolean = false,
     id: string | undefined = undefined,
     public readonly contentModalities?: string[],
-    public readonly linkUrl?: string | null
+    public readonly linkUrl?: string | null,
+    public readonly versionState?: string | null
   ) {
     this.id = id || uuidv4();
   }
@@ -107,7 +108,8 @@ export class ServerSpanAnnotation {
       delta.canComment ?? this.canComment,
       this.id,
       delta.contentModalities ?? this.contentModalities,
-      delta.linkUrl ?? this.linkUrl
+      delta.linkUrl ?? this.linkUrl,
+      delta.versionState ?? this.versionState
     );
   }
 
@@ -124,7 +126,8 @@ export class ServerSpanAnnotation {
       obj.canComment,
       obj.id,
       obj.contentModalities,
-      obj.linkUrl
+      obj.linkUrl,
+      obj.versionState
     );
   }
 }
@@ -148,7 +151,8 @@ export class ServerTokenAnnotation {
     public readonly canComment: boolean = false,
     id: string | undefined = undefined,
     public readonly contentModalities?: string[],
-    public readonly linkUrl?: string | null
+    public readonly linkUrl?: string | null,
+    public readonly versionState?: string | null
   ) {
     this.id = id || uuidv4();
     // Normalize any format (v1 or v2) to v1 for the rendering layer.
@@ -185,7 +189,8 @@ export class ServerTokenAnnotation {
       delta.canComment ?? this.canComment,
       this.id,
       delta.contentModalities ?? this.contentModalities,
-      delta.linkUrl ?? this.linkUrl
+      delta.linkUrl ?? this.linkUrl,
+      delta.versionState ?? this.versionState
     );
   }
 
@@ -202,7 +207,8 @@ export class ServerTokenAnnotation {
       obj.canComment,
       obj.id,
       obj.contentModalities,
-      obj.linkUrl
+      obj.linkUrl,
+      obj.versionState
     );
   }
 }

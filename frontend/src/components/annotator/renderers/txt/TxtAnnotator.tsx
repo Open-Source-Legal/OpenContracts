@@ -43,6 +43,7 @@ import {
   X,
   AlertCircle,
 } from "lucide-react";
+import { AnnotationVersionStateChip } from "../../display/components/AnnotationVersionStateChip";
 import {
   annotationChipLabel,
   isUrlAnnotation,
@@ -1278,6 +1279,7 @@ const TxtAnnotator: React.FC<TxtAnnotatorProps> = ({
                     />
                   )}
                   {annotationChipLabel(annotation)}
+                  <AnnotationVersionStateChip state={annotation.versionState} />
                 </Label>
                 <RadialButtonCloud
                   parentBackgroundColor={
