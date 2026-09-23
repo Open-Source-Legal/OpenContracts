@@ -219,6 +219,16 @@ class TestOrcaRouterProvider(TestCase):
         self.assertIsInstance(result, Model)
         self.assertTrue(any("Responses-API-only" in m for m in logs.output))
 
+    def test_construction_failure_is_raised_not_degraded(self):
+        """A build failure must surface, not return the unresolvable bare
+        ``orcarouter:`` spec that pydantic-ai would reject as "Unknown model"."""
+        with mock.patch(
+            "opencontractserver.llms.model_factory._construct_orcarouter_model",
+            side_effect=ImportError("pydantic-ai API shift"),
+        ):
+            with self.assertRaises(ImportError):
+                build_agent_model("orcarouter:orcarouter/auto")
+
 
 class TestIsValidBaseUrl(TestCase):
     """The shared base_url scheme check used by every provider branch."""

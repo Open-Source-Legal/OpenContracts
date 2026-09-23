@@ -21,7 +21,10 @@ Resolution precedence is **DB-wins / env-fallback**:
 Any failure to build a credentialed model (unknown provider, a
 ``pydantic-ai`` API shift, a bad endpoint) degrades to the bare spec
 string rather than raising, so a misconfiguration can never take the
-chat path down — it simply falls back to environment credentials.
+chat path down — it simply falls back to environment credentials. The one
+exception is OrcaRouter: its bare spec is not resolvable by ``pydantic-ai``,
+so a construction failure there is re-raised instead of degraded to a string
+that would only fail later with a more confusing "Unknown model" error.
 
 All ``pydantic-ai`` imports live here (not in the framework-agnostic
 ``opencontractserver.pipeline`` package) and are performed lazily so the
@@ -251,7 +254,9 @@ def _construct_orcarouter_model(model_name: str, creds: dict[str, str]) -> Any:
         api_key = ORCAROUTER_API_KEY_PLACEHOLDER
 
     # Routed names are vendor-namespaced (``openai/gpt-5.6-luna``); check the
-    # bare tail against the Responses-only families.
+    # bare tail against the Responses-only families. The ``"openai"`` key is
+    # deliberate and vendor-agnostic: those families are OpenAI model names,
+    # so any routed tail matching one is flagged whatever its vendor prefix.
     if requires_responses_api("openai", model_name.rsplit("/", 1)[-1]):
         logger.warning(
             "OrcaRouter model %r belongs to a Responses-API-only family, but "
@@ -446,6 +451,10 @@ def build_agent_model(spec: str) -> Any:
             provider_key, model_name, creds, responses_api=responses_api
         )
     except _MODEL_BUILD_RECOVERABLE_ERRORS:
+        if provider_key == "orcarouter":
+            # No env-fallback exists: the bare ``orcarouter:`` spec is not
+            # resolvable by pydantic-ai, so surface the real error.
+            raise
         logger.warning(
             "Failed to build a credentialed model for provider %r; falling "
             "back to environment credentials.",
