@@ -1,2 +1,2 @@
 - Preserve cited document versions with permanent links and separate access to current text. Current reference and relationship views exclude superseded sources, while handwritten document links follow new versions.
-- Add explicit annotation review after document updates: approve exact matches, place corrections, or drop annotations, with stale counts, reviewer history, and unchanged original evidence.
+- Carry human annotations and relationships onto new document versions automatically, flagged as unreviewed until a person approves, corrects or drops them, with review counts, reviewer history, and unchanged original evidence.

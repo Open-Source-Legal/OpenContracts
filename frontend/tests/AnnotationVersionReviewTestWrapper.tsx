@@ -7,11 +7,15 @@ import { DocumentVersionSelector } from "../src/components/documents/DocumentVer
 import { corpusStateAtom } from "../src/components/annotator/context/CorpusAtom";
 import { selectedDocumentAtom } from "../src/components/annotator/context/DocumentAtom";
 import { pendingAnnotationReviewAtom } from "../src/components/annotator/context/AnnotationReviewAtom";
+import { pdfAnnotationsAtom } from "../src/components/annotator/context/AnnotationAtoms";
 import {
   useCreateAnnotation,
   usePdfAnnotations,
 } from "../src/components/annotator/hooks/AnnotationHooks";
-import { ServerSpanAnnotation } from "../src/components/annotator/types/annotations";
+import {
+  PdfAnnotations,
+  ServerSpanAnnotation,
+} from "../src/components/annotator/types/annotations";
 import {
   AnnotationLabelType,
   CorpusType,
@@ -24,6 +28,7 @@ import {
   DROP_STALE_ANNOTATION,
   GET_ANNOTATION_REVIEW_STATUS,
   GET_ANNOTATION_VERSION_REVIEW,
+  PENDING_VERSION_STATES,
 } from "../src/graphql/annotationVersionReview";
 import { GET_CORPUS_VERSIONS } from "../src/graphql/queries";
 
@@ -37,7 +42,22 @@ const label = {
   labelType: LabelType.SpanLabel,
 } as AnnotationLabelType;
 
-function ViewerSelection() {
+const carriedText = (text: string, id: string, start = 14) =>
+  new ServerSpanAnnotation(
+    0,
+    label,
+    text,
+    false,
+    { start, end: start + text.length, text },
+    [],
+    false,
+    false,
+    false,
+    id
+  );
+
+/** Stands in for the viewer: its saved annotations, plus a selection once placing. */
+function Viewer() {
   const pending = useAtomValue(pendingAnnotationReviewAtom);
   const create = useCreateAnnotation();
   const { pdfAnnotations } = usePdfAnnotations();
@@ -46,18 +66,7 @@ function ViewerSelection() {
       {pending && (
         <button
           onClick={() =>
-            void create(
-              new ServerSpanAnnotation(
-                0,
-                label,
-                "Notify the new owner.",
-                false,
-                { start: 28, end: 49, text: "Notify the new owner." },
-                [],
-                false,
-                false
-              )
-            )
+            void create(carriedText("Notify the new owner.", "selection", 28))
           }
         >
           Select corrected passage
@@ -79,7 +88,6 @@ export function AnnotationVersionReviewTestWrapper({
   readOnly?: boolean;
   rejectPlacement?: boolean;
 }) {
-  const [placed, setPlaced] = useState(false);
   const [lastPlacement, setLastPlacement] = useState("");
   const setup = useMemo(() => {
     const store = createStore();
@@ -90,6 +98,19 @@ export function AnnotationVersionReviewTestWrapper({
     store.set(corpusStateAtom, {
       ...store.get(corpusStateAtom),
       selectedCorpus: { id: "corpus" } as CorpusType,
+    });
+    // The version-up already carried the one unique exact match.
+    store.set(
+      pdfAnnotationsAtom,
+      new PdfAnnotations([carriedText("Pay promptly.", "carried-0")], [], [])
+    );
+    const successorOf = (row: AnnotationReviewRow, rawText: string) => ({
+      ...row.annotation,
+      id: `carried-${row.annotation.id.slice(-1)}`,
+      rawText,
+      structural: false,
+      myPermissions: ["read_annotation", "update_annotation"],
+      linkUrl: null,
     });
     const rows: AnnotationReviewRow[] = [
       "Pay promptly.",
@@ -105,21 +126,13 @@ export function AnnotationVersionReviewTestWrapper({
         json: { start: 0, end: rawText.length, text: rawText },
         annotationLabel: label,
         annotationType: LabelType.SpanLabel,
-        versionState: "STALE",
       },
-      state: "STALE",
+      state: index === 0 ? "AUTO" : "STALE",
       successor: null,
       reviewedBy: null,
       reviewedAt: null,
-      proposedPlacement:
-        index === 0
-          ? {
-              json: { start: 14, end: 27, text: rawText },
-              raw_text: rawText,
-              page: 0,
-            }
-          : null,
     }));
+    rows[0].successor = successorOf(rows[0], "Pay promptly.");
     const decide = (variables: Record<string, unknown>, drop: boolean) => {
       const row = rows.find(
         (row) => row.annotation.id === variables.annotationId
@@ -133,18 +146,14 @@ export function AnnotationVersionReviewTestWrapper({
           ],
         };
       row.state = drop ? "DROPPED" : manual ? "CORRECTED" : "REAPPROVED";
-      row.proposedPlacement = null;
       row.reviewedBy = { slug: "reviewer" };
       row.reviewedAt = "2026-09-17T12:00:00Z";
-      if (!drop)
-        row.successor = {
-          ...row.annotation,
-          id: `successor-${row.annotation.id}`,
-          rawText: manual ? "Notify the new owner." : row.annotation.rawText,
-          structural: false,
-          myPermissions: ["read_annotation", "update_annotation"],
-          linkUrl: null,
-        };
+      row.successor = drop
+        ? null
+        : successorOf(
+            row,
+            manual ? "Notify the new owner." : row.annotation.rawText
+          );
       return {
         data: {
           [drop ? "dropStaleAnnotation" : "carryForwardAnnotation"]: { ...row },
@@ -163,8 +172,9 @@ export function AnnotationVersionReviewTestWrapper({
               id: "new",
               isCurrent: true,
               parent: { id: "old" },
-              staleAnnotationCount: rows.filter((row) => row.state === "STALE")
-                .length,
+              annotationsNeedingReview: rows.filter((row) =>
+                PENDING_VERSION_STATES.has(row.state)
+              ).length,
             },
           },
         }),
@@ -219,9 +229,9 @@ export function AnnotationVersionReviewTestWrapper({
               documentId="new"
               corpusId="corpus"
               readOnly={readOnly}
-              onPlace={() => setPlaced(true)}
+              onPlace={() => undefined}
             />
-            {placed && <ViewerSelection />}
+            <Viewer />
             <output aria-label="Submitted placement">{lastPlacement}</output>
           </>
         </MockedProvider>

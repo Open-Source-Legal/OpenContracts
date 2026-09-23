@@ -81,6 +81,8 @@ class Migration(migrations.Migration):
                     "decision",
                     models.CharField(
                         choices=[
+                            ("AUTO", "Auto-carried"),
+                            ("STALE", "Needs placement"),
                             ("REAPPROVED", "Re-approved"),
                             ("CORRECTED", "Corrected"),
                             ("DROPPED", "Dropped"),
@@ -88,29 +90,32 @@ class Migration(migrations.Migration):
                         max_length=16,
                     ),
                 ),
+                ("reviewed_at", models.DateTimeField(blank=True, null=True)),
                 ("created", models.DateTimeField(auto_now_add=True)),
                 (
                     "annotation",
-                    models.ForeignKey(
+                    models.OneToOneField(
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="version_decisions",
+                        related_name="version_decision",
                         to="annotations.annotation",
                     ),
                 ),
                 (
-                    "creator",
+                    "reviewer",
                     models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE,
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
                         to=settings.AUTH_USER_MODEL,
                     ),
                 ),
                 (
                     "successor",
-                    models.ForeignKey(
+                    models.OneToOneField(
                         blank=True,
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,
-                        related_name="predecessor_decisions",
+                        related_name="carried_from",
                         to="annotations.annotation",
                     ),
                 ),
@@ -125,13 +130,18 @@ class Migration(migrations.Migration):
             ],
             options={
                 "constraints": [
-                    models.UniqueConstraint(
-                        fields=("annotation", "target_document"),
-                        name="unique_annotation_version_decision",
-                    ),
                     models.CheckConstraint(
                         condition=models.Q(
-                            ("decision__in", ["REAPPROVED", "CORRECTED", "DROPPED"])
+                            (
+                                "decision__in",
+                                [
+                                    "AUTO",
+                                    "STALE",
+                                    "REAPPROVED",
+                                    "CORRECTED",
+                                    "DROPPED",
+                                ],
+                            )
                         ),
                         name="annotation_version_decision_valid",
                     ),

@@ -311,6 +311,11 @@ export function useCreateAnnotation() {
         )
           return;
         let newAnnotation: ServerTokenAnnotation | ServerSpanAnnotation;
+        // Only a review successor carries a version state.
+        const versionState =
+          "versionState" in createdAnnotationData
+            ? createdAnnotationData.versionState
+            : null;
 
         if (isSpanBasedFileType(selectedDocument.fileType)) {
           newAnnotation = new ServerSpanAnnotation(
@@ -325,7 +330,8 @@ export function useCreateAnnotation() {
             false,
             createdAnnotationData.id,
             undefined,
-            createdAnnotationData.linkUrl ?? null
+            createdAnnotationData.linkUrl ?? null,
+            versionState
           );
         } else {
           newAnnotation = new ServerTokenAnnotation(
@@ -340,7 +346,8 @@ export function useCreateAnnotation() {
             false,
             createdAnnotationData.id,
             undefined,
-            createdAnnotationData.linkUrl ?? null
+            createdAnnotationData.linkUrl ?? null,
+            versionState
           );
         }
 

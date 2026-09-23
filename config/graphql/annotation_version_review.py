@@ -1,4 +1,4 @@
-"""GraphQL surface for explicit annotation review between document versions."""
+"""GraphQL surface for reviewing annotations carried onto a new document version."""
 
 from datetime import datetime
 from enum import Enum
@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
 @strawberry.enum
 class AnnotationVersionState(Enum):
+    AUTO = "AUTO"
     STALE = "STALE"
     REAPPROVED = "REAPPROVED"
     CORRECTED = "CORRECTED"
@@ -34,7 +35,6 @@ class AnnotationVersionReview:
         "AnnotationType", strawberry.lazy("config.graphql.annotation_types")
     ]
     state: AnnotationVersionState
-    proposed_placement: GenericScalar | None = None  # type: ignore[valid-type]
     successor: (
         Annotated["AnnotationType", strawberry.lazy("config.graphql.annotation_types")]
         | None
@@ -52,19 +52,22 @@ def _pk(value, type_name):
     return int(pk)
 
 
+def _row(decision):
+    return AnnotationVersionReview(
+        annotation=decision.annotation,
+        state=AnnotationVersionState(decision.decision),
+        successor=decision.successor,
+        reviewed_by=decision.reviewer,
+        reviewed_at=decision.reviewed_at,
+    )
+
+
 def q_annotation_version_review(
     info: strawberry.Info, document_id: strawberry.ID, corpus_id: strawberry.ID
 ) -> list[AnnotationVersionReview]:
     return [
-        AnnotationVersionReview(
-            annotation=row.annotation,
-            state=AnnotationVersionState(row.state),
-            proposed_placement=row.proposed_placement,
-            successor=row.successor,
-            reviewed_by=row.reviewed_by,
-            reviewed_at=row.reviewed_at,
-        )
-        for row in Review.review(
+        _row(decision)
+        for decision in Review.review(
             info.context.user,
             _pk(document_id, "DocumentType"),
             _pk(corpus_id, "CorpusType"),
@@ -108,16 +111,11 @@ def _decide(
         )
     except ValidationError as exc:
         raise GraphQLError(" ".join(exc.messages)) from None
-    getattr(info.context, "_annotation_version_states", {}).pop(
-        (decision.annotation.document_id, decision.annotation.corpus_id), None
-    )
-    return AnnotationVersionReview(
-        annotation=decision.annotation,
-        state=AnnotationVersionState(decision.decision),
-        successor=decision.successor,
-        reviewed_by=decision.creator,
-        reviewed_at=decision.created,
-    )
+    # Both ends of the decision changed state for this request.
+    states = getattr(info.context, "_annotation_version_states", {})
+    states.pop((decision.annotation.document_id, decision.annotation.corpus_id), None)
+    states.pop((decision.target_document_id, decision.annotation.corpus_id), None)
+    return _row(decision)
 
 
 def m_carry_forward_annotation(

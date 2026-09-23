@@ -9,9 +9,14 @@ import {
   DROP_STALE_ANNOTATION,
   GET_ANNOTATION_REVIEW_STATUS,
   GET_ANNOTATION_VERSION_REVIEW,
+  PENDING_VERSION_STATES,
   REVIEW_REFETCH_QUERIES,
-  VERSION_STATE_LABELS,
 } from "../../../graphql/annotationVersionReview";
+import { VersionStateBadge } from "../../annotator/sidebar/VersionStateBadge";
+import {
+  PdfAnnotations,
+  RelationGroup,
+} from "../../annotator/types/annotations";
 import { pendingAnnotationReviewAtom } from "../../annotator/context/AnnotationReviewAtom";
 import { activeSpanLabelAtom } from "../../annotator/context/AnnotationControlAtoms";
 import { usePdfAnnotations } from "../../annotator/hooks/AnnotationHooks";
@@ -86,8 +91,12 @@ export function AnnotationVersionReviewPanel({
   const [message, setMessage] = useState("");
   const [pending, setPending] = useAtom(pendingAnnotationReviewAtom);
   const setLabel = useSetAtom(activeSpanLabelAtom);
-  const { pdfAnnotations, addMultipleAnnotations, addDocTypeAnnotations } =
-    usePdfAnnotations();
+  const {
+    pdfAnnotations,
+    setPdfAnnotations,
+    addMultipleAnnotations,
+    addDocTypeAnnotations,
+  } = usePdfAnnotations();
   const { data: status } = useQuery(GET_ANNOTATION_REVIEW_STATUS, {
     variables: { documentId, corpusId },
   });
@@ -119,16 +128,42 @@ export function AnnotationVersionReviewPanel({
           .filter((annotation) => annotation.versionState)
           .map((annotation) => (
             <span key={annotation.id}>
-              {annotation.annotationLabel.text} ·{" "}
-              {VERSION_STATE_LABELS[annotation.versionState!]}{" "}
+              {annotation.annotationLabel.text}{" "}
+              <VersionStateBadge state={annotation.versionState} />{" "}
             </span>
           ))}
       </Review>
     );
   }
   if (!status?.document?.parent) return null;
-  const count = status.document.staleAnnotationCount;
+  const count = status.document.annotationsNeedingReview;
   const busy = carrying || dropping;
+  // Mirrors the server: a dropped successor leaves its edges, and an edge
+  // left without a source or target goes with it.
+  const removeLocally = (id: string) =>
+    setPdfAnnotations(
+      (prev) =>
+        new PdfAnnotations(
+          prev.annotations.filter((annotation) => annotation.id !== id),
+          prev.relations
+            .map(
+              (relation) =>
+                new RelationGroup(
+                  relation.sourceIds.filter((other) => other !== id),
+                  relation.targetIds.filter((other) => other !== id),
+                  relation.label,
+                  relation.id,
+                  relation.structural
+                )
+            )
+            .filter(
+              (relation) =>
+                relation.sourceIds.length && relation.targetIds.length
+            ),
+          prev.docTypes.filter((annotation) => annotation.id !== id),
+          true
+        )
+    );
   const decide = async (row: AnnotationReviewRow, approve: boolean) => {
     setMessage("");
     try {
@@ -146,6 +181,8 @@ export function AnnotationVersionReviewPanel({
           addMultipleAnnotations([convertToServerAnnotation(successor)]);
       } else {
         await drop({ variables });
+        if (row.successor && store.get(selectedDocumentAtom)?.id === documentId)
+          removeLocally(row.successor.id);
       }
     } catch (err) {
       setMessage(
@@ -159,7 +196,7 @@ export function AnnotationVersionReviewPanel({
   return (
     <Review aria-label="Annotation version review">
       <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}>
-        Carried-over annotations{count ? ` · ${count} stale` : ""}
+        Carried-over annotations{count ? ` · ${count} to review` : ""}
       </button>
       {reviewPending && (
         <span role="status" aria-label="Annotation placement">
@@ -172,10 +209,11 @@ export function AnnotationVersionReviewPanel({
       {open && (
         <>
           <p>
-            Review annotations from the previous version. Approve an exact
-            match, place a corrected annotation, or drop one that no longer
-            applies. Re-create any relationships between annotations after
-            reviewing their endpoints.
+            Annotations from the previous version were carried here
+            automatically where their text still matches exactly. Nothing is
+            confirmed until you approve it: approve a match, place a corrected
+            annotation, or drop one that no longer applies. Relationships follow
+            once both of their annotations are on this version.
           </p>
           {readOnly && (
             <p>
@@ -192,13 +230,16 @@ export function AnnotationVersionReviewPanel({
               <article key={row.annotation.id}>
                 <strong>
                   {row.annotation.annotationLabel?.text || "Annotation"}
-                </strong>
-                {" · "}
-                <span>{VERSION_STATE_LABELS[row.state]}</span>
+                </strong>{" "}
+                <VersionStateBadge state={row.state} />
                 <blockquote>{row.annotation.rawText}</blockquote>
-                {row.state === "STALE" ? (
+                {row.successor &&
+                  row.successor.rawText !== row.annotation.rawText && (
+                    <p>Now: {row.successor.rawText}</p>
+                  )}
+                {PENDING_VERSION_STATES.has(row.state) ? (
                   <>
-                    {!row.proposedPlacement && (
+                    {!row.successor && (
                       <p>
                         No unique exact match. Place it on the new text or drop
                         it.
@@ -206,7 +247,7 @@ export function AnnotationVersionReviewPanel({
                     )}
                     <button
                       type="button"
-                      disabled={readOnly || busy || !row.proposedPlacement}
+                      disabled={readOnly || busy || !row.successor}
                       onClick={() => void decide(row, true)}
                     >
                       Approve
@@ -253,7 +294,7 @@ export function AnnotationVersionReviewPanel({
             ))}
           </div>
           {data?.annotationVersionReview.length === 0 && (
-            <p>No human annotations to review from the previous version.</p>
+            <p>No human annotations were carried from the previous version.</p>
           )}
         </>
       )}

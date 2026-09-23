@@ -4117,7 +4117,7 @@ type DocumentType implements Node {
   Get the folder this document is in within a specific corpus (null = root)
   """
   folderInCorpus(corpusId: ID!): CorpusFolderType
-  staleAnnotationCount(corpusId: ID!): Int!
+  annotationsNeedingReview(corpusId: ID!): Int!
 }
 
 scalar UUID
@@ -10545,6 +10545,7 @@ type AutomationCredentialChoicePage {
 }
 
 enum AnnotationVersionState {
+  AUTO
   STALE
   REAPPROVED
   CORRECTED
@@ -10554,7 +10555,6 @@ enum AnnotationVersionState {
 type AnnotationVersionReview {
   annotation: AnnotationType!
   state: AnnotationVersionState!
-  proposedPlacement: GenericScalar
   successor: AnnotationType
   reviewedBy: UserType
   reviewedAt: DateTime

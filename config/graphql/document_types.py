@@ -1779,8 +1779,8 @@ class DocumentType(Node):
             node_type_name="CorpusReferenceType",
         )
 
-    @strawberry.field(name="staleAnnotationCount")
-    def stale_annotation_count(
+    @strawberry.field(name="annotationsNeedingReview")
+    def annotations_needing_review(
         self, info: strawberry.Info, corpus_id: strawberry.ID
     ) -> int:
         from config.graphql.annotation_version_review import _pk
@@ -1789,7 +1789,7 @@ class DocumentType(Node):
         )
 
         try:
-            return AnnotationVersionReviewService.stale_count(
+            return AnnotationVersionReviewService.pending_count(
                 info.context.user, self.id, _pk(corpus_id, "CorpusType")
             )
         except PermissionDenied:

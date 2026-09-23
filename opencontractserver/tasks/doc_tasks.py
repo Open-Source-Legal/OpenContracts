@@ -452,6 +452,11 @@ def set_doc_lock_state(*args, locked: bool, doc_id: int):
                 )
             )
 
+            if document.parent_id:
+                transaction.on_commit(
+                    partial(carry_annotations_to_new_version.delay, doc_id=doc_id)
+                )
+
             for data in corpus_data:
                 process_corpus_action.delay(
                     corpus_id=data["corpus_id"],
@@ -459,6 +464,16 @@ def set_doc_lock_state(*args, locked: bool, doc_id: int):
                     user_id=data["corpus__creator_id"],
                     trigger=CorpusActionTrigger.ADD_DOCUMENT,
                 )
+
+
+@celery_app.task()
+def carry_annotations_to_new_version(doc_id: int) -> None:
+    """Carry the previous version's human annotations once this one is parsed."""
+    from opencontractserver.annotations.services.version_review import (
+        AnnotationVersionReviewService,
+    )
+
+    AnnotationVersionReviewService.carry_version(Document.objects.get(pk=doc_id))
 
 
 def _queue_embeddings_for_unlocked_document(
