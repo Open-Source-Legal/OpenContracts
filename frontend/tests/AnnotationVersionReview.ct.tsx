@@ -109,3 +109,16 @@ test("read-only viewers can inspect the review but cannot decide", async ({
   expect((await review.boundingBox())!.width).toBeLessThanOrEqual(390);
   await review.screenshot({ path: testInfo.outputPath("review-mobile.png") });
 });
+
+test("a superseded version shows how its document labels were carried, without review actions", async ({
+  mount,
+  page,
+}) => {
+  await mount(<AnnotationVersionReviewTestWrapper historical />);
+  const labels = page.getByRole("region", { name: "Document label review" });
+  await expect(labels).toContainText("Services Agreement");
+  await expect(labels).toContainText("Approved");
+  await expect(
+    page.getByRole("button", { name: /Carried-over annotations/ })
+  ).toHaveCount(0);
+});

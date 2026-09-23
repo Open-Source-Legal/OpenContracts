@@ -13,6 +13,7 @@ import {
   usePdfAnnotations,
 } from "../src/components/annotator/hooks/AnnotationHooks";
 import {
+  DocTypeAnnotation,
   PdfAnnotations,
   ServerSpanAnnotation,
 } from "../src/components/annotator/types/annotations";
@@ -57,6 +58,13 @@ const carriedText = (text: string, id: string, start = 14) =>
   );
 
 /** Stands in for the viewer: its saved annotations, plus a selection once placing. */
+const docLabel = {
+  ...label,
+  id: "doc-label",
+  text: "Services Agreement",
+  labelType: LabelType.DocTypeLabel,
+} as AnnotationLabelType;
+
 function Viewer() {
   const pending = useAtomValue(pendingAnnotationReviewAtom);
   const create = useCreateAnnotation();
@@ -84,9 +92,12 @@ function Viewer() {
 export function AnnotationVersionReviewTestWrapper({
   readOnly = false,
   rejectPlacement = false,
+  historical = false,
 }: {
   readOnly?: boolean;
   rejectPlacement?: boolean;
+  /** View the superseded version, whose document label was already approved. */
+  historical?: boolean;
 }) {
   const [lastPlacement, setLastPlacement] = useState("");
   const setup = useMemo(() => {
@@ -102,7 +113,11 @@ export function AnnotationVersionReviewTestWrapper({
     // The version-up already carried the one unique exact match.
     store.set(
       pdfAnnotationsAtom,
-      new PdfAnnotations([carriedText("Pay promptly.", "carried-0")], [], [])
+      new PdfAnnotations(
+        [carriedText("Pay promptly.", "carried-0")],
+        [],
+        [new DocTypeAnnotation(docLabel, [], "doc-label", "REAPPROVED")]
+      )
     );
     const successorOf = (row: AnnotationReviewRow, rawText: string) => ({
       ...row.annotation,
@@ -170,7 +185,7 @@ export function AnnotationVersionReviewTestWrapper({
             document: {
               __typename: "DocumentType",
               id: "new",
-              isCurrent: true,
+              isCurrent: !historical,
               parent: { id: "old" },
               annotationsNeedingReview: rows.filter((row) =>
                 PENDING_VERSION_STATES.has(row.state)
@@ -218,7 +233,7 @@ export function AnnotationVersionReviewTestWrapper({
       },
     ];
     return { store, mocks };
-  }, [rejectPlacement]);
+  }, [rejectPlacement, historical]);
   return (
     <MemoryRouter>
       <Provider store={setup.store}>
