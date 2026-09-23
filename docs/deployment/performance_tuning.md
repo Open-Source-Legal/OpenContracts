@@ -196,14 +196,13 @@ routes ingest calls, which the tasks in `opencontractserver/tasks/embeddings_tas
 tag `use_bulk_pool=True`, to that pool. Queries stay on `embeddings_microservice_url`
 (`MicroserviceEmbedder._get_service_config`). Unset means one pool, as before.
 
-```bash
-EMBEDDINGS_MICROSERVICE_URL_BULK=http://vector-embedder-bulk:8000
-python manage.py migrate_pipeline_settings --component MicroserviceEmbedder --force
-```
+On an existing install, set the field in **System Settings** (MicroserviceEmbedder).
+The env var only seeds new installs: `migrate_pipeline_settings` keeps stored values,
+and every deploy has already stored the empty default. Don't use
+`migrate_pipeline_settings --force` here. It resets every setting on the component,
+and settings that have no env var (`embedding_model_revision`,
+`no_external_provider_fees`) go back to their defaults, which breaks budgeted runs.
 
-- `--force` is needed because the command preserves existing DB values, and
-  every deploy has already stored the empty default. Alternatively, set the
-  field in System Settings.
 - The bulk pool **must serve the same model** as the query pool. It is left out
   of the vector identity fingerprint (`utils/embedding_identity.py`), so
   vectors from either pool match each other.
