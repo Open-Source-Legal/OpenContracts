@@ -189,44 +189,27 @@ celery -A config.celery_app worker --concurrency=8 -Q ingest
 
 ### Separate "bulk" embeddings pool for ingest
 
-Search queries embed one short string and need a *warm* microservice pod (a
-cold start adds seconds to every query). Batch ingest embeds thousands of
-strings and is happy to hit an autoscaled / scale-to-zero pool. Serving both
-from one URL forces a compromise.
-
-`MicroserviceEmbedder` supports a dedicated bulk pool without adding a parallel
-config pathway — the bulk URL is just another field on its `Settings`
-singleton (`embeddings_microservice_url_bulk`, seeded from the
-`EMBEDDINGS_MICROSERVICE_URL_BULK` env var via `migrate_pipeline_settings`,
-alongside `embeddings_microservice_url`). The ingest Celery tasks in
-`opencontractserver/tasks/embeddings_task.py` tag their embed calls with
-`use_bulk_pool=True`; `MicroserviceEmbedder._get_service_config` then routes
-those to the bulk URL while every (untagged) search query stays on
-`embeddings_microservice_url`. When no bulk URL is configured the flag is a
-no-op and ingest stays on the query pool, so single-pool deployments need no
-change.
+Search queries need a warm embedder; batch ingest is happy on an autoscaled,
+scale-to-zero pool. Setting `MicroserviceEmbedder`'s optional
+`embeddings_microservice_url_bulk` (seeded from `EMBEDDINGS_MICROSERVICE_URL_BULK`)
+routes ingest calls, which the tasks in `opencontractserver/tasks/embeddings_task.py`
+tag `use_bulk_pool=True`, to that pool. Queries stay on `embeddings_microservice_url`
+(`MicroserviceEmbedder._get_service_config`). Unset means one pool, as before.
 
 ```bash
-# Point ingest at a separate autoscaled pool; queries stay on the warm pod.
-EMBEDDINGS_MICROSERVICE_URL=http://vector-embedder:8000          # warm queries
-EMBEDDINGS_MICROSERVICE_URL_BULK=http://vector-embedder-bulk:8000 # bulk ingest
-# then reseed the MicroserviceEmbedder singleton so it picks up the new URL:
+EMBEDDINGS_MICROSERVICE_URL_BULK=http://vector-embedder-bulk:8000
 python manage.py migrate_pipeline_settings --component MicroserviceEmbedder --force
 ```
 
-**Why `--force`:** `migrate_pipeline_settings` *preserves* existing
-`PipelineSettings` values on re-run unless `--force` is given
-(`migrate_pipeline_settings.py:233`). A deploy that ran the command once has
-already persisted `embeddings_microservice_url_bulk: ""` (its default), so a
-later plain `migrate_pipeline_settings` after setting the env var would keep the
-empty value and silently leave ingest on the query pool. `--component
-MicroserviceEmbedder` scopes the force to this one component so any hand-tuned
-DB settings on other components are left untouched.
-
-**Scope (v1):** the bulk pool reuses the query pool's `vector_embedder_api_key`
-and Cloud Run IAM auth — it is a separate URL, not a separately-credentialed
-deployment. If the bulk pool needs its own API key, that is not configurable
-yet.
+- `--force` is needed because the command preserves existing DB values, and
+  every deploy has already stored the empty default. Alternatively, set the
+  field in System Settings.
+- The bulk pool **must serve the same model** as the query pool. It is left out
+  of the vector identity fingerprint (`utils/embedding_identity.py`), so
+  vectors from either pool match each other.
+- It shares the query pool's API key and Cloud Run IAM setting. Budgeted
+  ingestion runs (`embed_text_accounted`) stay on the policy-validated query
+  endpoint.
 
 ## What's still slow (open work)
 

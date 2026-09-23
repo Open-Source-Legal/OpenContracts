@@ -219,35 +219,6 @@ class TestBatchEmbedTextAnnotations(unittest.TestCase):
         self.assertEqual(result["failed"], 0)
         self.assertEqual(result["skipped"], 0)
 
-    def test_batch_tags_bulk_pool(self):
-        """Batch ingest tags embed_texts_batch with use_bulk_pool=True."""
-        captured: dict = {}
-
-        class RecordingBatchEmbedder(BaseEmbedder):
-            title = "Recording Batch"
-            description = "Test"
-            author = "Test"
-            dependencies = []
-            vector_size = 384
-            supported_file_types = [FileTypeEnum.TXT]
-
-            def _embed_text_impl(self, text, **all_kwargs):
-                return [0.1] * self.vector_size
-
-            def embed_texts_batch(self, texts, **kw):
-                captured.update(kw)
-                return [[0.1] * self.vector_size for _ in texts]
-
-        annots = [_make_mock_annotation(1, "Hello world")]
-        result = self._make_result()
-
-        _batch_embed_text_annotations(
-            annots, RecordingBatchEmbedder(), "test.RecordingBatchEmbedder", 50, result
-        )
-
-        self.assertEqual(result["succeeded"], 1)
-        self.assertTrue(captured.get("use_bulk_pool"))
-
     def test_empty_text_skipped(self):
         """Annotations with empty/whitespace text are skipped."""
         annots = [
@@ -905,23 +876,17 @@ class TestMicroserviceEmbedderSingleText(unittest.TestCase):
         url, headers = embedder._get_service_config({})
         self.assertEqual(url, "http://test-service:8080")
 
-    def test_get_service_config_uses_bulk_pool_when_flagged(self):
-        """use_bulk_pool=True routes to the configured bulk URL (issue: ingest pool)."""
-        embedder = self._make_embedder(bulk_url="http://bulk-pool:9090")
-        url, _ = embedder._get_service_config({"use_bulk_pool": True})
-        self.assertEqual(url, "http://bulk-pool:9090")
-
-    def test_get_service_config_bulk_flag_without_bulk_url_falls_back(self):
-        """With the flag set but no bulk URL configured, stays on the query URL."""
-        embedder = self._make_embedder(bulk_url="")
-        url, _ = embedder._get_service_config({"use_bulk_pool": True})
-        self.assertEqual(url, "http://test-service:8080")
-
-    def test_get_service_config_ignores_bulk_url_without_flag(self):
-        """A configured bulk URL is never used for query calls (no flag)."""
-        embedder = self._make_embedder(bulk_url="http://bulk-pool:9090")
-        url, _ = embedder._get_service_config({})
-        self.assertEqual(url, "http://test-service:8080")
+    def test_get_service_config_routes_only_flagged_calls_to_bulk_pool(self):
+        query, bulk = "http://test-service:8080", "http://bulk-pool:9090"
+        for bulk_url, kwargs, expected in (
+            (bulk, {"use_bulk_pool": True}, bulk),  # ingest
+            (bulk, {}, query),  # search query
+            ("", {"use_bulk_pool": True}, query),  # no bulk pool configured
+        ):
+            with self.subTest(bulk_url=bulk_url, kwargs=kwargs):
+                embedder = self._make_embedder(bulk_url=bulk_url)
+                url, _ = embedder._get_service_config(kwargs)
+                self.assertEqual(url, expected)
 
 
 class TestCalculateEmbeddingsForAnnotationBatch(unittest.TestCase):

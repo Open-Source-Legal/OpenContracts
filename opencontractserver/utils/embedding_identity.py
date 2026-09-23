@@ -37,6 +37,8 @@ def embedding_configuration(embedder) -> str:
         # Billing does not alter vectors. Preserve legacy identities until the
         # operator supplies the newly supported model revision setting.
         config.pop("no_external_provider_fees", None)
+        # The bulk pool is ingest routing; it must serve the same model.
+        config.pop("embeddings_microservice_url_bulk", None)
         if not config.get("embedding_model_revision"):
             config.pop("embedding_model_revision", None)
     payload = [

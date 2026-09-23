@@ -74,9 +74,7 @@ def _create_text_embedding(
         f"with embedder {embedder_path} (text length={len(text)})"
     )
 
-    # Ingest routes through the dedicated bulk pool when one is configured
-    # (see MicroserviceEmbedder._get_service_config); embedders without a bulk
-    # URL ignore the flag and stay on their query URL.
+    # Ingest is bulk work; see MicroserviceEmbedder._get_service_config.
     vector = embedder.embed_text(text, use_bulk_pool=True)
 
     if vector is None:
@@ -633,7 +631,6 @@ def _batch_embed_items(
 
     def _embed_one(chunk):
         texts_only = [text for _, text in chunk]
-        # Ingest routes through the dedicated bulk pool when configured.
         return chunk, embedder.embed_texts_batch(texts_only, use_bulk_pool=True)
 
     # Map future -> chunk index for logging/sub-batch numbering.
@@ -1105,7 +1102,6 @@ def _embed_relationship(
         embedder_path,
         len(text),
     )
-    # Ingest routes through the dedicated bulk pool when configured.
     vector = embedder.embed_text(text, use_bulk_pool=True)
     if vector is None:
         logger.error(
