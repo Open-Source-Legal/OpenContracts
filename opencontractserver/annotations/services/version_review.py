@@ -256,7 +256,8 @@ class AnnotationVersionReviewService(BaseService):
         }
         originals = (
             related.filter(
-                Q(source_annotations__in=chain) | Q(target_annotations__in=chain),
+                Q(source_annotations__in=chain.keys())
+                | Q(target_annotations__in=chain.keys()),
                 corpus_id=corpus_id,
                 structural=False,
                 analysis__isnull=True,

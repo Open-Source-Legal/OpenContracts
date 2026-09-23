@@ -452,6 +452,9 @@ def set_doc_lock_state(*args, locked: bool, doc_id: int):
                 )
             )
 
+            # Relies on the version-up committing the new DocumentPath before
+            # parsing is queued (``import_document`` does both in one atomic
+            # block); a version with no active path would never be carried.
             if document.parent_id:
                 transaction.on_commit(
                     partial(carry_annotations_to_new_version.delay, doc_id=doc_id)
