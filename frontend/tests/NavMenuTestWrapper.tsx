@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { MockedProvider } from "@apollo/client/testing";
 import { InMemoryCache } from "@apollo/client";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { Provider as JotaiProvider } from "jotai";
 import { Auth0Provider } from "@auth0/auth0-react";
 import {
@@ -25,6 +25,11 @@ export interface MockUserType {
 interface NavMenuTestWrapperProps {
   initialPath?: string;
   mockUser?: MockUserType | null;
+  showLocation?: boolean;
+}
+
+function CurrentLocation() {
+  return <output aria-label="Current path">{useLocation().pathname}</output>;
 }
 
 // Create a minimal cache
@@ -40,6 +45,7 @@ const createCache = () => new InMemoryCache();
 export const NavMenuTestWrapper: React.FC<NavMenuTestWrapperProps> = ({
   initialPath = "/",
   mockUser = null,
+  showLocation = false,
 }) => {
   // Track when auth state is ready
   const [isReady, setIsReady] = useState(false);
@@ -68,6 +74,7 @@ export const NavMenuTestWrapper: React.FC<NavMenuTestWrapperProps> = ({
       authorizationParams={{ redirect_uri: window.location.origin }}
     >
       <MemoryRouter initialEntries={[initialPath]}>
+        {showLocation && <CurrentLocation />}
         <JotaiProvider>
           <MockedProvider mocks={[]} cache={createCache()} addTypename={false}>
             <NavMenu />

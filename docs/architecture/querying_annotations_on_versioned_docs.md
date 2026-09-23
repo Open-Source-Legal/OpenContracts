@@ -21,6 +21,13 @@ All queries default to the latest version (`Document.is_current=True`) unless a 
 ### P3: Corpus Context Primacy
 Within a corpus context, only documents with active filesystem paths are considered. A document may be globally current but locally deleted in a specific corpus.
 
+Corpus linkage is separate from currency. `AnnotationService.get_document_annotations`'s
+`check_current_version=False` (historical reads) relaxes the `is_current` requirement on
+the `DocumentPath` but still requires one: effective permissions are
+`MIN(document, corpus)`, and structural annotations are shared across corpuses by
+`structural_set`, so a read scoped to a corpus the document never belonged to must
+return nothing.
+
 ## Annotation Conventions
 
 ### A1: Annotation Version Binding

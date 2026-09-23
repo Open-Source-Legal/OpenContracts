@@ -2,7 +2,7 @@
 
 -r base.txt
 
-psycopg2==2.9.12  # https://github.com/psycopg/psycopg2
+psycopg2==2.9.13  # https://github.com/psycopg/psycopg2
 gunicorn==26.2.0  # https://github.com/benoitc/gunicorn
 collectfasta==3.3.4  # https://github.com/jasongi/collectfasta (maintained fork of Collectfast)
 
@@ -13,7 +13,7 @@ google-auth==2.58.0
 # Not directly required, pinned by Snyk to avoid a vulnerability
 # Duplicated accross requirements files due to Snyk not understanding requirements inheritance
 # ------------------------------------------------------------------------------
-django==5.2.16  # https://www.djangoproject.com/
+django==5.2.17  # https://www.djangoproject.com/
 twisted>=26.4.0 # not directly required, pinned by Snyk to avoid a vulnerability
 ipython>=9.17.1 # not directly required, pinned by Snyk to avoid a vulnerability
 requests>=2.34.2,<3 # not directly required, pinned by Snyk to avoid a vulnerability

@@ -1,0 +1,1 @@
+- Automation credential minting and rotation now issue tokens only for the signed-in account, including for administrators. Non-admins can manage their own tokens with explicit scopes and corpuses they created; global admin scopes and unrestricted corpus access remain unavailable. Administrators retain credential inspection and revocation oversight.

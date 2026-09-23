@@ -21,6 +21,7 @@ import {
   TABLET_BREAKPOINT,
 } from "../../assets/configurations/constants";
 import { backendUserObj } from "../../graphql/cache";
+import { decodeRelayPk } from "../../utils/userDisplay";
 import {
   AutomationCredential,
   GET_AUTOMATION_CREDENTIALS,
@@ -112,11 +113,9 @@ function PageButtons({
 }
 
 function ChoicePicker({
-  kind,
   selected,
   onChange,
 }: {
-  kind: "principal" | "corpus";
   selected: Choice[];
   onChange: (choices: Choice[]) => void;
 }) {
@@ -125,17 +124,15 @@ function ChoicePicker({
   const { data, loading, error } = useQuery<{
     automationCredentialChoices: ChoicePage;
   }>(GET_AUTOMATION_CHOICES, {
-    variables: { kind, search, offset },
+    variables: { kind: "corpus", search, offset },
     fetchPolicy: "no-cache",
   });
   const page = data?.automationCredentialChoices;
   return (
     <fieldset>
-      <legend>
-        {kind === "principal" ? "Active principal" : "Allowed corpuses"}
-      </legend>
+      <legend>Allowed corpuses</legend>
       <Input
-        aria-label={`Search ${kind}`}
+        aria-label="Search corpus"
         placeholder="Search by name or ID"
         value={search}
         onChange={(e) => {
@@ -153,14 +150,12 @@ function ChoicePicker({
       {page?.items.map((choice) => (
         <label key={choice.id}>
           <input
-            type={kind === "principal" ? "radio" : "checkbox"}
-            name={kind}
+            type="checkbox"
+            name="corpus"
             checked={selected.some((c) => c.id === choice.id)}
             onChange={(e) =>
               onChange(
-                kind === "principal"
-                  ? [choice]
-                  : e.target.checked
+                e.target.checked
                   ? [...selected, choice]
                   : selected.filter((c) => c.id !== choice.id)
               )
@@ -183,12 +178,13 @@ function ChoicePicker({
 
 function MintForm({
   busy,
+  isSuperuser,
   onMint,
 }: {
   busy: boolean;
+  isSuperuser: boolean;
   onMint: (variables: Record<string, unknown>) => void;
 }) {
-  const [principal, setPrincipal] = useState<Choice[]>([]);
   const [corpuses, setCorpuses] = useState<Choice[]>([]);
   const [name, setName] = useState("");
   const [scopes, setScopes] = useState<string[]>([]);
@@ -199,7 +195,6 @@ function MintForm({
     { fetchPolicy: "no-cache" }
   );
   const valid =
-    principal.length === 1 &&
     name.trim() &&
     scopes.length > 0 &&
     (allCorpuses || corpuses.length > 0) &&
@@ -211,7 +206,6 @@ function MintForm({
         e.preventDefault();
         if (valid && !busy)
           onMint({
-            userId: principal[0].id,
             name,
             scopes,
             corpusIds: allCorpuses ? null : corpuses.map((c) => c.id),
@@ -220,11 +214,7 @@ function MintForm({
           });
       }}
     >
-      <ChoicePicker
-        kind="principal"
-        selected={principal}
-        onChange={setPrincipal}
-      />
+      <p>This credential will use your account’s permissions.</p>
       <FormField>
         <label htmlFor="credential-name">Name</label>
         <Input
@@ -255,20 +245,20 @@ function MintForm({
           </label>
         ))}
       </fieldset>
-      <label>
-        <input
-          type="checkbox"
-          checked={allCorpuses}
-          onChange={(e) => setAllCorpuses(e.target.checked)}
-        />
-        Allow all corpuses (including future corpuses)
-      </label>
+      {isSuperuser ? (
+        <label>
+          <input
+            type="checkbox"
+            checked={allCorpuses}
+            onChange={(e) => setAllCorpuses(e.target.checked)}
+          />
+          Allow all corpuses (including future corpuses)
+        </label>
+      ) : (
+        <p>Select one or more corpuses you created.</p>
+      )}
       {!allCorpuses && (
-        <ChoicePicker
-          kind="corpus"
-          selected={corpuses}
-          onChange={setCorpuses}
-        />
+        <ChoicePicker selected={corpuses} onChange={setCorpuses} />
       )}
       <FormField>
         <label htmlFor="credential-days">Expires in days</label>
@@ -289,7 +279,13 @@ function MintForm({
   );
 }
 
-function CredentialAdmin() {
+function CredentialManager({
+  userId,
+  isSuperuser,
+}: {
+  userId: string;
+  isSuperuser: boolean;
+}) {
   const client = useApolloClient();
   const [offset, setOffset] = useState(0);
   const [showMint, setShowMint] = useState(false);
@@ -378,7 +374,7 @@ function CredentialAdmin() {
 
   return (
     <Container>
-      <Link to="/admin/settings">Back to admin settings</Link>
+      {isSuperuser && <Link to="/admin/settings">Back to admin settings</Link>}
       <h1>Automation credentials</h1>
       <p>
         Access is limited by scopes, corpus restrictions and the principal’s
@@ -394,6 +390,7 @@ function CredentialAdmin() {
         <CardSegment>
           <MintForm
             busy={busy}
+            isSuperuser={isSuperuser}
             onMint={(variables) =>
               void run(
                 MINT_AUTOMATION_CREDENTIAL,
@@ -525,12 +522,14 @@ function CredentialAdmin() {
             </Button>
           ) : (
             <>
-              <Button
-                disabled={detail?.status !== "active"}
-                onClick={() => setAction("rotate")}
-              >
-                Rotate
-              </Button>
+              {detail?.userId === userId && (
+                <Button
+                  disabled={detail.status !== "active"}
+                  onClick={() => setAction("rotate")}
+                >
+                  Rotate
+                </Button>
+              )}
               <Button
                 disabled={detail?.status === "revoked"}
                 onClick={() => setAction("revoke")}
@@ -601,9 +600,13 @@ function CredentialAdmin() {
 export function AutomationCredentialManagement() {
   const user = useReactiveVar(backendUserObj);
   // Remount on identity changes so an issued token cannot survive logout/login.
-  return user?.isSuperuser ? (
-    <CredentialAdmin key={user.id} />
+  return user ? (
+    <CredentialManager
+      key={`${user.id}:${!!user.isSuperuser}`}
+      userId={decodeRelayPk(user.id) ?? user.id}
+      isSuperuser={!!user.isSuperuser}
+    />
   ) : (
-    <p role="alert">An active superuser login is required.</p>
+    <p role="alert">An active login is required.</p>
   );
 }

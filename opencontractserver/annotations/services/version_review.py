@@ -84,6 +84,31 @@ class AnnotationVersionReviewService(BaseService):
         return document, corpus
 
     @classmethod
+    def _successor(cls, user, document_id, corpus_id):
+        """The one reviewable target: the current version immediately after this one.
+
+        Every surface asks this question — the annotation badge, the stale
+        count, and the mutations that record a decision. They share this
+        definition so a row can never be reported reviewable by one and
+        rejected by another (an annotation stranded two versions back reports
+        no state rather than a ``STALE`` nothing will accept).
+        """
+        if not document_id:
+            return None
+        return (
+            Document.objects.visible_to_user(user, lightweight=True)
+            .filter(
+                parent_id=document_id,
+                is_current=True,
+                path_records__corpus_id=corpus_id,
+                path_records__is_current=True,
+                path_records__is_deleted=False,
+            )
+            .order_by("id")
+            .first()
+        )
+
+    @classmethod
     def _previous(cls, user, document, corpus):
         return (
             cls._human_visible(user)
@@ -177,16 +202,11 @@ class AnnotationVersionReviewService(BaseService):
         return rows
 
     @classmethod
-    def pending(cls, user, document_id, corpus_id):
-        return [
-            row
-            for row in cls.review(user, document_id, corpus_id)
-            if row.state == "STALE"
-        ]
-
-    @classmethod
     def stale_count(cls, user, document_id, corpus_id):
         document, corpus = cls._scope(user, document_id, corpus_id)
+        # A badge on a version nothing can be reviewed against is noise.
+        if cls._successor(user, document.parent_id, corpus.pk) != document:
+            return 0
         decided = AnnotationVersionDecision.objects.filter(
             annotation_id=OuterRef("pk"),
             target_document=document,
@@ -200,28 +220,28 @@ class AnnotationVersionReviewService(BaseService):
         key = (annotation.document_id, annotation.corpus_id)
         cache = getattr(request, "_annotation_version_states", {})
         if key not in cache:
-            child = (
-                Document.objects.visible_to_user(user, lightweight=True)
-                .filter(
-                    parent_id=annotation.document_id,
-                    path_records__corpus_id=annotation.corpus_id,
-                    path_records__is_deleted=False,
-                )
-                .order_by("id")
-                .first()
-            )
             states = {}
-            if child and cls.get_or_none(Corpus, annotation.corpus_id, user):
+            if cls.get_or_none(Corpus, annotation.corpus_id, user):
                 human = cls._human_visible(user).filter(
                     document_id=annotation.document_id,
                     corpus_id=annotation.corpus_id,
                 )
-                states = dict.fromkeys(human.values_list("pk", flat=True), "STALE")
+                # A recorded decision is history and always reported. STALE is
+                # a call to action, so it is only reported while a successor
+                # exists that the review mutations would actually accept.
+                if cls._successor(user, annotation.document_id, annotation.corpus_id):
+                    states = dict.fromkeys(human.values_list("pk", flat=True), "STALE")
+                # At most one decision per annotation, so nothing collides in
+                # the dict below: the row is unique per (annotation, target),
+                # and a document has at most one child — `parent` is set only
+                # by the version-up in `documents/versioning.py` (which
+                # supersedes the *current* version), while corpus add/fork
+                # roots a new content tree with `parent=None`. The ordering is
+                # therefore defensive, not load-bearing.
                 states.update(
-                    AnnotationVersionDecision.objects.filter(
-                        target_document=child,
-                        annotation__in=human,
-                    ).values_list("annotation_id", "decision")
+                    AnnotationVersionDecision.objects.filter(annotation__in=human)
+                    .order_by("target_document_id")
+                    .values_list("annotation_id", "decision")
                 )
             cache[key] = states
             if request is not None:
@@ -248,16 +268,7 @@ class AnnotationVersionReviewService(BaseService):
                     "Review requires update permission on the document and corpus."
                 )
         document = Document.objects.select_for_update().get(pk=document.pk)
-        if (
-            document.parent_id != annotation.document_id
-            or not document.is_current
-            or not DocumentPath.objects.filter(
-                document=document,
-                corpus=corpus,
-                is_current=True,
-                is_deleted=False,
-            ).exists()
-        ):
+        if cls._successor(user, annotation.document_id, corpus.pk) != document:
             raise ValidationError(
                 "Review must target the current, immediately following version."
             )
@@ -270,14 +281,14 @@ class AnnotationVersionReviewService(BaseService):
         return annotation, document, corpus
 
     @classmethod
-    def _manual_placement(cls, annotation, document, placement):
+    def _manual_placement(cls, annotation, document, placement, *, loaded):
         """Derive content and bounds from the selected positions on the target."""
         payload = placement.get("json") if isinstance(placement, dict) else None
         if not isinstance(payload, dict):
             raise ValidationError("Select a placement on the new document.")
         if annotation.annotation_type == DOC_TYPE_LABEL:
-            return cls.propose(annotation, document)
-        text, layer, annotation_type = cls._load_placement_source(document)
+            return cls.propose(annotation, document, loaded=loaded)
+        text, layer, annotation_type = loaded
         if annotation_type is None:
             raise ValidationError(
                 "The new document is not ready for annotation placement."
@@ -346,11 +357,15 @@ class AnnotationVersionReviewService(BaseService):
             ).first()
             if label is None or label.label_type != annotation.annotation_type:
                 raise ValidationError("Choose a compatible label from this corpus.")
-        proposal = cls.propose(annotation, document)
+        # One parse of the target's text/token layer serves both the
+        # suggestion and the manual placement — this runs under the review
+        # locks, so every extra read holds them longer.
+        loaded = cls._load_placement_source(document)
+        proposal = cls.propose(annotation, document, loaded=loaded)
         selected = (
             proposal
             if placement is None
-            else cls._manual_placement(annotation, document, placement)
+            else cls._manual_placement(annotation, document, placement, loaded=loaded)
         )
         if selected is None:
             raise ValidationError(
