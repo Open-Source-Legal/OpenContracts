@@ -444,7 +444,7 @@ def run_post_processors(
     processor_paths: list[str],
     zip_bytes: bytes,
     export_data: OpenContractsExportDataJsonPythonType,
-    input_kwargs: dict[str, Any] = {},
+    input_kwargs: Optional[dict[str, Any]] = None,
 ) -> tuple[bytes, OpenContractsExportDataJsonPythonType]:
     """
     Load and run post-processors in sequence.
@@ -453,6 +453,8 @@ def run_post_processors(
         processor_paths: List of fully qualified Python paths to post-processor classes
         zip_bytes: The raw bytes of the zip file being created
         export_data: The export data dictionary that will be serialized to data.json
+        input_kwargs: Optional kwargs forwarded to every post-processor's
+            ``process_export`` call.
 
     Returns:
         Tuple containing:
@@ -461,6 +463,7 @@ def run_post_processors(
     """
     current_zip_bytes = zip_bytes
     current_export_data = export_data
+    kwargs = input_kwargs or {}
 
     for path in processor_paths:
         try:
@@ -474,7 +477,7 @@ def run_post_processors(
             processor = processor_class()
             logger.info(f"Running post-processor: {processor.title}")
             current_zip_bytes, current_export_data = processor.process_export(
-                current_zip_bytes, current_export_data, **input_kwargs
+                current_zip_bytes, current_export_data, **kwargs
             )
             logger.debug(f"Completed post-processor: {processor.title}")
         except Exception as e:
