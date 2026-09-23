@@ -102,7 +102,7 @@ jobs:
       # makes the contract explicit and resilient to future runner changes.
       - name: Build Django image (load locally for size budget gate)
         if: matrix.image == 'django'
-        uses: docker/build-push-action@v7.3.0
+        uses: docker/build-push-action@v7.4.0
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
@@ -162,7 +162,7 @@ jobs:
       # combined build-and-push path stays — no `load` involved.
       - name: Build and push non-Django image
         if: matrix.image != 'django'
-        uses: docker/build-push-action@v7.3.0
+        uses: docker/build-push-action@v7.4.0
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
