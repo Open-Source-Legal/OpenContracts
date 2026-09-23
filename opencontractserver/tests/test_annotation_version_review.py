@@ -264,6 +264,30 @@ class AnnotationVersionReviewTests(TestCase):
         )
         with self.assertRaisesMessage(ValidationError, "not awaiting review"):
             Review.carry_forward(self.user, self.pay.pk, self.v2.pk)
+        # The edge's ends were carried on different hops; it still lands on v3.
+        copy = Relationship.objects.get(document=v3)
+        self.assertEqual(
+            (
+                list(copy.source_annotations.values_list("pk", flat=True)),
+                list(copy.target_annotations.values_list("pk", flat=True)),
+            ),
+            ([chained.successor_id], [notify.successor_id]),
+        )
+
+    def test_versions_that_finish_parsing_out_of_order_still_carry_everything(self):
+        v3 = self.upload("Pay promptly. Notify the owner. Appendix.")
+        Review.carry_version(v3)  # v3 parses first: v2 has nothing carried yet
+        self.assertEqual(self.pending(document=v3), 0)
+
+        Review.carry_version(self.v2)  # v2 finishes late and re-runs its child
+
+        self.assertEqual(self.pending(document=v3), 3)
+        self.assertEqual(
+            Annotation.objects.filter(document=v3).count(),
+            2,
+            "Pay and Notify reach v3; the removed clause waits as STALE",
+        )
+        self.assertTrue(Relationship.objects.filter(document=v3).exists())
 
     def test_pdf_carry_and_placement_use_the_new_versions_real_tokens(self):
         tokens = [

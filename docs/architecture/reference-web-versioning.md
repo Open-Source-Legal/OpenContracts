@@ -98,12 +98,15 @@ rows (`human_annotations`). TXT offsets and PDF tokens use the shared
 successors, so an unreviewed `AUTO` chain stays `AUTO`. `STALE` rows still
 waiting on v2 are *moved* to v3 and matched again against its text, so an
 annotation is never stranded on a superseded version. Pending rows on a
-superseded version are history and cannot be acted on. Annotations older than
+superseded version are history and cannot be acted on. Versions may finish
+parsing out of order: a late pass into a superseded version still runs, then
+re-runs its parsed child, so the current version always ends up complete. Annotations older than
 the parent that never received a decision (pre-feature data) are not revived.
 
 **Relationships.** `_carry_relationships` copies a human `Relationship` onto the
-new version once every source and target annotation has a successor there — at
-carry time or when a later review supplies the last endpoint. Copies are
+new version once every source and target annotation resolves there through the
+successor chain (ends carried on different hops still meet) — at carry time or
+when a later review supplies the last endpoint. Copies are
 deduplicated by label and endpoint sets. Dropping a successor deletes any
 carried edge it leaves without a source or target. Edges to structural or
 analysis annotations stay on their original version.

@@ -210,20 +210,36 @@ class AnnotationVersionReviewService(BaseService):
 
     @staticmethod
     def _carry_relationships(document, corpus_id):
-        """Copy human relationships whose every endpoint now has a successor here."""
-        successors = dict(
+        """Copy human relationships whose every endpoint now has a successor here.
+
+        Endpoints are followed through the whole successor chain, so an edge
+        whose ends were carried on different hops still lands once both do.
+        """
+        chain = dict(
             AnnotationVersionDecision.objects.filter(
-                target_document=document,
+                target_document__version_tree_id=document.version_tree_id,
                 annotation__corpus_id=corpus_id,
                 successor__isnull=False,
             ).values_list("annotation_id", "successor_id")
         )
-        if not successors:
+        here = set(
+            Annotation.objects.filter(
+                document=document, pk__in=chain.values()
+            ).values_list("pk", flat=True)
+        )
+        if not here:
             return
 
-        def endpoints(relationship, mapping=None):
+        def resolve(pk):
+            seen = set()
+            while pk not in here and pk in chain and pk not in seen:
+                seen.add(pk)
+                pk = chain[pk]
+            return pk if pk in here else None
+
+        def endpoints(relationship, carried=False):
             ends = [
-                frozenset((mapping or {}).get(a.pk, a.pk) for a in annotations.all())
+                frozenset(resolve(a.pk) if carried else a.pk for a in annotations.all())
                 for annotations in (
                     relationship.source_annotations,
                     relationship.target_annotations,
@@ -240,8 +256,7 @@ class AnnotationVersionReviewService(BaseService):
         }
         originals = (
             related.filter(
-                Q(source_annotations__in=successors)
-                | Q(target_annotations__in=successors),
+                Q(source_annotations__in=chain) | Q(target_annotations__in=chain),
                 corpus_id=corpus_id,
                 structural=False,
                 analysis__isnull=True,
@@ -252,10 +267,9 @@ class AnnotationVersionReviewService(BaseService):
             .distinct()
         )
         for relationship in originals:
-            label, sources, targets = endpoints(relationship)
-            if not (sources | targets) <= successors.keys():
+            key = label, sources, targets = endpoints(relationship, carried=True)
+            if not sources or not targets or None in sources | targets:
                 continue
-            key = endpoints(relationship, successors)
             if key in existing:
                 continue
             copy = Relationship.objects.create(
@@ -264,8 +278,8 @@ class AnnotationVersionReviewService(BaseService):
                 relationship_label_id=label,
                 creator_id=relationship.creator_id,
             )
-            copy.source_annotations.set(key[1])
-            copy.target_annotations.set(key[2])
+            copy.source_annotations.set(sources)
+            copy.target_annotations.set(targets)
             existing.add(key)
 
     @classmethod
@@ -276,15 +290,19 @@ class AnnotationVersionReviewService(BaseService):
         Runs once parsing has finished, as the system: this is a proposal, so
         it records outcomes but never a reviewer. Rows still ``STALE`` on the
         parent move to this version and get a fresh match attempt, so nothing
-        is stranded when versions arrive faster than reviews. Idempotent.
+        is stranded when versions arrive faster than reviews. Versions may
+        finish parsing in any order, so a pass into an already superseded
+        version still runs and then re-runs its parsed child. Idempotent.
         """
         document = Document.objects.select_for_update().get(pk=document.pk)
-        if not document.parent_id or not document.is_current:
+        if not document.parent_id or document.backend_lock:
             return
         loaded = cls._load_placement_source(document)
-        corpus_ids = DocumentPath.objects.filter(
-            document=document, is_current=True, is_deleted=False
-        ).values_list("corpus_id", flat=True)
+        corpus_ids = (
+            DocumentPath.objects.filter(document=document, is_deleted=False)
+            .values_list("corpus_id", flat=True)
+            .distinct()
+        )
         for corpus_id in corpus_ids:
             waiting = AnnotationVersionDecision.objects.filter(
                 target_document_id=document.parent_id,
@@ -312,6 +330,11 @@ class AnnotationVersionReviewService(BaseService):
                     )
                 decision.save()
             cls._carry_relationships(document, corpus_id)
+        child = Document.objects.filter(
+            parent_id=document.pk, backend_lock=False
+        ).first()
+        if child is not None:
+            cls.carry_version(child)
 
     @classmethod
     def _lock_review(cls, user, annotation_id, target_document_id):
