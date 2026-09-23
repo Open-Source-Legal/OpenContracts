@@ -23,6 +23,7 @@ from pydantic_ai.models import Model
 
 from opencontractserver.documents.models import PipelineSettings
 from opencontractserver.llms.model_factory import (
+    _is_valid_base_url,
     abuild_agent_model,
     build_agent_model,
     invalidate_credential_cache,
@@ -38,6 +39,10 @@ from opencontractserver.pipeline.llm_providers.anthropic_provider import (
 from opencontractserver.pipeline.llm_providers.google_provider import GoogleProvider
 from opencontractserver.pipeline.llm_providers.ollama_provider import OllamaProvider
 from opencontractserver.pipeline.llm_providers.openai_provider import OpenAIProvider
+from opencontractserver.pipeline.llm_providers.orcarouter_provider import (
+    ORCAROUTER_API_KEY_ENV_VAR,
+    ORCAROUTER_API_KEY_PLACEHOLDER,
+)
 from opencontractserver.pipeline.registry import (
     get_llm_provider_by_key_cached,
     reset_registry,
@@ -186,6 +191,52 @@ class TestOrcaRouterProvider(TestCase):
         result = build_agent_model("orcarouter:orcarouter/auto")
         self.assertIsInstance(result, Model)
         self.assertEqual(result.provider.base_url, "https://api.orcarouter.ai/v1/")
+
+    def test_unset_key_never_forwards_openai_key(self):
+        """With no OrcaRouter key anywhere, the install's OPENAI_API_KEY must
+        not be sent to the gateway — the OpenAI client would otherwise fall
+        back to it when handed ``api_key=None``."""
+        env = {
+            k: v for k, v in os.environ.items() if k != ORCAROUTER_API_KEY_ENV_VAR
+        }
+        env["OPENAI_API_KEY"] = "sk-the-installs-real-openai-secret"
+        with mock.patch.dict(os.environ, env, clear=True):
+            with self.assertLogs(
+                "opencontractserver.llms.model_factory", level="WARNING"
+            ) as logs:
+                result = build_agent_model("orcarouter:orcarouter/auto")
+        self.assertIsInstance(result, Model)
+        self.assertEqual(
+            result.provider.client.api_key, ORCAROUTER_API_KEY_PLACEHOLDER
+        )
+        self.assertEqual(result.provider.base_url, "https://api.orcarouter.ai/v1/")
+        self.assertTrue(
+            any("No OrcaRouter api_key configured" in m for m in logs.output)
+        )
+
+    def test_responses_only_family_warns(self):
+        """A routed Responses-API-only model is flagged at construction."""
+        with self.assertLogs(
+            "opencontractserver.llms.model_factory", level="WARNING"
+        ) as logs:
+            result = build_agent_model("orcarouter:openai/gpt-5.6-luna")
+        self.assertIsInstance(result, Model)
+        self.assertTrue(any("Responses-API-only" in m for m in logs.output))
+
+
+class TestIsValidBaseUrl(TestCase):
+    """The shared base_url scheme check used by every provider branch."""
+
+    def test_accepts_http_and_https(self):
+        self.assertTrue(_is_valid_base_url("openai", "https://x.test/v1", "n/a"))
+        self.assertTrue(_is_valid_base_url("openai", "http://x.test/v1", "n/a"))
+
+    def test_rejects_schemeless_and_warns_with_fallback(self):
+        with self.assertLogs(
+            "opencontractserver.llms.model_factory", level="WARNING"
+        ) as logs:
+            self.assertFalse(_is_valid_base_url("openai", "x.test/v1", "doing X"))
+        self.assertIn("doing X", logs.output[0])
 
 
 class TestBuildAgentModelDbWins(TestCase):

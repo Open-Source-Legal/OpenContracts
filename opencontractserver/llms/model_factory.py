@@ -31,8 +31,10 @@ pipeline registry stays importable during early startup / migrations.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from typing import Any
+from urllib.parse import urlparse
 
 from asgiref.sync import sync_to_async
 from django.core.exceptions import AppRegistryNotReady, ImproperlyConfigured
@@ -40,6 +42,8 @@ from django.db import Error as DatabaseError
 
 from opencontractserver.llms.llm_registry import parse_model_spec
 from opencontractserver.pipeline.llm_providers.orcarouter_provider import (
+    ORCAROUTER_API_KEY_ENV_VAR,
+    ORCAROUTER_API_KEY_PLACEHOLDER,
     ORCAROUTER_DEFAULT_BASE_URL,
 )
 
@@ -187,6 +191,81 @@ async def aget_provider_credentials(provider_key: str) -> dict[str, str]:
     return await sync_to_async(_get_db_credentials)(provider_key)
 
 
+def _is_valid_base_url(provider_key: str, base_url: str, fallback: str) -> bool:
+    """Whether a DB-configured ``base_url`` is an http(s) URL; warn if not.
+
+    Only superusers can write this setting, so the threat model is low, but a
+    malformed endpoint (missing scheme, a typo'd host) otherwise fails
+    opaquely deep inside the HTTP client. A scheme check turns it into an
+    early, clear fallback. ``fallback`` names what the caller does instead,
+    for the warning.
+    """
+    if urlparse(base_url).scheme in ("http", "https"):
+        return True
+    logger.warning(
+        "DB-configured base_url for provider %r is not a valid http(s) URL "
+        "(%r); %s.",
+        provider_key,
+        base_url,
+        fallback,
+    )
+    return False
+
+
+def _construct_orcarouter_model(model_name: str, creds: dict[str, str]) -> Any:
+    """Build an OpenAI-compatible chat model pointed at OrcaRouter.
+
+    pydantic-ai has no native ``orcarouter:`` provider, so a bare spec string
+    would raise "Unknown model" at agent construction — this ALWAYS builds a
+    concrete model, even with no DB credentials. DB-configured values win;
+    otherwise ``ORCAROUTER_API_KEY`` and the OrcaRouter default endpoint are
+    used. An invalid DB endpoint falls back to the default rather than to the
+    (unresolvable) bare spec.
+
+    The api_key is never left ``None``: the underlying ``AsyncOpenAI`` client
+    would then read ``OPENAI_API_KEY`` and send the install's OpenAI secret to
+    the third-party gateway. An unset key gets an inert placeholder instead,
+    so a misconfigured install fails with a 401 rather than leaking a key.
+
+    Only the chat-completions surface is used; Responses-API-only model
+    families (see :data:`OPENAI_RESPONSES_ONLY_PREFIXES`) cannot be driven
+    with function tools through this path.
+    """
+    from pydantic_ai.models.openai import OpenAIChatModel
+    from pydantic_ai.providers.openai import OpenAIProvider
+
+    base_url = creds.get("base_url") or ORCAROUTER_DEFAULT_BASE_URL
+    if not _is_valid_base_url(
+        "orcarouter", base_url, "using the OrcaRouter default endpoint"
+    ):
+        base_url = ORCAROUTER_DEFAULT_BASE_URL
+
+    api_key = creds.get("api_key") or os.environ.get(ORCAROUTER_API_KEY_ENV_VAR)
+    if not api_key:
+        logger.warning(
+            "No OrcaRouter api_key configured (System Settings or %s); "
+            "requests to %s will be unauthenticated.",
+            ORCAROUTER_API_KEY_ENV_VAR,
+            base_url,
+        )
+        api_key = ORCAROUTER_API_KEY_PLACEHOLDER
+
+    # Routed names are vendor-namespaced (``openai/gpt-5.6-luna``); check the
+    # bare tail against the Responses-only families.
+    if requires_responses_api("openai", model_name.rsplit("/", 1)[-1]):
+        logger.warning(
+            "OrcaRouter model %r belongs to a Responses-API-only family, but "
+            "OrcaRouter is driven over chat completions; tool-carrying agent "
+            "runs on it will be rejected by the upstream API.",
+            model_name,
+        )
+
+    return OpenAIChatModel(
+        model_name,
+        provider=OpenAIProvider(api_key=api_key, base_url=base_url),
+    )
+
+
 def _construct_model(
     provider_key: str,
     model_name: str,
@@ -206,56 +285,15 @@ def _construct_model(
     the caller can fall back to the bare spec string (env credentials).
     """
     if provider_key == "orcarouter":
-        # OrcaRouter is an OpenAI-compatible model routing gateway. pydantic-ai
-        # has no native ``orcarouter:`` provider, so a bare spec string would
-        # raise "Unknown model" at agent construction — this branch ALWAYS
-        # builds a concrete OpenAI-compatible model. DB-configured credentials
-        # win; otherwise the ``ORCAROUTER_API_KEY`` env var and the OrcaRouter
-        # default endpoint are used. An invalid DB-configured endpoint falls
-        # back to the default rather than returning ``None`` (which the caller
-        # would turn back into the unresolvable bare spec).
-        import os
-
-        from pydantic_ai.models.openai import OpenAIChatModel
-        from pydantic_ai.providers.openai import OpenAIProvider
-
-        api_key = creds.get("api_key") or os.environ.get("ORCAROUTER_API_KEY")
-        base_url = creds.get("base_url")
-        if not base_url:
-            base_url = ORCAROUTER_DEFAULT_BASE_URL
-        else:
-            from urllib.parse import urlparse
-
-            if urlparse(base_url).scheme not in ("http", "https"):
-                logger.warning(
-                    "DB-configured base_url for provider %r is not a valid "
-                    "http(s) URL (%r); using the OrcaRouter default endpoint.",
-                    provider_key,
-                    base_url,
-                )
-                base_url = ORCAROUTER_DEFAULT_BASE_URL
-        return OpenAIChatModel(
-            model_name,
-            provider=OpenAIProvider(api_key=api_key, base_url=base_url),
-        )
+        return _construct_orcarouter_model(model_name, creds)
 
     api_key = creds.get("api_key")
     base_url = creds.get("base_url")
 
     if base_url is not None:
-        # Only superusers can write this setting, so the threat model is low,
-        # but a malformed endpoint (missing scheme, a typo'd host) otherwise
-        # fails opaquely deep inside the HTTP client. A scheme check turns it
-        # into an early, clear fallback to env credentials.
-        from urllib.parse import urlparse
-
-        if urlparse(base_url).scheme not in ("http", "https"):
-            logger.warning(
-                "DB-configured base_url for provider %r is not a valid "
-                "http(s) URL (%r); ignoring it and using env credentials.",
-                provider_key,
-                base_url,
-            )
+        if not _is_valid_base_url(
+            provider_key, base_url, "ignoring it and using env credentials"
+        ):
             return None
         if api_key is None and provider_key != "ollama":
             # A custom endpoint with no key set: pydantic-ai will fall back to
@@ -398,6 +436,8 @@ def build_agent_model(spec: str) -> Any:
     env_spec = f"openai-responses:{model_name}" if responses_api else spec
 
     creds = _get_db_credentials(provider_key)
+    # OrcaRouter has no pydantic-ai-native prefix, so its env-credential path
+    # must still build a concrete model rather than return the bare spec.
     if not creds and provider_key != "orcarouter":
         return env_spec
 

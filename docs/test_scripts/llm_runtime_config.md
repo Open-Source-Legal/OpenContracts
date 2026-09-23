@@ -20,7 +20,7 @@ set.
 
 ## Steps
 
-### 1 — Confirm the four providers are registered
+### 1 — Confirm the five providers are registered
 
 ```bash
 docker compose -f local.yml run --rm django python manage.py shell -c "
@@ -49,7 +49,7 @@ curl -s -X POST http://localhost:8000/graphql/ \
   | python3 -m json.tool
 ```
 
-Should return the four providers with their `supportedModels` arrays.
+Should return the five providers with their `supportedModels` arrays.
 
 ### 3 — Reject a malformed corpus.preferred_llm
 

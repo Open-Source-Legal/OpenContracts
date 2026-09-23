@@ -16,6 +16,14 @@ from opencontractserver.pipeline.base.llm_provider import (
 #: (e.g. ``deepseek/deepseek-v4-pro``).
 ORCAROUTER_DEFAULT_BASE_URL = "https://api.orcarouter.ai/v1"
 
+#: Process-environment fallback for the OrcaRouter API key.
+ORCAROUTER_API_KEY_ENV_VAR = "ORCAROUTER_API_KEY"
+
+#: Inert key sent when none is configured. Passing ``None`` instead would let
+#: the OpenAI client fall back to ``OPENAI_API_KEY`` and ship the install's
+#: OpenAI secret to the OrcaRouter host.
+ORCAROUTER_API_KEY_PLACEHOLDER = "orcarouter-api-key-not-set"
+
 
 class OrcaRouterProvider(BaseLLMProvider):
     """OrcaRouter — an OpenAI-compatible model routing gateway.
@@ -41,18 +49,12 @@ class OrcaRouterProvider(BaseLLMProvider):
 
     @dataclass
     class Settings:
-        api_key: str = llm_api_key_field("ORCAROUTER_API_KEY")
+        api_key: str = llm_api_key_field(ORCAROUTER_API_KEY_ENV_VAR)
         base_url: str = llm_base_url_field(default=ORCAROUTER_DEFAULT_BASE_URL)
 
     provider_key: ClassVar[str] = "orcarouter"
-    supported_models: ClassVar[tuple[str, ...]] = (
-        "orcarouter/auto",
-        "openai/gpt-5.5",
-        "google/gemini-3.5-flash",
-        "anthropic/claude-opus-4.8",
-        "grok/grok-4.3",
-        "deepseek/deepseek-v4-pro",
-        "minimax/minimax-m2.7",
-        "qwen/qwen3.7-max",
-    )
+    # Only the router alias is offered in the picker. Specific routed models
+    # (``vendor/model``) remain selectable by typing the spec, but each one
+    # offered here needs a verified MODEL_CONTEXT_WINDOWS entry (issue #2078).
+    supported_models: ClassVar[tuple[str, ...]] = ("orcarouter/auto",)
     requires_api_key: ClassVar[bool] = True

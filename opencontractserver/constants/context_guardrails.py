@@ -70,6 +70,11 @@ MODEL_CONTEXT_WINDOWS: dict[str, int] = {
     "llama3.2": 128_000,
     "qwen2.5": 32_768,
     "mistral": 32_768,
+    # OrcaRouter (gateway). ``orcarouter/auto`` picks the upstream model per
+    # request, so its real window is unknowable. Sized deliberately below the
+    # 128K default: under-estimating only costs earlier compaction, while
+    # over-estimating a small routed model is a hard context overflow.
+    "orcarouter/auto": 64_000,
 }
 
 # Fallback context window when the model is unknown.  Deliberately generous:
