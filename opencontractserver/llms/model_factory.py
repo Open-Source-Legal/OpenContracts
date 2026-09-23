@@ -242,11 +242,11 @@ def _construct_orcarouter_model(model_name: str, creds: dict[str, str]) -> Any:
 
     api_key = creds.get("api_key") or os.environ.get(ORCAROUTER_API_KEY_ENV_VAR)
     if not api_key:
+        # Static message: no credential-derived values are interpolated.
         logger.warning(
-            "No OrcaRouter api_key configured (System Settings or %s); "
-            "requests to %s will be unauthenticated.",
-            ORCAROUTER_API_KEY_ENV_VAR,
-            base_url,
+            "No OrcaRouter api_key configured (System Settings or the "
+            "ORCAROUTER_API_KEY env var); OrcaRouter requests will be "
+            "unauthenticated."
         )
         api_key = ORCAROUTER_API_KEY_PLACEHOLDER
 
