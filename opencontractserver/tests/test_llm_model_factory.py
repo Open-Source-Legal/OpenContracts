@@ -196,9 +196,7 @@ class TestOrcaRouterProvider(TestCase):
         """With no OrcaRouter key anywhere, the install's OPENAI_API_KEY must
         not be sent to the gateway — the OpenAI client would otherwise fall
         back to it when handed ``api_key=None``."""
-        env = {
-            k: v for k, v in os.environ.items() if k != ORCAROUTER_API_KEY_ENV_VAR
-        }
+        env = {k: v for k, v in os.environ.items() if k != ORCAROUTER_API_KEY_ENV_VAR}
         env["OPENAI_API_KEY"] = "sk-the-installs-real-openai-secret"
         with mock.patch.dict(os.environ, env, clear=True):
             with self.assertLogs(
@@ -206,9 +204,7 @@ class TestOrcaRouterProvider(TestCase):
             ) as logs:
                 result = build_agent_model("orcarouter:orcarouter/auto")
         self.assertIsInstance(result, Model)
-        self.assertEqual(
-            result.provider.client.api_key, ORCAROUTER_API_KEY_PLACEHOLDER
-        )
+        self.assertEqual(result.provider.client.api_key, ORCAROUTER_API_KEY_PLACEHOLDER)
         self.assertEqual(result.provider.base_url, "https://api.orcarouter.ai/v1/")
         self.assertTrue(
             any("No OrcaRouter api_key configured" in m for m in logs.output)
