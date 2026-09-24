@@ -114,12 +114,11 @@ def get_context_window_for_model(model_name: str) -> int:
 
     # Strip pydantic-ai provider prefix (e.g. "anthropic:") so prefixed
     # and bare specs hit the same lookup table.
-    provider, _, bare = model_name.partition(":")
-    lookup_name = bare if bare else model_name
+    lookup_name = model_name.split(":", 1)[1] if ":" in model_name else model_name
 
     # OrcaRouter windows come from the gateway's live model listing, cached
     # when the agent model is built — never from the static table.
-    if bare and provider == ORCAROUTER_PROVIDER_KEY:
+    if lookup_name and model_name.startswith(f"{ORCAROUTER_PROVIDER_KEY}:"):
         return get_orcarouter_context_window(lookup_name)
 
     # Exact match

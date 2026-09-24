@@ -151,6 +151,18 @@ class OrcaRouterContextCacheTests(SimpleTestCase):
             ORCAROUTER_FALLBACK_CONTEXT_WINDOW,
         )
 
+    def test_malformed_endpoint_falls_back_without_raising(self):
+        """A scheme-valid but malformed base_url makes httpx raise InvalidURL
+        (not an HTTPError) before any I/O; it must still never propagate."""
+        with self.assertLogs(
+            "opencontractserver.llms.orcarouter_context", level="WARNING"
+        ):
+            refresh_orcarouter_context_windows("http://[::1", "k")
+        self.assertEqual(
+            get_orcarouter_context_window("orcarouter/auto"),
+            ORCAROUTER_FALLBACK_CONTEXT_WINDOW,
+        )
+
     def test_non_json_and_windowless_listings_fall_back(self):
         bodies: tuple[object, ...] = (
             b"<html>gateway error</html>",

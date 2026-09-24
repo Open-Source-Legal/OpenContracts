@@ -105,7 +105,10 @@ def refresh_orcarouter_context_windows(base_url: str, api_key: str) -> None:
         )
         response.raise_for_status()
         windows = _parse_models_listing(response.json())
-    except (httpx.HTTPError, ValueError) as exc:
+    # ``httpx.InvalidURL`` is not an ``HTTPError``: a scheme-valid but
+    # malformed endpoint (e.g. ``http://[::1``) raises it while building the
+    # request, before any I/O.
+    except (httpx.HTTPError, httpx.InvalidURL, ValueError) as exc:
         logger.warning(
             "Could not fetch OrcaRouter model listing (%s); using cached or "
             "fallback context windows.",
