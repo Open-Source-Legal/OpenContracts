@@ -5,6 +5,7 @@ import os
 import sys
 import unittest
 from typing import Any, ClassVar, cast
+from unittest.mock import patch
 
 from django.test import TestCase, override_settings
 
@@ -538,6 +539,48 @@ class TestPostProcessor(BasePostProcessor):
                 test_zip_bytes,
                 cast(OpenContractsExportDataJsonPythonType, test_export_data),
             )
+
+    def test_run_post_processors_forwards_input_kwargs_per_call(self):
+        """
+        ``input_kwargs`` reach each post-processor, and the default is a fresh
+        empty mapping on every call rather than one shared mutable default.
+        """
+        from opencontractserver.pipeline.base.post_processor import (
+            BasePostProcessor,
+        )
+
+        received: list[dict[str, Any]] = []
+
+        class RecordingPostProcessor(BasePostProcessor):
+            title = "Recording PostProcessor"
+            description = "Records the kwargs it is called with."
+            author = "Test Author"
+            dependencies: ClassVar[list[str]] = []
+            supported_file_types: ClassVar[list[FileTypeEnum]] = [FileTypeEnum.PDF]
+
+            def _process_export_impl(self, zip_bytes, export_data, **all_kwargs):
+                received.append(dict(all_kwargs))
+                # Mutating the received kwargs must not reach the next call.
+                all_kwargs["leaked"] = True
+                return zip_bytes, export_data
+
+        self.assertIsNone(
+            inspect.signature(run_post_processors).parameters["input_kwargs"].default
+        )
+
+        export_data = cast(OpenContractsExportDataJsonPythonType, {})
+        with patch(
+            "opencontractserver.pipeline.utils.get_component_by_name",
+            return_value=RecordingPostProcessor,
+        ):
+            run_post_processors(
+                ["recording.Processor"], b"zip", export_data, {"redact": "yes"}
+            )
+            run_post_processors(["recording.Processor"], b"zip", export_data)
+
+        self.assertEqual(received[0].get("redact"), "yes")
+        self.assertNotIn("redact", received[1])
+        self.assertNotIn("leaked", received[1])
 
     def test_get_all_post_processors(self):
         """

@@ -95,6 +95,36 @@ class TestCoreTool(SimpleTestCase):
         # Required list should contain only the positional parameter ``a``
         self.assertListEqual(schema["required"], ["a"])
 
+    def test_builtin_annotations_map_to_json_schema_types(self):
+        """Each builtin annotation maps to its JSON-schema type; others default to string."""
+
+        def typed_function(
+            i: int,
+            f: float,
+            flag: bool,
+            items: list,
+            mapping: dict,
+            generic: list[str],
+            untyped,
+        ):
+            """Exercise every annotation branch."""
+
+        props = CoreTool.from_function(typed_function).parameters["properties"]
+        self.assertEqual(
+            {name: spec["type"] for name, spec in props.items()},
+            {
+                "i": "integer",
+                "f": "number",
+                "flag": "boolean",
+                "items": "array",
+                "mapping": "object",
+                # Parameterised generics are not the bare builtin and fall
+                # through to the default.
+                "generic": "string",
+                "untyped": "string",
+            },
+        )
+
     def test_missing_docstring_fallback_description(self):
         """If a function lacks a docstring the description should fall back to a generic value."""
         tool = CoreTool.from_function(function_without_docstring)
