@@ -751,10 +751,11 @@ class TestMicroserviceEmbedderSingleText(unittest.TestCase):
                 )
                 self.assertIsNone(embedder._embed_text_impl("document"))
 
-    def _make_embedder(self, api_key="", use_cloud_run=False):
+    def _make_embedder(self, api_key="", use_cloud_run=False, bulk_url=""):
         embedder = MicroserviceEmbedder()
         embedder._settings = MicroserviceEmbedder.Settings(
             embeddings_microservice_url="http://test-service:8080",
+            embeddings_microservice_url_bulk=bulk_url,
             vector_embedder_api_key=api_key,
             use_cloud_run_iam_auth=use_cloud_run,
         )
@@ -874,6 +875,18 @@ class TestMicroserviceEmbedderSingleText(unittest.TestCase):
         embedder = self._make_embedder()
         url, headers = embedder._get_service_config({})
         self.assertEqual(url, "http://test-service:8080")
+
+    def test_get_service_config_routes_only_flagged_calls_to_bulk_pool(self):
+        query, bulk = "http://test-service:8080", "http://bulk-pool:9090"
+        for bulk_url, kwargs, expected in (
+            (bulk, {"use_bulk_pool": True}, bulk),  # ingest
+            (bulk, {}, query),  # search query
+            ("", {"use_bulk_pool": True}, query),  # no bulk pool configured
+        ):
+            with self.subTest(bulk_url=bulk_url, kwargs=kwargs):
+                embedder = self._make_embedder(bulk_url=bulk_url)
+                url, _ = embedder._get_service_config(kwargs)
+                self.assertEqual(url, expected)
 
 
 class TestCalculateEmbeddingsForAnnotationBatch(unittest.TestCase):

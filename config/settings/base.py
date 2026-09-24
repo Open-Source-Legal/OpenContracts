@@ -1201,6 +1201,8 @@ DEFAULT_PERMISSIONS_GROUP = "Public Objects Access"
 EMBEDDINGS_MICROSERVICE_URL = env(
     "EMBEDDINGS_MICROSERVICE_URL", default="http://vector-embedder:8000"
 )
+# Seeds MicroserviceEmbedder.embeddings_microservice_url_bulk (ingest-only pool).
+EMBEDDINGS_MICROSERVICE_URL_BULK = env("EMBEDDINGS_MICROSERVICE_URL_BULK", default="")
 VECTOR_EMBEDDER_API_KEY = env("VECTOR_EMBEDDER_API_KEY", default="")
 # CLIP embedder configuration (768-dimensional vectors)
 CLIP_EMBEDDER_URL = env("CLIP_EMBEDDER_URL", default="http://vector-embedder:8000")

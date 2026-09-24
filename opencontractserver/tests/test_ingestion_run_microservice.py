@@ -410,3 +410,16 @@ class AccountedMicroserviceAdapterTests(SimpleTestCase):
             embedding_configuration(MicroserviceEmbedder(component_settings=config)),
             expected,
         )
+
+    def test_bulk_pool_url_does_not_change_vector_identity(self):
+        """Ingest via the bulk pool must stay searchable by query-side vectors."""
+        query_only = MicroserviceEmbedder(component_settings=SERVICE_SETTINGS)
+        with_bulk = MicroserviceEmbedder(
+            component_settings={
+                **SERVICE_SETTINGS,
+                "embeddings_microservice_url_bulk": "https://bulk.invalid",
+            }
+        )
+        self.assertEqual(
+            embedding_configuration(with_bulk), embedding_configuration(query_only)
+        )

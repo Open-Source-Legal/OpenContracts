@@ -492,7 +492,9 @@ class TestEmbeddingTask(unittest.TestCase):
         mock_get_component.assert_called_with(explicit_embedder_path)
 
         # Verify embed_text was called
-        mock_embedder_instance.embed_text.assert_called_with("This is test text")
+        mock_embedder_instance.embed_text.assert_called_with(
+            "This is test text", use_bulk_pool=True
+        )
 
         # The key test: verify that the explicit embedder_path was used
         mock_annot.add_embedding.assert_called_with(
@@ -573,7 +575,7 @@ class TestEmbeddingTask(unittest.TestCase):
         # Verify default embedder was called
         mock_get_default.assert_called_once()
         mock_default_embedder_instance.embed_text.assert_called_with(
-            "This is test text"
+            "This is test text", use_bulk_pool=True
         )
 
         # Verify corpus was retrieved for dual embedding
@@ -581,7 +583,9 @@ class TestEmbeddingTask(unittest.TestCase):
 
         # Verify corpus embedder was called for dual embedding
         mock_get_component.assert_called_with("corpus.embedder.path")
-        mock_corpus_embedder_instance.embed_text.assert_called_with("This is test text")
+        mock_corpus_embedder_instance.embed_text.assert_called_with(
+            "This is test text", use_bulk_pool=True
+        )
 
         # Verify both embeddings were stored (default + corpus-specific)
         calls = mock_annot.add_embedding.call_args_list
@@ -716,7 +720,9 @@ class TestMultimodalEmbeddingTask(unittest.TestCase):
         )
 
         # Should have called text embedding (fallback)
-        mock_embedder.embed_text.assert_called_once_with("Figure 1 caption")
+        mock_embedder.embed_text.assert_called_once_with(
+            "Figure 1 caption", use_bulk_pool=True
+        )
 
         # Should have stored embedding
         mock_annot.add_embedding.assert_called_once_with(
@@ -833,7 +839,9 @@ class TestMultimodalEmbeddingTask(unittest.TestCase):
         )
 
         # Should have fallen back to text embedding
-        mock_embedder.embed_text.assert_called_once_with("Figure with error")
+        mock_embedder.embed_text.assert_called_once_with(
+            "Figure with error", use_bulk_pool=True
+        )
 
         # Should have stored embedding
         mock_annot.add_embedding.assert_called_once_with(
@@ -870,7 +878,9 @@ class TestMultimodalEmbeddingTask(unittest.TestCase):
         )
 
         # Should have called text embedding (no images to embed)
-        mock_embedder.embed_text.assert_called_once_with("Just plain text")
+        mock_embedder.embed_text.assert_called_once_with(
+            "Just plain text", use_bulk_pool=True
+        )
 
         self.assertTrue(result)
 
@@ -899,7 +909,9 @@ class TestMultimodalEmbeddingTask(unittest.TestCase):
         )
 
         # Should default to text embedding
-        mock_embedder.embed_text.assert_called_once_with("No modalities set")
+        mock_embedder.embed_text.assert_called_once_with(
+            "No modalities set", use_bulk_pool=True
+        )
 
         self.assertTrue(result)
 
@@ -1575,7 +1587,7 @@ class TestEmbedRelationship(unittest.TestCase):
         )
 
         self.assertTrue(result)
-        mock_embedder.embed_text.assert_called_once_with("HEAD\nT1")
+        mock_embedder.embed_text.assert_called_once_with("HEAD\nT1", use_bulk_pool=True)
 
     @patch(
         "opencontractserver.tasks.embeddings_task.synthesize_relationship_block_text"
@@ -1594,7 +1606,9 @@ class TestEmbedRelationship(unittest.TestCase):
 
         self.assertTrue(result)
         mock_synth.assert_called_once_with(mock_rel)
-        mock_embedder.embed_text.assert_called_once_with("synthesized")
+        mock_embedder.embed_text.assert_called_once_with(
+            "synthesized", use_bulk_pool=True
+        )
 
     @patch(
         "opencontractserver.tasks.embeddings_task.synthesize_relationship_block_text"
@@ -1617,7 +1631,9 @@ class TestEmbedRelationship(unittest.TestCase):
 
         self.assertTrue(result)
         mock_synth.assert_not_called()
-        mock_embedder.embed_text.assert_called_once_with("precomputed")
+        mock_embedder.embed_text.assert_called_once_with(
+            "precomputed", use_bulk_pool=True
+        )
 
 
 class TestCalculateEmbeddingsForRelationshipBatch(unittest.TestCase):
@@ -1714,7 +1730,8 @@ class TestCalculateEmbeddingsForRelationshipBatch(unittest.TestCase):
         self.assertEqual(result["skipped"], 1)
         self.assertEqual(len(result["errors"]), 2)
         mock_embedder.embed_texts_batch.assert_called_once_with(
-            ["relationship text 1", "relationship text 2", "relationship text 3"]
+            ["relationship text 1", "relationship text 2", "relationship text 3"],
+            use_bulk_pool=True,
         )
         rel1.add_embedding.assert_called_once_with(
             "explicit.path", [0.1] * 384, configuration=_CONFIGURATION

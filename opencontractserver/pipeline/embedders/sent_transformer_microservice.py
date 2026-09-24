@@ -159,6 +159,20 @@ class MicroserviceEmbedder(BaseEmbedder):
                 )
             },
         )
+        embeddings_microservice_url_bulk: str = field(
+            default="",
+            metadata={
+                "pipeline_setting": PipelineSetting(
+                    setting_type=SettingType.OPTIONAL,
+                    required=False,
+                    description=(
+                        "Optional pool for ingest embedding (same model); search "
+                        "queries stay on embeddings_microservice_url."
+                    ),
+                    env_var="EMBEDDINGS_MICROSERVICE_URL_BULK",
+                )
+            },
+        )
         vector_embedder_api_key: str = field(
             default="",
             metadata={
@@ -236,6 +250,12 @@ class MicroserviceEmbedder(BaseEmbedder):
         service_url = all_kwargs.get(
             "embeddings_microservice_url", s.embeddings_microservice_url
         )
+        # Ingest tags calls ``use_bulk_pool=True``; queries never do.
+        bulk_url = all_kwargs.get(
+            "embeddings_microservice_url_bulk", s.embeddings_microservice_url_bulk
+        )
+        if all_kwargs.get("use_bulk_pool") and bulk_url:
+            service_url = bulk_url
         api_key = all_kwargs.get("vector_embedder_api_key", s.vector_embedder_api_key)
         use_cloud_run_iam_auth = bool(
             all_kwargs.get("use_cloud_run_iam_auth", s.use_cloud_run_iam_auth)

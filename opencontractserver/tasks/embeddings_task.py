@@ -74,7 +74,8 @@ def _create_text_embedding(
         f"with embedder {embedder_path} (text length={len(text)})"
     )
 
-    vector = embedder.embed_text(text)
+    # Ingest is bulk work; see MicroserviceEmbedder._get_service_config.
+    vector = embedder.embed_text(text, use_bulk_pool=True)
 
     if vector is None:
         logger.error(
@@ -630,7 +631,7 @@ def _batch_embed_items(
 
     def _embed_one(chunk):
         texts_only = [text for _, text in chunk]
-        return chunk, embedder.embed_texts_batch(texts_only)
+        return chunk, embedder.embed_texts_batch(texts_only, use_bulk_pool=True)
 
     # Map future -> chunk index for logging/sub-batch numbering.
     #
@@ -1101,7 +1102,7 @@ def _embed_relationship(
         embedder_path,
         len(text),
     )
-    vector = embedder.embed_text(text)
+    vector = embedder.embed_text(text, use_bulk_pool=True)
     if vector is None:
         logger.error(
             "Embedder %s returned None for relationship %s",

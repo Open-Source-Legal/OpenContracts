@@ -187,6 +187,29 @@ gunicorn fleet).
 celery -A config.celery_app worker --concurrency=8 -Q ingest
 ```
 
+### Separate "bulk" embeddings pool for ingest
+
+Search queries need a warm embedder; batch ingest is happy on an autoscaled,
+scale-to-zero pool. Setting `MicroserviceEmbedder`'s optional
+`embeddings_microservice_url_bulk` (seeded from `EMBEDDINGS_MICROSERVICE_URL_BULK`)
+routes ingest calls, which the tasks in `opencontractserver/tasks/embeddings_task.py`
+tag `use_bulk_pool=True`, to that pool. Queries stay on `embeddings_microservice_url`
+(`MicroserviceEmbedder._get_service_config`). Unset means one pool, as before.
+
+On an existing install, set the field in **System Settings** (MicroserviceEmbedder).
+The env var only seeds new installs: `migrate_pipeline_settings` keeps stored values,
+and every deploy has already stored the empty default. Don't use
+`migrate_pipeline_settings --force` here. It resets every setting on the component,
+and settings that have no env var (`embedding_model_revision`,
+`no_external_provider_fees`) go back to their defaults, which breaks budgeted runs.
+
+- The bulk pool **must serve the same model** as the query pool. It is left out
+  of the vector identity fingerprint (`utils/embedding_identity.py`), so
+  vectors from either pool match each other.
+- It shares the query pool's API key and Cloud Run IAM setting. Budgeted
+  ingestion runs (`embed_text_accounted`) stay on the policy-validated query
+  endpoint.
+
 ## What's still slow (open work)
 
 The 80% per-doc overhead breaks down roughly as:
