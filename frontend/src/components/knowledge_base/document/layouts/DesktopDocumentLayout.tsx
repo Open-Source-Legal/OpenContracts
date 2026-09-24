@@ -176,6 +176,8 @@ export const DesktopDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
         corpusId={corpusId}
         hasCorpus={Boolean(hasCorpus)}
         readOnly={readOnly}
+        canReviewAnnotations={canEdit}
+        onPlaceAnnotation={() => setActiveLayer("document")}
         onAddToCorpus={() => setShowAddToCorpusModal(true)}
         onClose={() => handleClose()}
       />

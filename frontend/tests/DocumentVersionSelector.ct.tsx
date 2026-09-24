@@ -67,6 +67,34 @@ const multiVersionMock = {
 };
 
 test.describe("DocumentVersionSelector", () => {
+  test("switches per-version slugs and returns from a pinned citation to the latest version", async ({
+    mount,
+    page,
+  }) => {
+    await mount(
+      <DocumentVersionSelectorTestWrapper
+        mocks={[multiVersionMock]}
+        initialRoute="/d/testuser/test-corpus/test-doc-v1?v=1&tab=annotations"
+      >
+        <DocumentVersionSelector documentId={DOC_ID} corpusId={CORPUS_ID} />
+      </DocumentVersionSelectorTestWrapper>
+    );
+    await page
+      .getByRole("button", { name: /click to switch versions/ })
+      .click();
+    await page.getByRole("option", { name: /Version 3/ }).click();
+    await expect(page.getByLabel("Current route")).toHaveText(
+      "/d/testuser/test-corpus/test-doc-v3?tab=annotations"
+    );
+    await page
+      .getByRole("button", { name: /click to switch versions/ })
+      .click();
+    await page.getByRole("option", { name: /Version 2/ }).click();
+    await expect(page.getByLabel("Current route")).toHaveText(
+      "/d/testuser/test-corpus/test-doc-v2?tab=annotations&v=2"
+    );
+  });
+
   test("renders non-interactive pill for single-version document", async ({
     mount,
     page,

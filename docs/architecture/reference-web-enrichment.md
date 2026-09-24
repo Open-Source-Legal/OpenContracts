@@ -38,7 +38,7 @@ Django/Celery backend.
 >   `docs/superpowers/specs/2026-06-17-in-flight-authority-detection-design.md`,
 >   `docs/superpowers/specs/2026-06-17-global-authority-sources-view-design.md`
 > - Manual procedure: `docs/test_scripts/corpus_reference_enrichment.md`
-> - Versioning gap: `docs/architecture/reference-web-versioning.md`
+> - Versioning and annotation review: `docs/architecture/reference-web-versioning.md`
 
 ---
 
@@ -333,8 +333,10 @@ queries are superuser-gated at the node level.
 - **Re-run churn.** Re-running the LLM tier produces ~10–15% new mention rows from
   span nondeterminism even at temperature 0 (idempotent on `canonical_key`, but
   distinct spans yield distinct mention annotations).
-- **Versioning.** Amendments do not yet re-point already-`RESOLVED` references to
-  the new section version — see `docs/architecture/reference-web-versioning.md`.
+- **Versioning.** Resolved references retain the originally cited document
+  within a version tree. The References panel links to both cited and visible
+  current text; a key moved to a different tree replaces the old target, and
+  an unavailable key clears it. See [versioning and annotation review](reference-web-versioning.md).
 - **Live per-document progress counter (deferred).** Progress during a run is
   conveyed today by the RUNNING job status, the incrementally-appearing refs, and
   the "In progress" badge. A live per-document counter on the Authority Console

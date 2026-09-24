@@ -34,6 +34,7 @@ from typing import Annotated, Any
 
 import strawberry
 from django.contrib.auth import get_user_model
+from django.core.exceptions import PermissionDenied
 from django.db.models import QuerySet
 from graphql import GraphQLError
 
@@ -306,6 +307,7 @@ def _resolve_DocumentType_all_annotations(
         corpus_id=corpus_pk,
         analysis_id=analysis_pk,
         structural=is_structural,
+        check_current_version=root.is_current,
         context=info.context,
     )
 
@@ -409,6 +411,7 @@ def _resolve_DocumentType_all_doc_relationships(root, info, corpus_id=None):
             document_id=root.id,
             corpus_id=int(corpus_pk) if corpus_pk else None,
             request=info.context,
+            include_historical=not root.is_current,
         )
     except Exception as e:
         logger.warning(
@@ -445,6 +448,7 @@ def _resolve_DocumentType_doc_relationship_count(root, info, corpus_id=None):
             user=user,
             corpus_id=corpus_pk,
             request=info.context,
+            include_historical=not root.is_current,
         )
         return counts.get(root.id, 0)
     except Exception as e:
@@ -1734,6 +1738,7 @@ class DocumentType(Node):
     def inbound_references(
         self,
         info: strawberry.Info,
+        include_historical: bool = False,
         offset: Annotated[
             int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
@@ -1762,13 +1767,36 @@ class DocumentType(Node):
                 "last": last,
             }
         )
-        resolved = getattr(self, "inbound_references", None)
+        from opencontractserver.enrichment.services import CorpusReferenceService
+
+        resolved = CorpusReferenceService.for_user(
+            info.context.user, include_historical=include_historical
+        ).filter(target_document__version_tree_id=self.version_tree_id)
         return resolve_django_connection(
             resolved=resolved,
             info=info,
             args=kwargs,
             node_type_name="CorpusReferenceType",
         )
+
+    @strawberry.field(name="annotationsNeedingReview")
+    def annotations_needing_review(
+        self, info: strawberry.Info, corpus_id: strawberry.ID
+    ) -> int:
+        from config.graphql.annotation_version_review import _pk
+        from opencontractserver.annotations.services.version_review import (
+            AnnotationVersionReviewService,
+        )
+
+        try:
+            return AnnotationVersionReviewService.pending_count(
+                info.context.user, self.id, _pk(corpus_id, "CorpusType")
+            )
+        except PermissionDenied:
+            # The field is non-null, so raising here would null the whole
+            # document. A corpus the caller cannot reach simply has nothing
+            # to review.
+            return 0
 
     @strawberry.field(name="frontierEntries")
     def frontier_entries(

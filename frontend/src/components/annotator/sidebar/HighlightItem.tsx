@@ -19,6 +19,7 @@ import { canDeleteAnnotation } from "../../../utils/annotationPermissions";
 import { ModalityBadge } from "./ModalityBadge";
 import { AnnotationImagePreview } from "./AnnotationImagePreview";
 import { useAnnotationImages } from "../hooks/useAnnotationImages";
+import { VersionStateBadge } from "./VersionStateBadge";
 
 interface HighlightContainerProps {
   color?: string;
@@ -253,6 +254,7 @@ export const HighlightItem: React.FC<HighlightItemProps> = ({
           )}
           {annotation.annotationLabel.text}
         </AnnotationLabel>
+        <VersionStateBadge state={annotation.versionState} />
         <ModalityBadge modalities={contentModalities || []} />
         {!compact && canDeleteAnnotation(annotation, read_only) && onDelete && (
           <DeleteButton
