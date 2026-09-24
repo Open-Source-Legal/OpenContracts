@@ -14,6 +14,7 @@ See issue: runtime LLM credential/endpoint configuration.
 
 from __future__ import annotations
 
+import os
 from unittest import mock
 
 from asgiref.sync import async_to_sync
@@ -22,6 +23,7 @@ from pydantic_ai.models import Model
 
 from opencontractserver.documents.models import PipelineSettings
 from opencontractserver.llms.model_factory import (
+    _is_valid_base_url,
     abuild_agent_model,
     build_agent_model,
     invalidate_credential_cache,
@@ -37,6 +39,10 @@ from opencontractserver.pipeline.llm_providers.anthropic_provider import (
 from opencontractserver.pipeline.llm_providers.google_provider import GoogleProvider
 from opencontractserver.pipeline.llm_providers.ollama_provider import OllamaProvider
 from opencontractserver.pipeline.llm_providers.openai_provider import OpenAIProvider
+from opencontractserver.pipeline.llm_providers.orcarouter_provider import (
+    ORCAROUTER_API_KEY_ENV_VAR,
+    ORCAROUTER_API_KEY_PLACEHOLDER,
+)
 from opencontractserver.pipeline.registry import (
     get_llm_provider_by_key_cached,
     reset_registry,
@@ -119,6 +125,139 @@ class TestBuildAgentModelEnvFallback(TestCase):
         self.assertEqual(
             build_agent_model("totally-unknown:foo"), "totally-unknown:foo"
         )
+
+
+class TestOrcaRouterProvider(TestCase):
+    """OrcaRouter is an OpenAI-compatible gateway pydantic-ai has no native
+    prefix for, so the model factory must ALWAYS build a concrete model (never
+    the bare ``orcarouter:`` string, which would raise "Unknown model")."""
+
+    def setUp(self):
+        reset_registry()
+        self.addCleanup(reset_registry)
+        PipelineSettings.clear_cache()
+        self.addCleanup(PipelineSettings.clear_cache)
+        # Isolate from the environment: the env fallback reads ORCAROUTER_API_KEY.
+        self._env = mock.patch.dict(
+            os.environ, {"ORCAROUTER_API_KEY": "sk-orca-test"}, clear=False
+        )
+        self._env.start()
+        self.addCleanup(self._env.stop)
+        # Never hit the real gateway: the context-window fetch is covered by
+        # test_orcarouter_context.py; here we only check it is invoked.
+        refresh = mock.patch(
+            "opencontractserver.llms.model_factory.refresh_orcarouter_context_windows"
+        )
+        self.refresh_mock = refresh.start()
+        self.addCleanup(refresh.stop)
+
+    def test_build_refreshes_context_windows_with_resolved_endpoint(self):
+        """The factory primes the context-window cache from the same endpoint
+        and key the chat model will use."""
+        build_agent_model("orcarouter:orcarouter/auto")
+        self.refresh_mock.assert_called_once_with(
+            "https://api.orcarouter.ai/v1", "sk-orca-test"
+        )
+
+    def test_no_db_creds_still_builds_concrete_model(self):
+        """With no DB creds, build_agent_model must NOT return the bare spec."""
+        result = build_agent_model("orcarouter:orcarouter/auto")
+        self.assertIsInstance(result, Model)
+        # It is an OpenAI-compatible chat model pointed at the OrcaRouter base.
+        from pydantic_ai.models.openai import OpenAIChatModel
+
+        self.assertIsInstance(result, OpenAIChatModel)
+        self.assertEqual(result.provider.base_url, "https://api.orcarouter.ai/v1/")
+        self.assertEqual(result.provider.client.api_key, "sk-orca-test")
+
+    def test_db_base_url_wins_over_default(self):
+        """A DB-configured base_url overrides the OrcaRouter default."""
+        orcarouter_defn = get_llm_provider_by_key_cached("orcarouter")
+        assert orcarouter_defn is not None
+        instance = PipelineSettings.get_instance()
+        instance.component_settings = {
+            orcarouter_defn.class_name: {"base_url": "http://gateway.local/v1"}
+        }
+        instance.save()
+        result = build_agent_model("orcarouter:orcarouter/auto")
+        self.assertIsInstance(result, Model)
+        self.assertEqual(result.provider.base_url, "http://gateway.local/v1/")
+
+    def test_db_api_key_wins_over_env(self):
+        """A DB-configured api_key overrides the ORCAROUTER_API_KEY env var."""
+        orcarouter_defn = get_llm_provider_by_key_cached("orcarouter")
+        assert orcarouter_defn is not None
+        instance = PipelineSettings.get_instance()
+        instance.set_secrets({orcarouter_defn.class_name: {"api_key": "sk-orca-db"}})
+        instance.save()
+        result = build_agent_model("orcarouter:orcarouter/auto")
+        self.assertIsInstance(result, Model)
+        self.assertEqual(result.provider.client.api_key, "sk-orca-db")
+
+    def test_invalid_db_base_url_falls_back_to_default(self):
+        """A malformed DB base_url degrades to the OrcaRouter default endpoint."""
+        orcarouter_defn = get_llm_provider_by_key_cached("orcarouter")
+        assert orcarouter_defn is not None
+        instance = PipelineSettings.get_instance()
+        instance.component_settings = {
+            orcarouter_defn.class_name: {"base_url": "not-a-url"}
+        }
+        instance.save()
+        result = build_agent_model("orcarouter:orcarouter/auto")
+        self.assertIsInstance(result, Model)
+        self.assertEqual(result.provider.base_url, "https://api.orcarouter.ai/v1/")
+
+    def test_unset_key_never_forwards_openai_key(self):
+        """With no OrcaRouter key anywhere, the install's OPENAI_API_KEY must
+        not be sent to the gateway — the OpenAI client would otherwise fall
+        back to it when handed ``api_key=None``."""
+        env = {k: v for k, v in os.environ.items() if k != ORCAROUTER_API_KEY_ENV_VAR}
+        env["OPENAI_API_KEY"] = "sk-the-installs-real-openai-secret"
+        with mock.patch.dict(os.environ, env, clear=True):
+            with self.assertLogs(
+                "opencontractserver.llms.model_factory", level="WARNING"
+            ) as logs:
+                result = build_agent_model("orcarouter:orcarouter/auto")
+        self.assertIsInstance(result, Model)
+        self.assertEqual(result.provider.client.api_key, ORCAROUTER_API_KEY_PLACEHOLDER)
+        self.assertEqual(result.provider.base_url, "https://api.orcarouter.ai/v1/")
+        self.assertTrue(
+            any("No OrcaRouter api_key configured" in m for m in logs.output)
+        )
+
+    def test_responses_only_family_warns(self):
+        """A routed Responses-API-only model is flagged at construction."""
+        with self.assertLogs(
+            "opencontractserver.llms.model_factory", level="WARNING"
+        ) as logs:
+            result = build_agent_model("orcarouter:openai/gpt-5.6-luna")
+        self.assertIsInstance(result, Model)
+        self.assertTrue(any("Responses-API-only" in m for m in logs.output))
+
+    def test_construction_failure_is_raised_not_degraded(self):
+        """A build failure must surface, not return the unresolvable bare
+        ``orcarouter:`` spec that pydantic-ai would reject as "Unknown model"."""
+        with mock.patch(
+            "opencontractserver.llms.model_factory._construct_orcarouter_model",
+            side_effect=ImportError("pydantic-ai API shift"),
+        ):
+            with self.assertRaises(ImportError):
+                build_agent_model("orcarouter:orcarouter/auto")
+
+
+class TestIsValidBaseUrl(TestCase):
+    """The shared base_url scheme check used by every provider branch."""
+
+    def test_accepts_http_and_https(self):
+        self.assertTrue(_is_valid_base_url("openai", "https://x.test/v1", "n/a"))
+        self.assertTrue(_is_valid_base_url("openai", "http://x.test/v1", "n/a"))
+
+    def test_rejects_schemeless_and_warns_with_fallback(self):
+        with self.assertLogs(
+            "opencontractserver.llms.model_factory", level="WARNING"
+        ) as logs:
+            self.assertFalse(_is_valid_base_url("openai", "x.test/v1", "doing X"))
+        self.assertIn("doing X", logs.output[0])
 
 
 class TestBuildAgentModelDbWins(TestCase):
