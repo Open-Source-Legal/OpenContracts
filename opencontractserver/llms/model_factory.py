@@ -44,10 +44,14 @@ from django.core.exceptions import AppRegistryNotReady, ImproperlyConfigured
 from django.db import Error as DatabaseError
 
 from opencontractserver.llms.llm_registry import parse_model_spec
+from opencontractserver.llms.orcarouter_context import (
+    refresh_orcarouter_context_windows,
+)
 from opencontractserver.pipeline.llm_providers.orcarouter_provider import (
     ORCAROUTER_API_KEY_ENV_VAR,
     ORCAROUTER_API_KEY_PLACEHOLDER,
     ORCAROUTER_DEFAULT_BASE_URL,
+    ORCAROUTER_PROVIDER_KEY,
 )
 
 logger = logging.getLogger(__name__)
@@ -239,7 +243,7 @@ def _construct_orcarouter_model(model_name: str, creds: dict[str, str]) -> Any:
 
     base_url = creds.get("base_url") or ORCAROUTER_DEFAULT_BASE_URL
     if not _is_valid_base_url(
-        "orcarouter", base_url, "using the OrcaRouter default endpoint"
+        ORCAROUTER_PROVIDER_KEY, base_url, "using the OrcaRouter default endpoint"
     ):
         base_url = ORCAROUTER_DEFAULT_BASE_URL
 
@@ -252,6 +256,11 @@ def _construct_orcarouter_model(model_name: str, creds: dict[str, str]) -> Any:
             "unauthenticated."
         )
         api_key = ORCAROUTER_API_KEY_PLACEHOLDER
+
+    # Size the context window from the gateway's own listing (cached, TTL'd,
+    # never raises). Runs here because this path is off the event loop and
+    # holds the resolved endpoint + key; see ``llms/orcarouter_context.py``.
+    refresh_orcarouter_context_windows(base_url, api_key)
 
     # Routed names are vendor-namespaced (``openai/gpt-5.6-luna``); check the
     # bare tail against the Responses-only families. The ``"openai"`` key is
@@ -289,7 +298,7 @@ def _construct_model(
     Returns ``None`` for providers we have no construction recipe for, so
     the caller can fall back to the bare spec string (env credentials).
     """
-    if provider_key == "orcarouter":
+    if provider_key == ORCAROUTER_PROVIDER_KEY:
         return _construct_orcarouter_model(model_name, creds)
 
     api_key = creds.get("api_key")
@@ -443,7 +452,7 @@ def build_agent_model(spec: str) -> Any:
     creds = _get_db_credentials(provider_key)
     # OrcaRouter has no pydantic-ai-native prefix, so its env-credential path
     # must still build a concrete model rather than return the bare spec.
-    if not creds and provider_key != "orcarouter":
+    if not creds and provider_key != ORCAROUTER_PROVIDER_KEY:
         return env_spec
 
     try:
@@ -451,7 +460,7 @@ def build_agent_model(spec: str) -> Any:
             provider_key, model_name, creds, responses_api=responses_api
         )
     except _MODEL_BUILD_RECOVERABLE_ERRORS:
-        if provider_key == "orcarouter":
+        if provider_key == ORCAROUTER_PROVIDER_KEY:
             # No env-fallback exists: the bare ``orcarouter:`` spec is not
             # resolvable by pydantic-ai, so surface the real error.
             raise

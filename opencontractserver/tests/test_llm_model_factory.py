@@ -143,6 +143,21 @@ class TestOrcaRouterProvider(TestCase):
         )
         self._env.start()
         self.addCleanup(self._env.stop)
+        # Never hit the real gateway: the context-window fetch is covered by
+        # test_orcarouter_context.py; here we only check it is invoked.
+        refresh = mock.patch(
+            "opencontractserver.llms.model_factory.refresh_orcarouter_context_windows"
+        )
+        self.refresh_mock = refresh.start()
+        self.addCleanup(refresh.stop)
+
+    def test_build_refreshes_context_windows_with_resolved_endpoint(self):
+        """The factory primes the context-window cache from the same endpoint
+        and key the chat model will use."""
+        build_agent_model("orcarouter:orcarouter/auto")
+        self.refresh_mock.assert_called_once_with(
+            "https://api.orcarouter.ai/v1", "sk-orca-test"
+        )
 
     def test_no_db_creds_still_builds_concrete_model(self):
         """With no DB creds, build_agent_model must NOT return the bare spec."""

@@ -16,6 +16,9 @@ from opencontractserver.pipeline.base.llm_provider import (
 #: (e.g. ``deepseek/deepseek-v4-pro``).
 ORCAROUTER_DEFAULT_BASE_URL = "https://api.orcarouter.ai/v1"
 
+#: Provider prefix of ``orcarouter:`` model specs.
+ORCAROUTER_PROVIDER_KEY = "orcarouter"
+
 #: Process-environment fallback for the OrcaRouter API key.
 ORCAROUTER_API_KEY_ENV_VAR = "ORCAROUTER_API_KEY"
 
@@ -52,7 +55,7 @@ class OrcaRouterProvider(BaseLLMProvider):
         api_key: str = llm_api_key_field(ORCAROUTER_API_KEY_ENV_VAR)
         base_url: str = llm_base_url_field(default=ORCAROUTER_DEFAULT_BASE_URL)
 
-    provider_key: ClassVar[str] = "orcarouter"
+    provider_key: ClassVar[str] = ORCAROUTER_PROVIDER_KEY
     # Only the router alias is offered in the picker. Specific routed models
     # (``vendor/model``) remain selectable by typing the spec, but each one
     # offered here needs a verified MODEL_CONTEXT_WINDOWS entry (issue #2078).
