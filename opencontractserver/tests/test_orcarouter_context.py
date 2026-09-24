@@ -126,7 +126,7 @@ class OrcaRouterContextCacheTests(SimpleTestCase):
         self.assertEqual(get_orcarouter_context_window("orcarouter/auto"), 200_000)
 
         # Force staleness, then fail: the old listing must survive.
-        orcarouter_context._last_fetch_at = None
+        orcarouter_context._cache.last_fetch_at = None
         failed: list[httpx.Request] = []
         with _patched_get(_transport(failed, status=401)), self.assertLogs(
             "opencontractserver.llms.orcarouter_context", level="WARNING"

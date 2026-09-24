@@ -37,12 +37,20 @@ from opencontractserver.constants.context_guardrails import (
 
 logger = logging.getLogger(__name__)
 
-# model id -> context window (tokens), from the most recent successful fetch.
-_WINDOWS: dict[str, int] = {}
-# ``time.monotonic()`` of the last fetch attempt (success or failure), so a
-# down gateway is not re-queried on every agent build.
-_last_fetch_at: float | None = None
-_lock = threading.Lock()
+
+class _CacheState:
+    """Process-local cache of gateway-reported context windows."""
+
+    def __init__(self) -> None:
+        # model id -> context window (tokens), from the last successful fetch.
+        self.windows: dict[str, int] = {}
+        # ``time.monotonic()`` of the last fetch attempt (success or failure),
+        # so a down gateway is not re-queried on every agent build.
+        self.last_fetch_at: float | None = None
+        self.lock = threading.Lock()
+
+
+_cache = _CacheState()
 
 
 def _extract_context_length(entry: dict) -> int | None:
@@ -77,16 +85,14 @@ def refresh_orcarouter_context_windows(base_url: str, api_key: str) -> None:
     and cached for the same TTL; the previous successful listing, if any, is
     kept.
     """
-    global _last_fetch_at
-
-    with _lock:
+    with _cache.lock:
         now = time.monotonic()
         if (
-            _last_fetch_at is not None
-            and now - _last_fetch_at < ORCAROUTER_MODELS_CACHE_TTL_SECONDS
+            _cache.last_fetch_at is not None
+            and now - _cache.last_fetch_at < ORCAROUTER_MODELS_CACHE_TTL_SECONDS
         ):
             return
-        _last_fetch_at = now
+        _cache.last_fetch_at = now
 
     url = f"{base_url.rstrip('/')}/models"
     try:
@@ -114,19 +120,17 @@ def refresh_orcarouter_context_windows(base_url: str, api_key: str) -> None:
         )
         return
 
-    with _lock:
-        _WINDOWS.clear()
-        _WINDOWS.update(windows)
+    with _cache.lock:
+        _cache.windows = windows
 
 
 def get_orcarouter_context_window(model_name: str) -> int:
     """Cached context window for a bare OrcaRouter model id (no I/O)."""
-    return _WINDOWS.get(model_name, ORCAROUTER_FALLBACK_CONTEXT_WINDOW)
+    return _cache.windows.get(model_name, ORCAROUTER_FALLBACK_CONTEXT_WINDOW)
 
 
 def clear_orcarouter_context_cache() -> None:
     """Drop cached windows and the fetch timestamp (test isolation)."""
-    global _last_fetch_at
-    with _lock:
-        _WINDOWS.clear()
-        _last_fetch_at = None
+    with _cache.lock:
+        _cache.windows = {}
+        _cache.last_fetch_at = None
