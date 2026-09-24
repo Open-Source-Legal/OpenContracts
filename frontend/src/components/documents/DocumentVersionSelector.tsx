@@ -183,7 +183,7 @@ export const DocumentVersionSelector: React.FC<
   const { data: reviewStatus } = useQuery(GET_ANNOTATION_REVIEW_STATUS, {
     variables: { documentId, corpusId },
   });
-  const staleCount = reviewStatus?.document?.staleAnnotationCount ?? 0;
+  const reviewCount = reviewStatus?.document?.annotationsNeedingReview ?? 0;
   const [isOpen, setIsOpen] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState<number>(-1);
   const location = useLocation();
@@ -362,7 +362,7 @@ export const DocumentVersionSelector: React.FC<
         }
       >
         v{displayVersion ?? "?"}
-        {staleCount > 0 && <span> · {staleCount} stale</span>}
+        {reviewCount > 0 && <span> · {reviewCount} to review</span>}
         <span style={{ fontSize: "9px", opacity: 0.7 }}>
           / {sortedVersions.length}
         </span>

@@ -1,15 +1,25 @@
 import { gql } from "@apollo/client";
 import { RawServerAnnotationType } from "../types/graphql-api";
 
+/**
+ * How an annotation crossed a document version. ``AUTO`` (machine-carried
+ * exact match) and ``STALE`` (no match) await a person; the rest are that
+ * person's decision.
+ */
 export type AnnotationVersionState =
+  | "AUTO"
   | "STALE"
   | "REAPPROVED"
   | "CORRECTED"
   | "DROPPED";
 
+export const PENDING_VERSION_STATES: ReadonlySet<AnnotationVersionState> =
+  new Set(["AUTO", "STALE"]);
+
 export const VERSION_STATE_LABELS: Record<AnnotationVersionState, string> = {
-  STALE: "Stale",
-  REAPPROVED: "Re-approved",
+  AUTO: "Auto-carried · unreviewed",
+  STALE: "Needs placement",
+  REAPPROVED: "Approved",
   CORRECTED: "Corrected",
   DROPPED: "Dropped",
 };
@@ -17,11 +27,6 @@ export const VERSION_STATE_LABELS: Record<AnnotationVersionState, string> = {
 export interface AnnotationReviewRow {
   annotation: RawServerAnnotationType;
   state: AnnotationVersionState;
-  proposedPlacement?: {
-    json: Record<string, unknown>;
-    raw_text: string;
-    page: number;
-  } | null;
   successor?: RawServerAnnotationType | null;
   reviewedBy?: { slug?: string | null } | null;
   reviewedAt?: string | null;
@@ -35,7 +40,7 @@ export const GET_ANNOTATION_REVIEW_STATUS = gql`
       parent {
         id
       }
-      staleAnnotationCount(corpusId: $corpusId)
+      annotationsNeedingReview(corpusId: $corpusId)
     }
   }
 `;
@@ -43,7 +48,6 @@ export const GET_ANNOTATION_REVIEW_STATUS = gql`
 const REVIEW_FIELDS = gql`
   fragment AnnotationReviewFields on AnnotationVersionReview {
     state
-    proposedPlacement
     reviewedBy {
       slug
     }
@@ -73,6 +77,7 @@ const REVIEW_FIELDS = gql`
       structural
       myPermissions
       linkUrl
+      versionState
       annotationLabel {
         id
         text

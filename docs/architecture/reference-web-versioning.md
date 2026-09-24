@@ -4,8 +4,9 @@ Implemented from the design in PR #2389. A `Document` row is one immutable
 version; `version_tree_id` identifies the logical document.
 
 **Citations preserve the text originally cited. Current text is derived from
-the version tree. Human annotations require an explicit review before a new
-annotation is created on the next version.**
+the version tree. Human annotations and their relationships are carried onto
+each new version automatically where possible, and stay flagged until a person
+checks them.**
 
 ## Citations: original and current text
 
@@ -70,69 +71,72 @@ derived edges without removing their historical `CorpusReference` evidence
 or handwritten relationships. `AuthorityRelationship` already uses canonical
 keys and needs no version migration.
 
-## Human annotation review
+## Human annotations: automatic carry, human review
 
-`AnnotationVersionDecision` records one decision for an old annotation against
-its immediately following document version:
+`opencontractserver/annotations/services/version_review.py::AnnotationVersionReviewService`
+owns this. When a new version finishes parsing, `set_doc_lock_state` queues
+`carry_annotations_to_new_version`, which calls `carry_version`. For each
+corpus of the new version, every human annotation on the parent gets one
+`AnnotationVersionDecision` (one per annotation, `OneToOne`):
 
-| Field | Purpose |
-|---|---|
-| `annotation` | Original annotation, unchanged |
-| `target_document` | Next version being reviewed |
-| `decision` | `REAPPROVED`, `CORRECTED`, or `DROPPED` |
-| `successor` | Ordinary annotation on the new document, nullable |
-| `creator`, `created` | Reviewer and review time |
+| `decision` | Set by | Meaning |
+|---|---|---|
+| `AUTO` | system | Unique exact text match; `successor` created, unreviewed |
+| `STALE` | system | No unique match; no successor, needs placement |
+| `REAPPROVED` | reviewer | Successor confirmed unchanged |
+| `CORRECTED` | reviewer | Successor re-placed or relabelled |
+| `DROPPED` | reviewer | No longer applies; successor (if any) deleted |
 
-A database constraint makes `(annotation, target_document)` unique. Transactions
-lock the source annotation and target document; repeated decisions cannot
-leave duplicate successors. A missing decision is the derived state `STALE`.
+`AUTO` and `STALE` are *pending*: `reviewer`/`reviewed_at` stay null and
+`DocumentType.annotationsNeedingReview(corpusId)` counts them. Successors keep
+the original author as `creator`; the reviewer is recorded on the decision.
+"Human" excludes structural, analysis, extract, corpus-action and grounding
+rows (`human_annotations`). TXT offsets and PDF tokens use the shared
+`span_projection` helpers; repeated text is never auto-placed.
 
-`AnnotationVersionReviewService` reviews human rows on `document.parent` in the
-selected corpus. Structural, analysis, extract, corpus-action, and grounding
-annotations are excluded. A v3 upload reviews v2's annotations, including
-successors created by v1-to-v2 review; it does not resurrect v1's stale rows.
+**Multi-hop.** A v3 upload carries v2's human annotations, including v2
+successors, so an unreviewed `AUTO` chain stays `AUTO`. `STALE` rows still
+waiting on v2 are *moved* to v3 and matched again against its text, so an
+annotation is never stranded on a superseded version. Pending rows on a
+superseded version are history and cannot be acted on. Versions may finish
+parsing out of order: a late pass into a superseded version still runs, then
+re-runs its parsed child, so the current version always ends up complete. Annotations older than
+the parent that never received a decision (pre-feature data) are not revived.
 
-An exact, unique text match proposes a placement. TXT offsets and PDF tokens
-use the shared `span_projection` helpers. Missing or repeated text needs
-manual placement. Document-level labels need approval but no spatial placement.
-Nothing is copied just because a proposal exists.
+**Relationships.** `_carry_relationships` copies a human `Relationship` onto the
+new version once every source and target annotation resolves there through the
+successor chain (ends carried on different hops still meet) — at carry time or
+when a later review supplies the last endpoint. Copies are
+deduplicated by label and endpoint sets. Dropping a successor deletes any
+carried edge it leaves without a source or target. Edges to structural or
+analysis annotations stay on their original version.
 
-- **Approve** creates a successor from the server's recomputed proposal.
-- **Place** uses the normal viewer selection workflow. The server rebuilds the
-  text and bounds from the new document's offsets or tokens, disregarding
-  client-supplied text and bounding boxes. A changed placement or label records
-  `CORRECTED`; accepting the unchanged proposal records `REAPPROVED`.
-- **Drop** records the review without creating a successor.
+**Review.** `carryForwardAnnotation` approves a pending row (optionally with a
+`placement` or `annotationLabelId`, which makes it `CORRECTED`);
+`dropStaleAnnotation` drops it. The server rebuilds text and bounds from the
+new document's offsets or tokens and ignores client-supplied text. Reviewers
+need UPDATE on the target document and corpus and READ on the source evidence;
+only the current version's pending rows accept decisions. Both paths lock the
+target document, then the decision row, so a review never races the carry.
 
-The reviewer needs UPDATE on both the target document and corpus, and READ on
-the source evidence. Decisions target only the active, immediately following
-version. Label changes must use a compatible label from the corpus label set.
-
-GraphQL provides `annotationVersionReview(documentId, corpusId)`,
-`carryForwardAnnotation`, and `dropStaleAnnotation`. Each review row includes
-the original annotation, state, proposal, successor, reviewer, and review time.
-`DocumentType.staleAnnotationCount(corpusId)` supplies the header's stale count;
-`AnnotationType.versionState` describes an old annotation's next-version review.
-
-The **Carried-over annotations** panel supports review on desktop and mobile.
-Approving, placing, or dropping refreshes the list and stale count. A rejected
-placement stays pending and does not appear as a saved annotation. Read-only
-viewers can inspect decisions but cannot make them.
-
-Within-document `Relationship` rows remain on their original version. Reviewers
-re-create relationships between successor annotations; the panel explains this.
-Structural annotations and enrichment relationships are regenerated from the
-new document. No automatic semantic re-anchoring or transitive lineage is stored.
+**Visibility.** `AnnotationType.versionState` reports a row's forward decision
+if it has one, otherwise how it arrived: on the current version an `AUTO`
+annotation reads *Auto-carried · unreviewed*, a confirmed one *Approved* or
+*Corrected*, and a freshly drawn one has no state. The sidebar
+(`VersionStateBadge`), the **Carried-over annotations** panel and the version
+pill all use the same labels; pending states are highlighted.
 
 ## Regression coverage
 
 - `test_reference_versioning.py`: pinned citations, visible current targets,
   legacy URL repair, current/history filtering, soft deletion, both directions
   of handwritten relationship carry-forward, and graph reconciliation.
-- `test_annotation_version_review.py`: exact/ambiguous/missing TXT matches, real
-  PDF projection and selection validation, all review outcomes, label changes,
-  next-hop review, uniqueness, permissions, and historical GraphQL evidence.
+- `test_annotation_version_review.py`: automatic carry (`AUTO`/`STALE`,
+  idempotence, the unlock trigger), relationship follow-through and pruning,
+  every review outcome, multi-hop retargeting, real PDF tokens, permissions,
+  and the GraphQL round trip with historical evidence.
 - Existing enrichment, versioning, relationship privacy, and governance suites
   cover compatibility. `test_schema_parity.py` guards the updated SDL contract.
-- Browser component tests exercise review actions and failure handling, cited
-  and current links, stale counts, read-only access, and version navigation.
+- Browser component tests exercise pending vs confirmed badges, review actions
+  and failure handling, dropping a carried successor, cited and current links,
+  read-only access, and version navigation.

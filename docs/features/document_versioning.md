@@ -123,28 +123,26 @@ error message.
 
 ## Reviewing annotations after an update
 
-The document header shows how many annotations from the previous version are
-still **stale**. Open **Carried-over annotations** to review them:
+When a new version finishes processing, your annotations from the previous
+version are carried onto it automatically wherever their text still appears
+exactly once. Carried annotations are marked **Auto-carried · unreviewed**;
+those that could not be matched are marked **Needs placement**. The version
+pill shows how many still need review. Open **Carried-over annotations** to:
 
-1. **Approve** accepts a unique exact text match proposed on the new version.
-2. **Place** lets you select a corrected passage using the normal annotation
-   tools. The selected passage and label become the successor annotation.
-3. **Drop** records that the annotation no longer applies.
+1. **Approve** an auto-carried annotation as it is.
+2. **Place** it on a corrected passage using the normal annotation tools.
+3. **Drop** it if it no longer applies.
 
-![Reviewing annotations from the previous version](../assets/images/screenshots/auto/versioning--annotation-review--stale.png)
+![Reviewing annotations carried from the previous version](../assets/images/screenshots/auto/versioning--annotation-review--stale.png)
 
-Each decision records its reviewer and time. You need edit permission on both
-the document and its corpus. Read-only viewers can inspect the review. Old
-annotations retain their original text and placement, with their review state
-visible when viewing the older version. The next upload reviews annotations
-on the immediately preceding version. Review is a single hop: annotations left
-unreviewed when a further version arrives keep their original text and stop
-being offered for review, while decisions already recorded stay visible as
-history.
+Approved and corrected annotations show who reviewed them and when. You need
+edit permission on both the document and its corpus; read-only viewers can
+inspect the review. Relationships between your annotations are carried once
+both ends are on the new version. Unreviewed annotations keep following later
+uploads, still flagged, and unmatched ones are retried against each new text.
+Older versions keep their original annotations unchanged.
 
 Handwritten document-to-document links follow updated documents automatically.
-Relationships between individual annotations remain with the old version;
-re-create those after reviewing their endpoints.
 
 Citation links open the version originally cited. In **References**, **Cited vN**
 opens that evidence and **Current vN** opens the newer text when available.

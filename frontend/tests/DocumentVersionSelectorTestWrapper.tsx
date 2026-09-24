@@ -35,7 +35,7 @@ export function DocumentVersionSelectorTestWrapper({
           id: mocks[0]?.request.variables.documentId,
           isCurrent: true,
           parent: null,
-          staleAnnotationCount: 0,
+          annotationsNeedingReview: 0,
         },
       },
     },

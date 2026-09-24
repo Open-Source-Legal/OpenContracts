@@ -1,12 +1,18 @@
-"""Explicit, permission-checked review of human annotations across one version hop."""
+"""Carry human annotations onto each new document version, then have people check them.
+
+A version-up carries every human annotation on the parent automatically when
+its text still matches uniquely (``AUTO``) and flags the rest (``STALE``).
+Neither is trusted: both count as pending until a reviewer approves, corrects
+or drops them. Relationships follow once all their endpoints have successors.
+"""
 
 import json
-from dataclasses import dataclass
 from typing import Any
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
-from django.db.models import Exists, OuterRef
+from django.db.models import Q
+from django.utils import timezone
 
 from opencontractserver.annotations.compact_json import (
     compact_annotation_json,
@@ -17,6 +23,7 @@ from opencontractserver.annotations.models import (
     Annotation,
     AnnotationLabel,
     AnnotationVersionDecision,
+    Relationship,
 )
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
@@ -30,15 +37,8 @@ from opencontractserver.utils.span_projection import (
     span_annotation_payload,
 )
 
-
-@dataclass
-class ReviewRow:
-    annotation: Annotation
-    state: str
-    proposed_placement: dict | None = None
-    successor: Annotation | None = None
-    reviewed_by: object = None
-    reviewed_at: object = None
+Decision = AnnotationVersionDecision.Decision
+PENDING = (Decision.AUTO, Decision.STALE)
 
 
 class AnnotationVersionReviewService(BaseService):
@@ -82,44 +82,6 @@ class AnnotationVersionReviewService(BaseService):
         ):
             raise PermissionDenied("Document or corpus is unavailable.")
         return document, corpus
-
-    @classmethod
-    def _successor(cls, user, document_id, corpus_id):
-        """The one reviewable target: the current version immediately after this one.
-
-        Every surface asks this question — the annotation badge, the stale
-        count, and the mutations that record a decision. They share this
-        definition so a row can never be reported reviewable by one and
-        rejected by another (an annotation stranded two versions back reports
-        no state rather than a ``STALE`` nothing will accept).
-        """
-        if not document_id:
-            return None
-        return (
-            Document.objects.visible_to_user(user, lightweight=True)
-            .filter(
-                parent_id=document_id,
-                is_current=True,
-                path_records__corpus_id=corpus_id,
-                path_records__is_current=True,
-                path_records__is_deleted=False,
-            )
-            .order_by("id")
-            .first()
-        )
-
-    @classmethod
-    def _previous(cls, user, document, corpus):
-        return (
-            cls._human_visible(user)
-            .filter(
-                document_id=document.parent_id,
-                corpus=corpus,
-            )
-            .select_related("annotation_label")
-            if document.parent_id
-            else Annotation.objects.none()
-        )
 
     @staticmethod
     def _load_placement_source(document):
@@ -171,94 +133,213 @@ class AnnotationVersionReviewService(BaseService):
         )
 
     @classmethod
-    def review(cls, user, document_id, corpus_id):
+    def _decisions(cls, user, document_id, corpus_id):
+        """Carry outcomes onto this version whose original the user can read."""
         document, corpus = cls._scope(user, document_id, corpus_id)
-        annotations = cls._previous(user, document, corpus)
-        decisions = {
-            decision.annotation_id: decision
-            for decision in AnnotationVersionDecision.objects.filter(
-                target_document=document,
-                annotation__in=annotations,
-            ).select_related("successor__annotation_label", "creator")
-        }
-        loaded = cls._load_placement_source(document)
-        rows = []
-        for annotation in annotations.order_by("page", "id"):
-            decision = decisions.get(annotation.pk)
-            rows.append(
-                ReviewRow(
-                    annotation=annotation,
-                    state=decision.decision if decision else "STALE",
-                    proposed_placement=(
-                        None
-                        if decision
-                        else cls.propose(annotation, document, loaded=loaded)
-                    ),
-                    successor=decision.successor if decision else None,
-                    reviewed_by=decision.creator if decision else None,
-                    reviewed_at=decision.created if decision else None,
-                )
-            )
-        return rows
+        return AnnotationVersionDecision.objects.filter(
+            target_document=document,
+            annotation__in=cls._human_visible(user).filter(corpus=corpus),
+        )
 
     @classmethod
-    def stale_count(cls, user, document_id, corpus_id):
-        document, corpus = cls._scope(user, document_id, corpus_id)
-        # A badge on a version nothing can be reviewed against is noise.
-        if cls._successor(user, document.parent_id, corpus.pk) != document:
-            return 0
-        decided = AnnotationVersionDecision.objects.filter(
-            annotation_id=OuterRef("pk"),
-            target_document=document,
+    def review(cls, user, document_id, corpus_id):
+        return (
+            cls._decisions(user, document_id, corpus_id)
+            .select_related(
+                "annotation__annotation_label",
+                "successor__annotation_label",
+                "reviewer",
+            )
+            .order_by("annotation__page", "annotation_id")
         )
-        return cls._previous(user, document, corpus).filter(~Exists(decided)).count()
+
+    @classmethod
+    def pending_count(cls, user, document_id, corpus_id):
+        """Carried annotations on the current version that no person has checked."""
+        decisions = cls._decisions(user, document_id, corpus_id)
+        return decisions.filter(
+            decision__in=PENDING, target_document__is_current=True
+        ).count()
 
     @classmethod
     def state_for_annotation(cls, user, annotation, *, request=None):
+        """Review state as seen from the annotation's own version.
+
+        An annotation's forward decision (what happened to it on the next
+        version) wins; otherwise it reports how it was carried here, so a
+        current version shows which annotations are machine-carried and which
+        a person confirmed. Fresh annotations report nothing.
+        """
         if not annotation.document_id or not annotation.corpus_id:
             return None
         key = (annotation.document_id, annotation.corpus_id)
         cache = getattr(request, "_annotation_version_states", {})
         if key not in cache:
-            states = {}
-            if cls.get_or_none(Corpus, annotation.corpus_id, user):
-                human = cls._human_visible(user).filter(
-                    document_id=annotation.document_id,
-                    corpus_id=annotation.corpus_id,
-                )
-                # A recorded decision is history and always reported. STALE is
-                # a call to action, so it is only reported while a successor
-                # exists that the review mutations would actually accept.
-                if cls._successor(user, annotation.document_id, annotation.corpus_id):
-                    states = dict.fromkeys(human.values_list("pk", flat=True), "STALE")
-                # At most one decision per annotation, so nothing collides in
-                # the dict below: the row is unique per (annotation, target),
-                # and a document has at most one child — `parent` is set only
-                # by the version-up in `documents/versioning.py` (which
-                # supersedes the *current* version), while corpus add/fork
-                # roots a new content tree with `parent=None`. The ordering is
-                # therefore defensive, not load-bearing.
-                states.update(
-                    AnnotationVersionDecision.objects.filter(annotation__in=human)
-                    .order_by("target_document_id")
-                    .values_list("annotation_id", "decision")
-                )
-            cache[key] = states
+            human = cls._human_visible(user).filter(
+                document_id=annotation.document_id, corpus_id=annotation.corpus_id
+            )
+            decisions = AnnotationVersionDecision.objects
+            cache[key] = {
+                **dict(
+                    decisions.filter(successor__in=human).values_list(
+                        "successor_id", "decision"
+                    )
+                ),
+                **dict(
+                    decisions.filter(annotation__in=human).values_list(
+                        "annotation_id", "decision"
+                    )
+                ),
+            }
             if request is not None:
                 request._annotation_version_states = cache
         return cache[key].get(annotation.pk)
 
+    @staticmethod
+    def _create_successor(annotation, document, placement, label):
+        return Annotation.objects.create(
+            document=document,
+            corpus_id=annotation.corpus_id,
+            creator_id=annotation.creator_id,
+            annotation_label=label,
+            long_description=annotation.long_description,
+            data=annotation.data,
+            link_url=annotation.link_url,
+            **placement,
+        )
+
+    @staticmethod
+    def _carry_relationships(document, corpus_id):
+        """Copy human relationships whose every endpoint now has a successor here.
+
+        Endpoints are followed through the whole successor chain, so an edge
+        whose ends were carried on different hops still lands once both do.
+        """
+        chain = dict(
+            AnnotationVersionDecision.objects.filter(
+                target_document__version_tree_id=document.version_tree_id,
+                annotation__corpus_id=corpus_id,
+                successor__isnull=False,
+            ).values_list("annotation_id", "successor_id")
+        )
+        here = set(
+            Annotation.objects.filter(
+                document=document, pk__in=chain.values()
+            ).values_list("pk", flat=True)
+        )
+        if not here:
+            return
+
+        def resolve(pk):
+            seen = set()
+            while pk not in here and pk in chain and pk not in seen:
+                seen.add(pk)
+                pk = chain[pk]
+            return pk if pk in here else None
+
+        def endpoints(relationship, carried=False):
+            ends = [
+                frozenset(resolve(a.pk) if carried else a.pk for a in annotations.all())
+                for annotations in (
+                    relationship.source_annotations,
+                    relationship.target_annotations,
+                )
+            ]
+            return relationship.relationship_label_id, *ends
+
+        related = Relationship.objects.prefetch_related(
+            "source_annotations", "target_annotations"
+        )
+        existing = {
+            endpoints(relationship)
+            for relationship in related.filter(document=document, corpus_id=corpus_id)
+        }
+        originals = (
+            related.filter(
+                Q(source_annotations__in=chain.keys())
+                | Q(target_annotations__in=chain.keys()),
+                corpus_id=corpus_id,
+                structural=False,
+                analysis__isnull=True,
+                created_by_analysis__isnull=True,
+                created_by_extract__isnull=True,
+            )
+            .exclude(document=document)
+            .distinct()
+        )
+        for relationship in originals:
+            key = label, sources, targets = endpoints(relationship, carried=True)
+            if not sources or not targets or None in sources | targets:
+                continue
+            if key in existing:
+                continue
+            copy = Relationship.objects.create(
+                document=document,
+                corpus_id=corpus_id,
+                relationship_label_id=label,
+                creator_id=relationship.creator_id,
+            )
+            copy.source_annotations.set(sources)
+            copy.target_annotations.set(targets)
+            existing.add(key)
+
+    @classmethod
+    @transaction.atomic
+    def carry_version(cls, document):
+        """Carry the parent version's human annotations onto ``document``.
+
+        Runs once parsing has finished, as the system: this is a proposal, so
+        it records outcomes but never a reviewer. Rows still ``STALE`` on the
+        parent move to this version and get a fresh match attempt, so nothing
+        is stranded when versions arrive faster than reviews. Versions may
+        finish parsing in any order, so a pass into an already superseded
+        version still runs and then re-runs its parsed child. Idempotent.
+        """
+        document = Document.objects.select_for_update().get(pk=document.pk)
+        if not document.parent_id or document.backend_lock:
+            return
+        loaded = cls._load_placement_source(document)
+        corpus_ids = (
+            DocumentPath.objects.filter(document=document, is_deleted=False)
+            .values_list("corpus_id", flat=True)
+            .distinct()
+        )
+        for corpus_id in corpus_ids:
+            waiting = AnnotationVersionDecision.objects.filter(
+                target_document_id=document.parent_id,
+                decision=Decision.STALE,
+                annotation__corpus_id=corpus_id,
+            ).select_related("annotation__annotation_label")
+            fresh = cls.human_annotations(
+                Annotation.objects.filter(
+                    document_id=document.parent_id,
+                    corpus_id=corpus_id,
+                    version_decision__isnull=True,
+                )
+            ).select_related("annotation_label")
+            for decision in [
+                *waiting,
+                *(AnnotationVersionDecision(annotation=a) for a in fresh),
+            ]:
+                annotation = decision.annotation
+                proposal = cls.propose(annotation, document, loaded=loaded)
+                decision.target_document = document
+                decision.decision = Decision.AUTO if proposal else Decision.STALE
+                if proposal:
+                    decision.successor = cls._create_successor(
+                        annotation, document, proposal, annotation.annotation_label
+                    )
+                decision.save()
+            cls._carry_relationships(document, corpus_id)
+        child = Document.objects.filter(
+            parent_id=document.pk, backend_lock=False
+        ).first()
+        if child is not None:
+            cls.carry_version(child)
+
     @classmethod
     def _lock_review(cls, user, annotation_id, target_document_id):
-        annotation = (
-            cls._human_visible(user)
-            .filter(
-                pk=annotation_id,
-            )
-            .select_related("annotation_label")
-            .select_for_update(of=("self",))
-            .first()
-        )
+        annotation = cls._human_visible(user).filter(pk=annotation_id).first()
         if annotation is None:
             raise PermissionDenied("Annotation is unavailable.")
         document, corpus = cls._scope(user, target_document_id, annotation.corpus_id)
@@ -267,18 +348,23 @@ class AnnotationVersionReviewService(BaseService):
                 raise PermissionDenied(
                     "Review requires update permission on the document and corpus."
                 )
+        # Same lock order as ``carry_version``: the version, then the row.
         document = Document.objects.select_for_update().get(pk=document.pk)
-        if cls._successor(user, annotation.document_id, corpus.pk) != document:
-            raise ValidationError(
-                "Review must target the current, immediately following version."
+        decision = (
+            AnnotationVersionDecision.objects.select_for_update(of=("self",))
+            .select_related("annotation__annotation_label", "successor")
+            .filter(
+                annotation_id=annotation.pk,
+                target_document=document,
+                decision__in=PENDING,
             )
-        if AnnotationVersionDecision.objects.filter(
-            annotation=annotation, target_document=document
-        ).exists():
+            .first()
+        )
+        if decision is None or not document.is_current:
             raise ValidationError(
-                "This annotation was already reviewed for this version."
+                "This annotation is not awaiting review on the current version."
             )
-        return annotation, document, corpus
+        return decision, corpus
 
     @classmethod
     def _manual_placement(cls, annotation, document, placement, *, loaded):
@@ -342,14 +428,22 @@ class AnnotationVersionReviewService(BaseService):
             json=payload, page=page, raw_text=raw, annotation_type=annotation_type
         )
 
+    @staticmethod
+    def _close(decision, user, outcome):
+        decision.decision = outcome
+        decision.reviewer = user
+        decision.reviewed_at = timezone.now()
+        decision.save()
+        return decision
+
     @classmethod
     @transaction.atomic
     def carry_forward(
         cls, user, annotation_id, target_document_id, *, placement=None, label_id=None
     ):
-        annotation, document, corpus = cls._lock_review(
-            user, annotation_id, target_document_id
-        )
+        """Approve a carried annotation, optionally re-placing it or changing its label."""
+        decision, corpus = cls._lock_review(user, annotation_id, target_document_id)
+        annotation, document = decision.annotation, decision.target_document
         label = annotation.annotation_label
         if label_id is not None and label_id != annotation.annotation_label_id:
             label = AnnotationLabel.objects.filter(
@@ -357,51 +451,55 @@ class AnnotationVersionReviewService(BaseService):
             ).first()
             if label is None or label.label_type != annotation.annotation_type:
                 raise ValidationError("Choose a compatible label from this corpus.")
-        # One parse of the target's text/token layer serves both the
-        # suggestion and the manual placement — this runs under the review
-        # locks, so every extra read holds them longer.
-        loaded = cls._load_placement_source(document)
-        proposal = cls.propose(annotation, document, loaded=loaded)
-        selected = (
-            proposal
-            if placement is None
-            else cls._manual_placement(annotation, document, placement, loaded=loaded)
-        )
-        if selected is None:
+        if placement is None and decision.successor is None:
             raise ValidationError(
                 "No unique exact match. Place this annotation on the new document."
             )
-        successor = Annotation.objects.create(
-            document=document,
-            corpus=corpus,
-            creator=user,
-            annotation_label=label,
-            long_description=annotation.long_description,
-            data=annotation.data,
-            link_url=annotation.link_url,
-            **selected,
+        selected = (
+            {}
+            if placement is None
+            else cls._manual_placement(
+                annotation,
+                document,
+                placement,
+                loaded=cls._load_placement_source(document),
+            )
         )
-        return AnnotationVersionDecision.objects.create(
-            annotation=annotation,
-            target_document=document,
-            successor=successor,
-            creator=user,
-            decision=(
-                "REAPPROVED"
-                if selected == proposal and label == annotation.annotation_label
-                else "CORRECTED"
+        successor = decision.successor
+        if successor is None:
+            decision.successor = cls._create_successor(
+                annotation, document, selected, label
+            )
+        else:
+            for field, value in {**selected, "annotation_label": label}.items():
+                setattr(successor, field, value)
+            successor.save()
+        cls._close(
+            decision,
+            user,
+            (
+                Decision.REAPPROVED
+                if placement is None and label == annotation.annotation_label
+                else Decision.CORRECTED
             ),
         )
+        cls._carry_relationships(document, corpus.pk)
+        return decision
 
     @classmethod
     @transaction.atomic
     def drop(cls, user, annotation_id, target_document_id):
-        annotation, document, _ = cls._lock_review(
-            user, annotation_id, target_document_id
-        )
-        return AnnotationVersionDecision.objects.create(
-            annotation=annotation,
-            target_document=document,
-            decision="DROPPED",
-            creator=user,
-        )
+        """Reject a carried annotation, removing any successor and edges it leaves empty."""
+        decision, _ = cls._lock_review(user, annotation_id, target_document_id)
+        if successor := decision.successor:
+            touching = list(
+                Relationship.objects.filter(
+                    Q(source_annotations=successor) | Q(target_annotations=successor)
+                ).values_list("pk", flat=True)
+            )
+            successor.delete()
+            decision.successor = None
+            Relationship.objects.filter(pk__in=touching).filter(
+                Q(source_annotations__isnull=True) | Q(target_annotations__isnull=True)
+            ).delete()
+        return cls._close(decision, user, Decision.DROPPED)
