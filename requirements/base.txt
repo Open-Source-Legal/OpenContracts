@@ -81,7 +81,7 @@ posthog==7.58.0  # https://github.com/posthog/posthog-python
 # Model Context Protocol
 # ------------------------------------------------------------------------------
 mcp>=2.2.0,<3  # https://github.com/modelcontextprotocol/python-sdk
-jsonschema>=4.20.0,<5  # https://github.com/python-jsonschema/jsonschema - MCP tool-argument validation (server.py); also an mcp dependency, pinned explicitly so it cannot vanish under us
+jsonschema>=4.26.0,<5  # https://github.com/python-jsonschema/jsonschema - MCP tool-argument validation (server.py); also an mcp dependency, pinned explicitly so it cannot vanish under us
 # ^ python-sdk 2.x: request handlers are registered as on_*= constructor
 # kwargs on mcp.server.Server and return typed result models; the 1.x
 # decorator API (@server.list_tools() etc.) is gone. opencontractserver/mcp/
