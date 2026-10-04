@@ -44,7 +44,7 @@
     "d3": "^7.9.0",
     "date-fns": "^4.1.0",
     "docxodus": "12.4.1",
-    "dompurify": "^3.4.13",
+    "dompurify": "^3.4.16",
     "framer-motion": "6.*",
     "fuse.js": "^6.5.3",
     "graphql": "^16.2.0",
