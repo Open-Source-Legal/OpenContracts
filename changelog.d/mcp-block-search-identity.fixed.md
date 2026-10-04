@@ -1,0 +1,1 @@
+- Preserve distinct MCP block search results with identical previews by exposing and deduplicating on the relationship ID in `opencontractserver/mcp/formatters.py`. Repeated hits for the same relationship still collapse to the first ranked result; blocks without an ID remain distinct.
