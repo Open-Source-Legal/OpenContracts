@@ -18,6 +18,7 @@ from opencontractserver.constants.mcp import MAX_THREAD_MESSAGE_LENGTH
 from opencontractserver.utils.files import read_field_file_text
 
 from .formatters import (
+    _dedupe_search_hits,
     format_annotation,
     format_corpus_summary,
     format_document_summary,
@@ -47,39 +48,6 @@ def _candidate_fetch_size(limit: int) -> int:
     return min(
         max(limit, 1) * MCP_SEARCH_CANDIDATE_MULTIPLIER, MCP_SEARCH_CANDIDATE_MAX
     )
-
-
-def _dedupe_search_hits(hits: list[dict]) -> list[dict]:
-    """Collapse search hits that resolve to the same annotation or block.
-
-    Passages are keyed by ``annotation_id`` — the annotation->embedding join
-    can return one row per stored vector, so the same annotation otherwise
-    appears multiple times with an identical score, wasting the caller's
-    ``limit`` budget. Blocks (which carry no stable id in the formatted shape)
-    are keyed by their content tuple. The first occurrence wins, so callers
-    should de-duplicate *after* sorting by score to keep the highest-scoring
-    instance. Hits missing an identity fall back to a per-position key so a
-    ``None`` id never collapses distinct passages into one.
-    """
-    seen: set = set()
-    deduped: list[dict] = []
-    for index, hit in enumerate(hits):
-        key: tuple
-        if hit.get("type") == "passage":
-            annotation_id = hit.get("annotation_id")
-            key = ("passage", annotation_id) if annotation_id else ("passage", index)
-        else:
-            key = (
-                "block",
-                hit.get("document_slug"),
-                hit.get("label"),
-                hit.get("text"),
-            )
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(hit)
-    return deduped
 
 
 def list_public_corpuses(
