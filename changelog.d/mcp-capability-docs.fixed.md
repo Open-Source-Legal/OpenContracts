@@ -1,0 +1,1 @@
+- Corrected MCP documentation for authenticated thread posting, tool catalogues, numeric identifiers, bounded text retrieval, and passage/block search behavior.

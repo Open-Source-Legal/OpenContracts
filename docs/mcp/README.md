@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-OpenContracts exposes a read-only [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for AI assistants to access **public** corpuses, documents, annotations, and discussion threads.
+OpenContracts exposes a read-mostly [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for AI assistants to access corpuses, documents, annotations, relationships, and discussion threads. Anonymous callers can read public resources; authenticated callers can also access private resources available to them and post messages in visible, unlocked threads.
 
 **Endpoints**:
 - **Global** (all public corpuses, anonymous): `POST /mcp/` or `GET /mcp/`
@@ -62,17 +62,23 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 
 ## Available Tools
 
-### Global Endpoint (`/mcp/`)
+### Global and Authenticated Endpoints (`/mcp/`, `/mcp/me/`)
+
+Both endpoints advertise the same tools. Authentication determines which
+resources the caller can access; `create_thread_message` always requires an
+authenticated session.
 
 | Tool | Description |
 |------|-------------|
-| `list_public_corpuses` | List all public corpuses (paginated, searchable) |
+| `list_public_corpuses` | List visible corpuses (public for anonymous callers; also accessible private corpuses for authenticated callers), paginated and searchable |
 | `list_documents` | List documents in a corpus (requires `corpus_slug`) |
-| `get_document_text` | Get full extracted text from a document |
-| `list_annotations` | List annotations on a document (filter by page/label) |
-| `search_corpus` | Semantic vector search within a corpus |
+| `get_document_text` | Get a bounded slice of extracted text (`char_offset`, `max_chars`) |
+| `list_annotations` | List annotations on a document (filter by `page`, `label_text`, `text_contains`, `structural`) |
+| `list_relationships` | List labeled source-to-target relationships in a corpus, optionally filtered by document, label, or structural status |
+| `search_corpus` | Search passages and/or blocks (`granularity`), with a text fallback for passages |
 | `list_threads` | List discussion threads in a corpus |
 | `get_thread_messages` | Get messages in a thread (flat or hierarchical) |
+| `create_thread_message` | Post to a visible, unlocked thread; requires authentication, `corpus_slug`, `thread_id`, and `content`, with optional `parent_message_id` |
 
 ### Corpus-Scoped Endpoint (`/mcp/corpus/{corpus_slug}/`)
 
@@ -82,11 +88,35 @@ When using a corpus-scoped endpoint, tools are simplified - no `corpus_slug` par
 |------|-------------|
 | `get_corpus_info` | Get detailed info about the scoped corpus (replaces `list_public_corpuses`) |
 | `list_documents` | List documents (no `corpus_slug` needed) |
-| `get_document_text` | Get document text (only `document_slug` needed) |
-| `list_annotations` | List annotations (only `document_slug` needed) |
-| `search_corpus` | Semantic search (only `query` needed) |
+| `get_document_text` | Get a bounded text slice (`document_slug` required; optional `char_offset`, `max_chars`) |
+| `list_annotations` | List annotations (`document_slug` required; same filters as the global tool) |
+| `list_relationships` | List corpus relationships; optional document, label, or structural filters |
+| `search_corpus` | Search passages and/or blocks (`query` required; same search options as the global tool) |
 | `list_threads` | List threads (no `corpus_slug` needed) |
 | `get_thread_messages` | Get messages (only `thread_id` needed) |
+| `create_thread_message` | Post to a visible, unlocked thread; requires authentication, `thread_id`, and `content`, with optional `parent_message_id` |
+
+The authoritative input schemas are
+[`server.py::get_tool_definitions` and `get_scoped_tool_definitions`](https://github.com/Open-Source-Legal/OpenContracts/blob/main/opencontractserver/mcp/server.py).
+
+### Text retrieval and search
+
+`get_document_text` returns `text`, `total_chars`, `char_offset`, `next_offset`,
+and `truncated`. To continue reading, pass the returned `next_offset` as the
+next request's `char_offset`; stop when `next_offset` is `null`. Use a positive
+`max_chars` to make progress. Default and maximum slice sizes are defined in
+[`constants/mcp.py`](https://github.com/Open-Source-Legal/OpenContracts/blob/main/opencontractserver/constants/mcp.py).
+The `document://` resource still returns full extracted text.
+
+`search_corpus` accepts `granularity="passage"`, `"block"`, or `"both"`
+(default). Results are tagged with `type`. Passage search falls back to
+case-insensitive substring matching on annotation text when vector search is
+unavailable, fails, or returns no passages; those hits have a `null`
+`similarity_score`. Block search requires embeddings and has no text fallback.
+The optional `structural` filter applies to passages. See
+[`tools.py::get_document_text` and `search_corpus`](https://github.com/Open-Source-Legal/OpenContracts/blob/main/opencontractserver/mcp/tools.py)
+for retrieval behavior and
+[`formatters.py`](https://github.com/Open-Source-Legal/OpenContracts/blob/main/opencontractserver/mcp/formatters.py) for result shapes.
 
 ## Available Resources
 
@@ -174,7 +204,7 @@ python -m opencontractserver.mcp.server
 }
 ```
 
-### Semantic Search
+### Corpus Search
 
 ```json
 {
@@ -209,35 +239,11 @@ python -m opencontractserver.mcp.server
 
 ## Architecture
 
-```
-┌─────────────────┐                    ┌──────────────────────────────────────────────┐
-│  MCP Client     │                    │  ASGI Router                                 │
-│  (Claude, etc)  │◄──────────────────►│  /mcp/* or /mcp/corpus/{slug}/* or /sse/*   │
-└─────────────────┘   JSON-RPC 2.0     └──────────┬───────────────────────────────────┘
-                                                  │
-                      ┌───────────────────────────┼───────────────────────────────────────────────┐
-                      │                           │                           │                   │
-           ┌──────────▼───────────┐    ┌──────────▼───────────┐    ┌──────────▼───────────┐    ┌──▼─────────────────┐
-           │  StreamableHTTP      │    │  Corpus-Scoped HTTP  │    │  SSE Transport       │    │  stdio Transport   │
-           │  /mcp (global)       │    │  /mcp/corpus/{slug}/ │    │  /sse (deprecated)   │    │  (CLI only)        │
-           └──────────┬───────────┘    └──────────┬───────────┘    └──────────┬───────────┘    └──────────┬─────────┘
-                      │                           │                           │                           │
-                      │                           │                           │                           │
-           ┌──────────▼───────────┐    ┌──────────▼───────────┐              │                           │
-           │  Global MCP Server   │    │  Scoped MCP Server   │              │                           │
-           │  - 7 tools           │    │  - 7 tools (scoped)  │              │                           │
-           │  - 4 resources       │    │  - 4 resources       │              │                           │
-           │  - All corpuses      │    │  - Single corpus     │              │                           │
-           └──────────┬───────────┘    └──────────┬───────────┘              │                           │
-                      │                           │                           │                           │
-                      └───────────────────────────┼───────────────────────────┼───────────────────────────┘
-                                                  │
-                                       ┌──────────▼───────────┐
-                                       │  Django ORM          │
-                                       │  visible_to_user()   │
-                                       │  (AnonymousUser)     │
-                                       └──────────────────────┘
-```
+HTTP requests are routed through ASGI to the global or corpus-scoped MCP
+server; SSE remains available for older clients, and stdio supports local
+use. Both servers advertise nine tools and four resource URI patterns.
+Handlers use the anonymous or authenticated user context for resource
+visibility checks.
 
 ### Scoped vs Global Endpoints
 
@@ -330,18 +336,25 @@ must validate here:
 
 ## Security Model
 
-- **Read-mostly**: the only write tool (`create_thread_message`) enforces
-  authentication and per-resource permissions inside the tool body
+- **Read-mostly**: the only write tool (`create_thread_message`) requires an
+  authenticated caller with visibility of the corpus and thread. A separate
+  WRITE permission is not required; locked threads reject posting. Optional
+  parent messages must be visible and belong to the same thread. See
+  [`tools.py::create_thread_message`](https://github.com/Open-Source-Legal/OpenContracts/blob/main/opencontractserver/mcp/tools.py).
 - **Permission-filtered**: anonymous callers resolve through `AnonymousUser`;
   authenticated callers see only resources they own or are shared on
-- **Slug-based**: All identifiers are URL-safe slugs (no internal IDs exposed)
+- **Identifiers**: corpuses and documents use URL-safe slugs; annotations,
+  relationships, threads, and messages also expose numeric identifiers.
+  Knowing an identifier does not bypass the relevant visibility checks.
 - **Bearer auth**: optional on `/mcp/`, required on `/mcp/me/` (see above)
 
 ---
 
 ## Limitations
 
-- No streaming of large documents (text returned in full)
-- Semantic search requires corpus to have embeddings configured
+- No streaming of document text: `get_document_text` uses bounded slices,
+  while the `document://` resource returns full text
+- Semantic passage search and block search require embeddings; passage text
+  fallback searches annotation text, not the entire extracted document
 - Interactive OAuth sign-in requires `USE_AUTH0=True`; without it, `/mcp/me/`
   still accepts a bearer token but cannot advertise an interactive login
