@@ -73,6 +73,7 @@ django-guardian
 # GraphQL
 # ------------------------------------------------------------------------------
 strawberry-graphql==0.327.7  # code-first GraphQL; replaced graphene-django (schema parity pinned by config/graphql/schema.graphql)
+graphql-core>=3.2,<3.3  # strawberry allows <3.4, but 3.3 reworked execution.collect_fields (config/graphql/automation.py::_check) and ListValueNode typing; upgrade deliberately
 
 # Telemetry
 # ------------------------------------------------------------------------------

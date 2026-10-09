@@ -122,7 +122,8 @@ repos:
           - daphne==4.2.1
           - celery==5.6.3
           - pgvector==0.4.2
-          - strawberry-graphql==0.323.2
+          - strawberry-graphql==0.327.7
+          - graphql-core>=3.2,<3.3  # mirror requirements/base.txt; 3.3 breaks automation.py::_check
           - pydantic==2.13.3
           - psycopg2-binary==2.9.11
           # --- Pulled in transitively by app admin autodiscover ---------
