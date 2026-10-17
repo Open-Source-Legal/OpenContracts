@@ -369,7 +369,13 @@ export const cache = new InMemoryCache({
         // — without these, switching documents collapses corpusReferences into
         // one slot and navigating corpora serves a stale governanceGraph /
         // wantedAuthorities.
-        corpusReferences: relayStylePagination(["corpusId", "documentId"]),
+        corpusReferences: relayStylePagination([
+          "corpusId",
+          "documentId",
+          "referenceType",
+          "canonicalKey",
+          "includeHistorical",
+        ]),
         governanceGraph: {
           keyArgs: ["corpusId"],
         },

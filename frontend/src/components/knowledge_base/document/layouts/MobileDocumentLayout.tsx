@@ -264,6 +264,8 @@ export const MobileDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
           corpusId={corpusId}
           hasCorpus={Boolean(hasCorpus)}
           readOnly={readOnly}
+          canReviewAnnotations={props.canEdit}
+          onPlaceAnnotation={() => handleSelectTab("document")}
           onAddToCorpus={() => setShowAddToCorpusModal(true)}
           onClose={handleClose}
         />

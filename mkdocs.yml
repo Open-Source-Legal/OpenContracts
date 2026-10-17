@@ -111,6 +111,7 @@ nav:
       - Document Versioning: architecture/document_versioning.md
       - User Workspace Storage: architecture/user-workspace-storage.md
       - Querying Annotations on Versioned Docs: architecture/querying_annotations_on_versioned_docs.md
+      - 'Reference Web × Versioning (design)': architecture/reference-web-versioning.md
       - Corpus Forking: architecture/corpus_forking.md
       - Corpus Export Format Spec: architecture/corpus-export-format-spec.md
       - Corpus Export/Import V2: architecture/corpus_export_import_v2.md

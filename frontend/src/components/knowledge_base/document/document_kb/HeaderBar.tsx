@@ -16,6 +16,7 @@ import {
 import { HeaderButtonGroup, HeaderButton } from "./styles";
 import { routingLogger } from "../../../../utils/routingLogger";
 import { CreatorRef, getCreatorDisplay } from "../../../../utils/userDisplay";
+import { AnnotationVersionReviewPanel } from "../AnnotationVersionReviewPanel";
 
 export interface DocumentMetadata {
   title?: string | null;
@@ -33,6 +34,8 @@ export interface HeaderBarProps {
   /** True when the document is bound to a corpus (controls version selector + Add-to-Corpus button) */
   hasCorpus: boolean;
   readOnly: boolean;
+  canReviewAnnotations?: boolean;
+  onPlaceAnnotation?: () => void;
   /** Open the AddToCorpus modal — only rendered when no corpus is bound and the user can edit */
   onAddToCorpus: () => void;
   /** Back-button handler. */
@@ -50,6 +53,8 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   corpusId,
   hasCorpus,
   readOnly,
+  canReviewAnnotations = false,
+  onPlaceAnnotation = () => {},
   onAddToCorpus,
   onClose,
 }) => {
@@ -138,6 +143,14 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
           />
         )}
       </MetadataRow>
+      {hasCorpus && corpusId && (
+        <AnnotationVersionReviewPanel
+          documentId={documentId}
+          corpusId={corpusId}
+          readOnly={!canReviewAnnotations}
+          onPlace={onPlaceAnnotation}
+        />
+      )}
     </HeaderContainer>
   );
 };

@@ -35,6 +35,7 @@ from django.db.models import Q, QuerySet
 
 from config.graphql import enums
 from config.graphql._util import coerce_enum, coerce_str, strip_unset
+from config.graphql.annotation_version_review import AnnotationVersionState
 from config.graphql.base_types import build_flat_tree
 from config.graphql.core import permissions as core_permissions
 from config.graphql.core.filtering import setup_filterset
@@ -257,6 +258,17 @@ def _resolve_AnnotationType_subtree(root, info):
 
 @strawberry.type(name="AnnotationType")
 class AnnotationType(Node):
+    @strawberry.field(name="versionState")
+    def version_state(self, info: strawberry.Info) -> AnnotationVersionState | None:
+        from opencontractserver.annotations.services.version_review import (
+            AnnotationVersionReviewService,
+        )
+
+        state = AnnotationVersionReviewService.state_for_annotation(
+            info.context.user, self, request=info.context
+        )
+        return AnnotationVersionState(state) if state else None
+
     user_lock: None | (
         Annotated[UserType, strawberry.lazy("config.graphql.user_types")]
     ) = strawberry.field(name="userLock", default=None)
@@ -726,6 +738,7 @@ class AnnotationType(Node):
     def inbound_references(
         self,
         info: strawberry.Info,
+        include_historical: bool = False,
         offset: Annotated[
             int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
@@ -751,7 +764,11 @@ class AnnotationType(Node):
                 "last": last,
             }
         )
-        resolved = getattr(self, "inbound_references", None)
+        from opencontractserver.enrichment.services import CorpusReferenceService
+
+        resolved = CorpusReferenceService.for_user(
+            info.context.user, include_historical=include_historical
+        ).filter(target_annotation_id=self.id)
         return resolve_django_connection(
             resolved=resolved,
             info=info,
@@ -2127,6 +2144,39 @@ class CorpusReferenceType(Node):
     ) -> None | (Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]):
         return resolve_visible_fk(self, info, "target_corpus_id", "CorpusType")
 
+    @strawberry.field(name="currentTargetDocument")
+    def current_target_document(
+        self, info: strawberry.Info
+    ) -> (
+        None | Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
+    ):
+        from opencontractserver.enrichment.services import CorpusReferenceService
+
+        return CorpusReferenceService.current_target(
+            self, info.context.user, request=info.context
+        )
+
+    @strawberry.field(name="targetIsSuperseded")
+    def target_is_superseded(self, info: strawberry.Info) -> bool:
+        from opencontractserver.enrichment.services import CorpusReferenceService
+
+        return CorpusReferenceService.target_is_superseded(self)
+
+    @strawberry.field(name="targetVersionNumber")
+    def target_version_number(self, info: strawberry.Info) -> int | None:
+        from opencontractserver.enrichment.services import CorpusReferenceService
+
+        return CorpusReferenceService.target_version_number(self, request=info.context)
+
+    @strawberry.field(name="currentTargetVersionNumber")
+    def current_target_version_number(self, info: strawberry.Info) -> int | None:
+        from opencontractserver.enrichment.services import CorpusReferenceService
+
+        target = CorpusReferenceService.current_target(
+            self, info.context.user, request=info.context
+        )
+        return target._reference_version_number if target else None
+
     @strawberry.field(name="canonicalKey")
     def canonical_key(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "canonical_key", None))
@@ -2182,7 +2232,21 @@ class CorpusReferenceType(Node):
     is_provisional: bool = strawberry.field(name="isProvisional", default=None)
 
 
-register_type("CorpusReferenceType", CorpusReferenceType, model=CorpusReference)
+def _get_queryset_CorpusReferenceType(queryset, info):
+    from opencontractserver.enrichment.services import CorpusReferenceService
+
+    # Connections decide current/history scope; every traversal enforces visibility.
+    return CorpusReferenceService.for_user(
+        info.context.user, include_historical=True
+    ).filter(pk__in=queryset.values("pk"))
+
+
+register_type(
+    "CorpusReferenceType",
+    CorpusReferenceType,
+    model=CorpusReference,
+    get_queryset=_get_queryset_CorpusReferenceType,
+)
 
 
 CorpusReferenceTypeConnection = make_connection_types(

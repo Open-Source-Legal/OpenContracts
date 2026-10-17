@@ -31,7 +31,9 @@ from django.db.models import (
     BooleanField,
     Case,
     Count,
+    Exists,
     F,
+    OuterRef,
     Q,
     QuerySet,
     Value,
@@ -47,6 +49,30 @@ if TYPE_CHECKING:
 class DocumentRelationshipService(BaseService):
     """Permission-aware queries for ``DocumentRelationship`` objects."""
 
+    @staticmethod
+    def current_endpoints(queryset):
+        """Both endpoints must be active in the relationship's own corpus."""
+        from opencontractserver.documents.models import DocumentPath
+
+        paths = DocumentPath.objects.filter(
+            corpus_id=OuterRef("corpus_id"),
+            is_current=True,
+            is_deleted=False,
+        )
+        return queryset.filter(
+            (
+                Q(
+                    corpus__isnull=True,
+                    source_document__is_current=True,
+                    target_document__is_current=True,
+                )
+            )
+            | (
+                Q(Exists(paths.filter(document_id=OuterRef("source_document_id"))))
+                & Q(Exists(paths.filter(document_id=OuterRef("target_document_id"))))
+            ),
+        )
+
     # Cache key prefixes for request-level caching
     _VISIBLE_DOC_IDS_CACHE_KEY = "_doc_rel_visible_doc_ids"
     _VISIBLE_CORPUS_IDS_CACHE_KEY = "_doc_rel_visible_corpus_ids"
@@ -59,6 +85,7 @@ class DocumentRelationshipService(BaseService):
         corpus_id: Optional[int] = None,
         *,
         request: Optional[Any] = None,
+        include_historical: bool = False,
     ) -> dict[int, int]:
         """
         Return a mapping ``{document_id: count}`` of visible relationships per
@@ -84,7 +111,7 @@ class DocumentRelationshipService(BaseService):
 
         cache_obj_key = (
             f"{cls._RELATIONSHIP_COUNTS_CACHE_KEY}_"
-            f"{getattr(user, 'id', None)}_{corpus_id if corpus_id else 'all'}"
+            f"{getattr(user, 'id', None)}_{corpus_id if corpus_id else 'all'}_{include_historical}"
         )
         if request is not None and hasattr(request, cache_obj_key):
             return getattr(request, cache_obj_key)
@@ -101,6 +128,9 @@ class DocumentRelationshipService(BaseService):
             source_document_id__in=visible_doc_ids,
             target_document_id__in=visible_doc_ids,
         ).filter(Q(corpus__isnull=True) | Q(corpus_id__in=visible_corpus_ids))
+
+        if not include_historical:
+            qs = cls.current_endpoints(qs)
 
         if corpus_id:
             qs = qs.filter(corpus_id=corpus_id)
@@ -208,6 +238,7 @@ class DocumentRelationshipService(BaseService):
         relationship_type: Optional[str] = None,
         *,
         request: Optional[Any] = None,
+        include_historical: bool = False,
     ) -> QuerySet:
         """
         Get DocumentRelationship objects visible to the user.
@@ -240,6 +271,9 @@ class DocumentRelationshipService(BaseService):
             source_document_id__in=visible_doc_ids,
             target_document_id__in=visible_doc_ids,
         ).filter(Q(corpus__isnull=True) | Q(corpus_id__in=visible_corpus_ids))
+
+        if not include_historical:
+            queryset = cls.current_endpoints(queryset)
 
         # Apply additional filters
         if source_document_id:
@@ -300,6 +334,7 @@ class DocumentRelationshipService(BaseService):
         include_as_target: bool = True,
         *,
         request: Optional[Any] = None,
+        include_historical: bool = False,
     ) -> QuerySet:
         """
         Get all DocumentRelationship objects where a document is source or target.
@@ -340,7 +375,10 @@ class DocumentRelationshipService(BaseService):
         # Use get_visible_relationships for permission filtering, then apply doc filter
         # Pass request for request-level caching to prevent N+1 queries
         queryset = cls.get_visible_relationships(
-            user, corpus_id=corpus_id, request=request
+            user,
+            corpus_id=corpus_id,
+            request=request,
+            include_historical=include_historical,
         ).filter(q_filter)
 
         return queryset

@@ -1467,6 +1467,58 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
         ]
 
 
+class AnnotationVersionDecision(django.db.models.Model):
+    """How one human annotation was carried onto the next document version.
+
+    ``AUTO`` and ``STALE`` are machine outcomes awaiting a person: ``AUTO``
+    carried a unique exact match, ``STALE`` found none. A reviewer turns either
+    into ``REAPPROVED``, ``CORRECTED`` or ``DROPPED``; ``reviewer`` is null
+    until then.
+    """
+
+    class Decision(django.db.models.TextChoices):
+        AUTO = "AUTO", "Auto-carried"
+        STALE = "STALE", "Needs placement"
+        REAPPROVED = "REAPPROVED", "Re-approved"
+        CORRECTED = "CORRECTED", "Corrected"
+        DROPPED = "DROPPED", "Dropped"
+
+    annotation = django.db.models.OneToOneField(
+        Annotation, on_delete=django.db.models.CASCADE, related_name="version_decision"
+    )
+    target_document = django.db.models.ForeignKey(
+        "documents.Document",
+        on_delete=django.db.models.CASCADE,
+        related_name="annotation_version_decisions",
+    )
+    decision = django.db.models.CharField(max_length=16, choices=Decision.choices)
+    successor = django.db.models.OneToOneField(
+        Annotation,
+        on_delete=django.db.models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="carried_from",
+    )
+    reviewer = django.db.models.ForeignKey(
+        django.conf.settings.AUTH_USER_MODEL,
+        on_delete=django.db.models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    reviewed_at = django.db.models.DateTimeField(null=True, blank=True)
+    created = django.db.models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            django.db.models.CheckConstraint(
+                condition=django.db.models.Q(
+                    decision__in=["AUTO", "STALE", "REAPPROVED", "CORRECTED", "DROPPED"]
+                ),
+                name="annotation_version_decision_valid",
+            ),
+        ]
+
+
 # Model for Django Guardian permissions.
 class AnnotationUserObjectPermission(UserObjectPermissionBase):
     content_object = django.db.models.ForeignKey(

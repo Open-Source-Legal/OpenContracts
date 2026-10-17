@@ -156,11 +156,11 @@ def _resolve_Query_corpus_references(root, info, corpus_id, **kwargs):
     if not str(pk_str).isdigit():
         return CorpusReference.objects.none()
     pk = int(pk_str)
-    qs = CorpusReferenceService.for_corpus(info.context.user, pk)
-    if kwargs.get("reference_type"):
-        qs = qs.filter(reference_type=kwargs["reference_type"])
-    if kwargs.get("canonical_key"):
-        qs = qs.filter(canonical_key=kwargs["canonical_key"])
+    qs = CorpusReferenceService.for_corpus(
+        info.context.user,
+        pk,
+        include_historical=kwargs.get("include_historical", False),
+    )
     if kwargs.get("document_id"):
         doc_pk_str = from_global_id(kwargs["document_id"])[1]
         if not str(doc_pk_str).isdigit():
@@ -171,17 +171,21 @@ def _resolve_Query_corpus_references(root, info, corpus_id, **kwargs):
         # an arbitrary (possibly invisible) document has references in this
         # corpus. An invisible document yields the same empty result as one
         # with no references.
-        if (
-            not BaseService.filter_visible(
-                Document, info.context.user, request=info.context
-            )
-            .filter(id=doc_pk)
-            .exists()
-        ):
-            return CorpusReference.objects.none()
-        qs = qs.filter(
-            Q(source_annotation__document_id=doc_pk) | Q(target_document_id=doc_pk)
+        document = BaseService.get_or_none(
+            Document, doc_pk, info.context.user, request=info.context
         )
+        if document is None:
+            return CorpusReference.objects.none()
+        qs = CorpusReferenceService.for_document(
+            info.context.user,
+            document,
+            pk,
+            include_historical=kwargs.get("include_historical", False),
+        )
+    if kwargs.get("reference_type"):
+        qs = qs.filter(reference_type=kwargs["reference_type"])
+    if kwargs.get("canonical_key"):
+        qs = qs.filter(canonical_key=kwargs["canonical_key"])
     # Pull the FK targets the type resolves in one pass — without this each
     # CorpusReferenceType row fires a separate query per FK (N+1).
     return qs.select_related(
@@ -195,6 +199,7 @@ def _resolve_Query_corpus_references(root, info, corpus_id, **kwargs):
 
 def q_corpus_references(
     info: strawberry.Info,
+    include_historical: bool = False,
     corpus_id: Annotated[
         strawberry.ID, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
@@ -229,6 +234,7 @@ def q_corpus_references(
     kwargs = strip_unset(
         {
             "corpus_id": corpus_id,
+            "include_historical": include_historical,
             "reference_type": reference_type,
             "canonical_key": canonical_key,
             "document_id": document_id,

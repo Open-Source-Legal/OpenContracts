@@ -1,6 +1,6 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { useQuery } from "@apollo/client";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import styled, { keyframes } from "styled-components";
 import {
   ArrowDownLeft,
@@ -248,6 +248,60 @@ interface OutboundGroup {
   // Any mention in the group written by an in-flight (not-yet-finalized)
   // enrichment run — drives the "In progress" badge.
   provisional: boolean;
+  reference: CorpusReferenceRow;
+}
+
+const VersionLinks = styled.div`
+  padding: 0.25rem 0.7rem;
+  font-size: 0.75rem;
+  color: ${OS_LEGAL_COLORS.textSecondary};
+  a {
+    color: ${OS_LEGAL_COLORS.primaryBlue};
+  }
+`;
+
+function ReferenceVersionLinks({
+  reference,
+}: {
+  reference: CorpusReferenceRow;
+}) {
+  const navigate = useNavigate();
+  if (!reference.targetIsSuperseded) return null;
+  const target = reference.currentTargetDocument;
+  const corpus = reference.targetCorpus || reference.corpus;
+  const currentUrl =
+    target?.slug && corpus?.slug && corpus.creator?.slug
+      ? `/d/${corpus.creator.slug}/${corpus.slug}/${target.slug}`
+      : null;
+  const citedUrl = reference.sourceAnnotation?.linkUrl;
+  return (
+    <VersionLinks>
+      {citedUrl ? (
+        // A pinned citation may point outside the app, so it gets the same
+        // scheme check and new-tab handling as every other reference link.
+        <a
+          href={citedUrl}
+          onClick={(event) => {
+            event.preventDefault();
+            openSafeUrl(citedUrl, navigate);
+          }}
+        >
+          cited v{reference.targetVersionNumber}
+        </a>
+      ) : (
+        <span>cited v{reference.targetVersionNumber}</span>
+      )}
+      {currentUrl && (
+        <>
+          {" "}
+          ·{" "}
+          <Link to={currentUrl}>
+            current v{reference.currentTargetVersionNumber}
+          </Link>
+        </>
+      )}
+    </VersionLinks>
+  );
 }
 
 export const DocumentReferencesPanel: React.FC<
@@ -255,12 +309,13 @@ export const DocumentReferencesPanel: React.FC<
 > = ({ documentId, corpusId }) => {
   const navigate = useNavigate();
   const navigateToDocument = useNavigateToDocumentById();
+  const [includeHistorical, setIncludeHistorical] = useState(false);
 
   const { data, loading, error } = useQuery<
     GetCorpusReferencesForDocumentOutputType,
     GetCorpusReferencesForDocumentInputType
   >(GET_CORPUS_REFERENCES_FOR_DOCUMENT, {
-    variables: { corpusId: corpusId || "", documentId },
+    variables: { corpusId: corpusId || "", documentId, includeHistorical },
     skip: !corpusId,
   });
 
@@ -274,7 +329,7 @@ export const DocumentReferencesPanel: React.FC<
     const inn: CorpusReferenceRow[] = [];
     rows.forEach((row) => {
       if (row.sourceAnnotation?.document?.id === documentId) out.push(row);
-      else if (row.targetDocument?.id === documentId) inn.push(row);
+      else inn.push(row); // The service matches incoming citations across the target's tree.
     });
     return { outbound: out, inbound: inn };
   }, [rows, documentId]);
@@ -286,7 +341,7 @@ export const DocumentReferencesPanel: React.FC<
     outbound.forEach((row) => {
       const groupKey = `${row.referenceType}:${
         row.canonicalKey || row.targetDocument?.id || row.id
-      }`;
+      }:${row.targetDocument?.id || "external"}`;
       const existing = groups.get(groupKey);
       if (existing) {
         existing.mentions += 1;
@@ -314,6 +369,7 @@ export const DocumentReferencesPanel: React.FC<
         linkUrl: row.sourceAnnotation?.linkUrl,
         resolved: row.resolutionStatus === "RESOLVED",
         provisional: Boolean(row.isProvisional),
+        reference: row,
       });
     });
     return [...groups.values()].sort(
@@ -332,21 +388,26 @@ export const DocumentReferencesPanel: React.FC<
         title: string;
         mentions: number;
         snippet?: string | null;
+        reference: CorpusReferenceRow;
+        key: string;
       }
     >();
     inbound.forEach((row) => {
       const doc = row.sourceAnnotation?.document;
       if (!doc) return;
-      const existing = groups.get(doc.id);
+      const key = `${doc.id}:${row.targetDocument?.id}`;
+      const existing = groups.get(key);
       if (existing) {
         existing.mentions += 1;
         return;
       }
-      groups.set(doc.id, {
+      groups.set(key, {
+        key,
         docId: doc.id,
         title: doc.title || "Untitled document",
         mentions: 1,
         snippet: row.sourceAnnotation?.rawText,
+        reference: row,
       });
     });
     return [...groups.values()].sort((a, b) => b.mentions - a.mentions);
@@ -394,8 +455,8 @@ export const DocumentReferencesPanel: React.FC<
     );
   }
 
-  if (rows.length === 0) {
-    return (
+  const emptyState =
+    rows.length === 0 ? (
       <EmptyState data-testid="references-panel-empty">
         <Link2
           size={18}
@@ -406,11 +467,19 @@ export const DocumentReferencesPanel: React.FC<
           on the collection to weave its citation web.
         </div>
       </EmptyState>
-    );
-  }
+    ) : null;
 
   return (
     <PanelBody data-testid="references-panel">
+      <label>
+        <input
+          type="checkbox"
+          checked={includeHistorical}
+          onChange={(event) => setIncludeHistorical(event.target.checked)}
+        />{" "}
+        Show superseded versions
+      </label>
+      {emptyState}
       {outboundGroups.length > 0 && (
         <div>
           <SectionTitle>
@@ -449,64 +518,68 @@ export const DocumentReferencesPanel: React.FC<
                 !group.resolved &&
                 group.referenceType === GOVERNANCE_GRAPH_EDGE_TYPES.LAW;
               return (
-                <RefRow
-                  key={group.key}
-                  $clickable={clickable}
-                  onClick={
-                    clickable
-                      ? () => openSafeUrl(group.linkUrl, navigate)
-                      : undefined
-                  }
-                  data-testid="references-panel-outbound-row"
-                >
-                  <TypeChip $color={meta.color}>{meta.label}</TypeChip>
-                  <RefContent>
-                    <RefHead>
-                      {group.head}
-                      {group.mentions > 1 && (
-                        <span className="mentions">×{group.mentions}</span>
+                <div key={group.key}>
+                  <RefRow
+                    $clickable={clickable}
+                    onClick={
+                      clickable
+                        ? () => openSafeUrl(group.linkUrl, navigate)
+                        : undefined
+                    }
+                    data-testid="references-panel-outbound-row"
+                  >
+                    <TypeChip $color={meta.color}>{meta.label}</TypeChip>
+                    <RefContent>
+                      <RefHead>
+                        {group.head}
+                        {group.mentions > 1 && (
+                          <span className="mentions">×{group.mentions}</span>
+                        )}
+                      </RefHead>
+                      {group.snippet && (
+                        <RefSnippet>{group.snippet}</RefSnippet>
                       )}
-                    </RefHead>
-                    {group.snippet && <RefSnippet>{group.snippet}</RefSnippet>}
-                  </RefContent>
-                  {/* Provisional takes precedence: the reference is still being
+                    </RefContent>
+                    {/* Provisional takes precedence: the reference is still being
                       written by an in-flight run, so its linked/awaiting state
                       is preliminary until the run finalizes. */}
-                  {group.provisional ? (
-                    <RefStatus>
-                      <StatusChip
-                        $variant="provisional"
-                        title="Detected by an enrichment run still in progress — not finalized yet."
-                        data-testid="references-panel-status-provisional"
-                      >
-                        <CircleDashed />
-                        In progress
-                      </StatusChip>
-                    </RefStatus>
-                  ) : clickable ? (
-                    <RefStatus>
-                      <StatusChip
-                        $variant="linked"
-                        title="Resolved — opens the cited authority"
-                        data-testid="references-panel-status-linked"
-                      >
-                        <Check />
-                        Linked
-                      </StatusChip>
-                    </RefStatus>
-                  ) : awaiting ? (
-                    <RefStatus>
-                      <StatusChip
-                        $variant="awaiting"
-                        title="Citation detected, but the source authority is not ingested yet. Run the authority crawl to resolve it."
-                        data-testid="references-panel-status-awaiting"
-                      >
-                        <Clock />
-                        Awaiting source
-                      </StatusChip>
-                    </RefStatus>
-                  ) : null}
-                </RefRow>
+                    {group.provisional ? (
+                      <RefStatus>
+                        <StatusChip
+                          $variant="provisional"
+                          title="Detected by an enrichment run still in progress — not finalized yet."
+                          data-testid="references-panel-status-provisional"
+                        >
+                          <CircleDashed />
+                          In progress
+                        </StatusChip>
+                      </RefStatus>
+                    ) : clickable ? (
+                      <RefStatus>
+                        <StatusChip
+                          $variant="linked"
+                          title="Resolved — opens the cited authority"
+                          data-testid="references-panel-status-linked"
+                        >
+                          <Check />
+                          Linked
+                        </StatusChip>
+                      </RefStatus>
+                    ) : awaiting ? (
+                      <RefStatus>
+                        <StatusChip
+                          $variant="awaiting"
+                          title="Citation detected, but the source authority is not ingested yet. Run the authority crawl to resolve it."
+                          data-testid="references-panel-status-awaiting"
+                        >
+                          <Clock />
+                          Awaiting source
+                        </StatusChip>
+                      </RefStatus>
+                    ) : null}
+                  </RefRow>
+                  <ReferenceVersionLinks reference={group.reference} />
+                </div>
               );
             })}
           </RefList>
@@ -522,23 +595,25 @@ export const DocumentReferencesPanel: React.FC<
           </SectionTitle>
           <RefList>
             {inboundGroups.map((group) => (
-              <RefRow
-                key={group.docId}
-                $clickable
-                onClick={() => void navigateToDocument(group.docId)}
-                data-testid="references-panel-inbound-row"
-              >
-                <TypeChip $color={OS_LEGAL_COLORS.primaryBlue}>Doc</TypeChip>
-                <RefContent>
-                  <RefHead>
-                    {group.title}
-                    {group.mentions > 1 && (
-                      <span className="mentions">×{group.mentions}</span>
-                    )}
-                  </RefHead>
-                  {group.snippet && <RefSnippet>{group.snippet}</RefSnippet>}
-                </RefContent>
-              </RefRow>
+              <div key={group.key}>
+                <RefRow
+                  $clickable
+                  onClick={() => void navigateToDocument(group.docId)}
+                  data-testid="references-panel-inbound-row"
+                >
+                  <TypeChip $color={OS_LEGAL_COLORS.primaryBlue}>Doc</TypeChip>
+                  <RefContent>
+                    <RefHead>
+                      {group.title}
+                      {group.mentions > 1 && (
+                        <span className="mentions">×{group.mentions}</span>
+                      )}
+                    </RefHead>
+                    {group.snippet && <RefSnippet>{group.snippet}</RefSnippet>}
+                  </RefContent>
+                </RefRow>
+                <ReferenceVersionLinks reference={group.reference} />
+              </div>
             ))}
           </RefList>
         </div>

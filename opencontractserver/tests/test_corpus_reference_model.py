@@ -22,7 +22,7 @@ from opencontractserver.annotations.models import (
     StructuralAnnotationSet,
 )
 from opencontractserver.corpuses.models import Corpus
-from opencontractserver.documents.models import Document
+from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.enrichment import constants as C
 from opencontractserver.enrichment.services import CorpusReferenceService
 from opencontractserver.types.enums import PermissionTypes
@@ -139,6 +139,16 @@ class CorpusReferenceVisibilityTests(TestCase):
         self.private_target_corpus = Corpus.objects.create(
             title="Private Authority", creator=self.owner, is_public=False
         )
+        # Current-reference reads require an active source path in this corpus.
+        for document in (self.visible_doc, self.private_source_doc):
+            DocumentPath.objects.create(
+                document=document,
+                corpus=self.corpus,
+                creator=self.owner,
+                path=f"/{document.pk}.pdf",
+                version_number=1,
+                is_current=True,
+            )
         self.label = self.corpus.ensure_label_and_labelset(
             label_text=C.LABEL_REF_LAW,
             creator_id=self.owner.id,
@@ -251,6 +261,8 @@ class CorpusReferenceVisibilityTests(TestCase):
             content_hash=f"struct-{self.corpus.id}",
             creator=self.owner,
         )
+        self.visible_doc.structural_annotation_set = structural_set
+        self.visible_doc.save(update_fields=["structural_annotation_set"])
         return Annotation.objects.create(
             raw_text="structural mention",
             page=1,
@@ -281,6 +293,19 @@ class CorpusReferenceVisibilityTests(TestCase):
             .filter(pk=ref.pk)
             .exists()
         )
+        # The set's owning document still gates privacy when document=None.
+        self.visible_doc.is_public = False
+        self.visible_doc.save(update_fields=["is_public"])
+        for read in (
+            CorpusReferenceService.visible_to_user,
+            CorpusReferenceService.visible_to_user_by_source,
+        ):
+            for include_historical in (False, True):
+                assert (
+                    not read(self.viewer, include_historical=include_historical)
+                    .filter(pk=ref.pk)
+                    .exists()
+                )
 
     def test_visible_to_user_requires_visible_target_annotation_corpus(self):
         # IDOR: a target annotation whose DOCUMENT is public but whose CORPUS is
@@ -370,6 +395,15 @@ class CorpusReferenceVisibilityTests(TestCase):
             canonical_key=f"dgcl:{mention.id}",
             resolution_status=C.STATUS_EXTERNAL,
             creator=self.owner,
+        )
+
+        DocumentPath.objects.create(
+            document=shared_doc,
+            corpus=shared_corpus,
+            creator=self.owner,
+            path="/shared.pdf",
+            version_number=1,
+            is_current=True,
         )
 
         # No grant yet → hidden.

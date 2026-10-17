@@ -9,11 +9,24 @@ This document defines the architectural conventions for how annotations, vector 
 ### P1: Version Immutability
 Every annotation, embedding, and processing result is permanently tied to a specific Document version. These artifacts never migrate between versions, preserving complete historical accuracy.
 
+Human annotations are carried to the next version as *new* rows: an
+`AnnotationVersionDecision` links each original to its successor and records
+whether a machine carried it (`AUTO`/`STALE`, pending) or a person confirmed,
+corrected or dropped it. The original row and its relationships are never
+modified. See [annotation carry and review](reference-web-versioning.md).
+
 ### P2: Default to Current
 All queries default to the latest version (`Document.is_current=True`) unless a specific version is explicitly requested. This represents the "working set" users interact with.
 
 ### P3: Corpus Context Primacy
 Within a corpus context, only documents with active filesystem paths are considered. A document may be globally current but locally deleted in a specific corpus.
+
+Corpus linkage is separate from currency. `AnnotationService.get_document_annotations`'s
+`check_current_version=False` (historical reads) relaxes the `is_current` requirement on
+the `DocumentPath` but still requires one: effective permissions are
+`MIN(document, corpus)`, and structural annotations are shared across corpuses by
+`structural_set`, so a read scoped to a corpus the document never belonged to must
+return nothing.
 
 ## Annotation Conventions
 

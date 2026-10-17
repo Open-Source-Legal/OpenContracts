@@ -831,7 +831,7 @@ type AnnotationType implements Node {
   ): AnnotationTypeConnection!
   notes(offset: Int, before: String, after: String, first: Int, last: Int): NoteTypeConnection!
   outboundReferences(offset: Int, before: String, after: String, first: Int, last: Int): CorpusReferenceTypeConnection!
-  inboundReferences(offset: Int, before: String, after: String, first: Int, last: Int): CorpusReferenceTypeConnection!
+  inboundReferences(includeHistorical: Boolean! = false, offset: Int, before: String, after: String, first: Int, last: Int): CorpusReferenceTypeConnection!
   referencingCells(offset: Int, before: String, after: String, first: Int, last: Int): DatacellTypeConnection!
   userFeedback(offset: Int, before: String, after: String, first: Int, last: Int): UserFeedbackTypeConnection!
 
@@ -864,6 +864,7 @@ type AnnotationType implements Node {
   List representing the path from the root ancestor to this annotation and its descendants.
   """
   subtree: [GenericScalar]
+  versionState: AnnotationVersionState
 }
 
 type AnnotationTypeConnection {
@@ -1124,6 +1125,10 @@ type CorpusReferenceType implements Node {
   authorityType: AnnotationsCorpusReferenceAuthorityTypeChoices
   detectionTier: AnnotationsCorpusReferenceDetectionTierChoices!
   resolutionStatus: AnnotationsCorpusReferenceResolutionStatusChoices!
+  currentTargetDocument: DocumentType
+  targetIsSuperseded: Boolean!
+  targetVersionNumber: Int
+  currentTargetVersionNumber: Int
 }
 
 """An enumeration."""
@@ -3128,7 +3133,7 @@ type CorpusType implements Node {
   ): AnnotationTypeConnection!
   notes(offset: Int, before: String, after: String, first: Int, last: Int): NoteTypeConnection!
   references(offset: Int, before: String, after: String, first: Int, last: Int): CorpusReferenceTypeConnection!
-  inboundReferences(offset: Int, before: String, after: String, first: Int, last: Int): CorpusReferenceTypeConnection!
+  inboundReferences(includeHistorical: Boolean! = false, offset: Int, before: String, after: String, first: Int, last: Int): CorpusReferenceTypeConnection!
   authorityNamespaces(offset: Int, before: String, after: String, first: Int, last: Int): AuthorityNamespaceNodeConnection!
   analyses(offset: Int, before: String, after: String, first: Int, last: Int): AnalysisTypeConnection!
   extracts(offset: Int, before: String, after: String, first: Int, last: Int): ExtractTypeConnection!
@@ -4012,7 +4017,7 @@ type DocumentType implements Node {
     orderBy: String
   ): AnnotationTypeConnection!
   notes(offset: Int, before: String, after: String, first: Int, last: Int): NoteTypeConnection!
-  inboundReferences(offset: Int, before: String, after: String, first: Int, last: Int): CorpusReferenceTypeConnection!
+  inboundReferences(includeHistorical: Boolean! = false, offset: Int, before: String, after: String, first: Int, last: Int): CorpusReferenceTypeConnection!
   frontierEntries(offset: Int, before: String, after: String, first: Int, last: Int): AuthorityFrontierNodeConnection!
   includedInAnalyses(offset: Int, before: String, after: String, first: Int, last: Int): AnalysisTypeConnection!
   extracts(offset: Int, before: String, after: String, first: Int, last: Int): ExtractTypeConnection!
@@ -4112,6 +4117,7 @@ type DocumentType implements Node {
   Get the folder this document is in within a specific corpus (null = root)
   """
   folderInCorpus(corpusId: ID!): CorpusFolderType
+  annotationsNeedingReview(corpusId: ID!): Int!
 }
 
 scalar UUID
@@ -7504,6 +7510,7 @@ type Query {
   corpusActionTrailStats(corpusId: ID!, since: DateTime): CorpusActionTrailStatsType
   documentCorpusActions(documentId: ID!, corpusId: ID): DocumentCorpusActionsType
   corpusReferences(
+    includeHistorical: Boolean! = false
     corpusId: ID!
     referenceType: String
     canonicalKey: String
@@ -8205,6 +8212,7 @@ type Query {
     """Pagination offset"""
     offset: Int
   ): WorkerDocumentUploadPageType
+  annotationVersionReview(documentId: ID!, corpusId: ID!): [AnnotationVersionReview!]!
 }
 
 """An enumeration."""
@@ -10474,6 +10482,8 @@ type Mutation {
   Revoke a corpus access token. Allowed for superusers and the corpus creator.
   """
   revokeCorpusAccessToken(tokenId: Int!): RevokeCorpusAccessTokenMutation
+  carryForwardAnnotation(annotationId: ID!, targetDocumentId: ID!, placement: GenericScalar = null, annotationLabelId: ID = null): AnnotationVersionReview!
+  dropStaleAnnotation(annotationId: ID!, targetDocumentId: ID!): AnnotationVersionReview!
 }
 
 """An enumeration."""
@@ -10532,4 +10542,20 @@ type AutomationCredentialChoice {
 type AutomationCredentialChoicePage {
   items: [AutomationCredentialChoice!]!
   totalCount: Int!
+}
+
+enum AnnotationVersionState {
+  AUTO
+  STALE
+  REAPPROVED
+  CORRECTED
+  DROPPED
+}
+
+type AnnotationVersionReview {
+  annotation: AnnotationType!
+  state: AnnotationVersionState!
+  successor: AnnotationType
+  reviewedBy: UserType
+  reviewedAt: DateTime
 }

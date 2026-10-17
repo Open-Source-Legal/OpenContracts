@@ -1162,11 +1162,28 @@ export interface CorpusReferenceRow {
     document?: { id: string; title?: string | null } | null;
   } | null;
   targetDocument?: { id: string; title?: string | null } | null;
+  targetIsSuperseded?: boolean;
+  targetVersionNumber?: number | null;
+  currentTargetVersionNumber?: number | null;
+  currentTargetDocument?: {
+    id: string;
+    title?: string | null;
+    slug?: string | null;
+  } | null;
+  targetCorpus?: {
+    slug?: string | null;
+    creator?: { slug?: string | null } | null;
+  } | null;
+  corpus?: {
+    slug?: string | null;
+    creator?: { slug?: string | null } | null;
+  } | null;
 }
 
 export interface GetCorpusReferencesForDocumentInputType {
   corpusId: string;
   documentId: string;
+  includeHistorical?: boolean;
 }
 
 export interface GetCorpusReferencesForDocumentOutputType {
@@ -1176,8 +1193,16 @@ export interface GetCorpusReferencesForDocumentOutputType {
 }
 
 export const GET_CORPUS_REFERENCES_FOR_DOCUMENT = gql`
-  query corpusReferencesForDocument($corpusId: ID!, $documentId: ID) {
-    corpusReferences(corpusId: $corpusId, documentId: $documentId) {
+  query corpusReferencesForDocument(
+    $corpusId: ID!
+    $documentId: ID
+    $includeHistorical: Boolean = false
+  ) {
+    corpusReferences(
+      corpusId: $corpusId
+      documentId: $documentId
+      includeHistorical: $includeHistorical
+    ) {
       edges {
         node {
           id
@@ -1185,6 +1210,26 @@ export const GET_CORPUS_REFERENCES_FOR_DOCUMENT = gql`
           canonicalKey
           resolutionStatus
           isProvisional
+          targetIsSuperseded
+          targetVersionNumber
+          currentTargetVersionNumber
+          currentTargetDocument {
+            id
+            title
+            slug
+          }
+          targetCorpus {
+            slug
+            creator {
+              slug
+            }
+          }
+          corpus {
+            slug
+            creator {
+              slug
+            }
+          }
           sourceAnnotation {
             id
             rawText
@@ -5135,6 +5180,7 @@ export const GET_DOCUMENT_KNOWLEDGE_AND_ANNOTATIONS = gql`
         rawText
         json
         linkUrl
+        versionState
         myPermissions
         structural
         contentModalities
@@ -5247,6 +5293,7 @@ export const GET_DOCUMENT_ANNOTATIONS_ONLY = gql`
         rawText
         json
         linkUrl
+        versionState
         myPermissions
         structural
         contentModalities
