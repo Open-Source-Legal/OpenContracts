@@ -52,7 +52,7 @@
     "fuse.js": "^6.5.3",
     "graphql": "^16.2.0",
     "history": "^5.3.0",
-    "jotai": "^2.10.2",
+    "jotai": "^3.0.1",
     "jotai-apollo": "^0.2.1",
     "leaflet": "^1.9.4",
     "leaflet.markercluster": "^1.5.3",
