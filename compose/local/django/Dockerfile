@@ -11,7 +11,7 @@
 # ---------------------------------------------------------------------------- #
 # Build stage: full toolchain for compiling wheels (psycopg2, opencv, etc.)    #
 # ---------------------------------------------------------------------------- #
-FROM python:3.12.13-slim-bookworm AS python-build-stage
+FROM python:3.12.15-slim-bookworm AS python-build-stage
 
 ARG BUILD_ENVIRONMENT=local
 ARG GITHUB_ACTIONS
@@ -62,7 +62,7 @@ RUN pip wheel --wheel-dir /usr/src/app/wheels \
 # ---------------------------------------------------------------------------- #
 # Runtime stage: slim base, runtime libs only.                                 #
 # ---------------------------------------------------------------------------- #
-FROM python:3.12.13-slim-bookworm AS python-run-stage
+FROM python:3.12.15-slim-bookworm AS python-run-stage
 
 ARG BUILD_ENVIRONMENT=local
 ARG APP_HOME=/app
