@@ -3,6 +3,7 @@
 from unittest import TestCase
 
 import spacy
+from spacy.tokenizer import Tokenizer
 
 
 class SpacyTokenizerSerializationTests(TestCase):
@@ -13,6 +14,8 @@ class SpacyTokenizerSerializationTests(TestCase):
 
         # Model loading restores the tokenizer into an initialized English
         # tokenizer. preshed 3.0.14 overflows while clearing its special cases.
-        nlp.tokenizer.from_bytes(nlp.tokenizer.to_bytes())
+        tokenizer = nlp.tokenizer
+        assert isinstance(tokenizer, Tokenizer)
+        tokenizer.from_bytes(tokenizer.to_bytes())
 
         self.assertEqual([(token.text, token.idx) for token in nlp(text)], expected)
