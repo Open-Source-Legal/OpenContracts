@@ -1,10 +1,10 @@
 # => Build Container
-FROM node:24-alpine as builder
+FROM node:26-alpine as builder
 
 WORKDIR /app
 COPY package.json .
 COPY yarn.lock .
-RUN yarn install
+RUN npm install --global yarn@1.22.22 && yarn install --frozen-lockfile
 COPY . .
 RUN yarn build
 

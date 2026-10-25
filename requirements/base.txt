@@ -11,7 +11,7 @@ pydantic==2.*
 typing-extensions==4.*  # https://github.com/python/typing_extensions
 requests>=2.34.2,<3  # https://requests.readthedocs.io/en/latest/
 httpx>=0.28.1,<1  # https://github.com/encode/httpx - async HTTP for agent tools
-brotli>=1.2.0  # decoder for httpx Content-Encoding: br responses (e.g. OpenAI API, VCR cassettes). Floor raised to 1.2.0 to pick up the upstream security fix that bounds decompressor output via Decompressor.output_buffer_limit, preventing memory exhaustion from crafted br-encoded payloads.
+brotli>=1.2.1  # decoder for httpx Content-Encoding: br responses (e.g. OpenAI API, VCR cassettes). Floor raised to 1.2.0 to pick up the upstream security fix that bounds decompressor output via Decompressor.output_buffer_limit, preventing memory exhaustion from crafted br-encoded payloads.
 
 # Django
 # ------------------------------------------------------------------------------
@@ -21,7 +21,7 @@ django-redis==7.0.0  # https://github.com/jazzband/django-redis
 django-filter==26.1  # https://github.com/carltongibson/django-filter
 django-storages[boto3,google]==1.14.6  # https://github.com/jschneier/django-storages
 whitenoise==6.12.0
-django-tree-queries[admin]==0.26.1  # https://pypi.org/project/django-tree-queries/0.21.0/
+django-tree-queries[admin]==0.27.0  # https://pypi.org/project/django-tree-queries/0.21.0/
 django-cte==4.0.0  # https://github.com/dimagi/django-cte
 pgvector>=0.5.0  # Python binding for pgvector; PostgreSQL extension v0.8.2+ required for HNSW iterative scan (installed separately)
 channels==4.3.2  # https://github.com/django/channels
@@ -62,7 +62,7 @@ openai>=3.24.0,<4  # https://github.com/openai/openai-python (pydantic-ai 1.x re
 # extra caps ``fastmcp-slim<4``, and every fastmcp-slim 3.x requires
 # ``mcp<2`` -- against our ``mcp>=2.3`` pin that is unsatisfiable, and pip
 # reports it as ``resolution-too-deep`` rather than a conflict.
-pydantic-ai-slim[openai,anthropic,google]>=1.107.7,<2  # see issue #1451 before bumping the upper bound
+pydantic-ai-slim[openai,anthropic,google]>=1.107.9,<2  # see issue #1451 before bumping the upper bound
 spacy
 # preshed 3.0.14 breaks spaCy model loading during fresh CI image builds.
 preshed==3.0.13
@@ -85,7 +85,7 @@ graphql-core>=3.3,<3.4  # strawberry>=0.328 requires 3.3; config/graphql/automat
 
 # Telemetry
 # ------------------------------------------------------------------------------
-posthog==7.58.0  # https://github.com/posthog/posthog-python
+posthog==7.75.6  # https://github.com/posthog/posthog-python
 
 # Model Context Protocol
 # ------------------------------------------------------------------------------

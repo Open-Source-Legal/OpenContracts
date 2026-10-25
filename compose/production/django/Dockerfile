@@ -10,7 +10,7 @@
 # ---------------------------------------------------------------------------- #
 # Build stage: full toolchain for compiling wheels (psycopg2, opencv, etc.)    #
 # ---------------------------------------------------------------------------- #
-FROM python:3.12.13-slim-bookworm AS python-build-stage
+FROM python:3.12.15-slim-bookworm AS python-build-stage
 
 ARG BUILD_ENVIRONMENT=production
 
@@ -76,7 +76,7 @@ RUN wget --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -t 5 \
 # ---------------------------------------------------------------------------- #
 # Runtime stage: slim base, runtime libs only.                                 #
 # ---------------------------------------------------------------------------- #
-FROM python:3.12.13-slim-bookworm AS python-run-stage
+FROM python:3.12.15-slim-bookworm AS python-run-stage
 
 ARG BUILD_ENVIRONMENT=production
 ARG APP_HOME=/app

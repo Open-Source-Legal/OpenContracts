@@ -6,7 +6,7 @@
 # overlays and aren't registry dependencies.
 services:
   redis:
-    image: redis:6
+    image: redis:8
   docling-parser:
     image: jscrudato/docsling-local:latest@sha256:c35131594c257611131f9bcfd0af4b3adcf6064c96620ee67f42c3396acfd46b
   docxodus-parser:
@@ -14,7 +14,7 @@ services:
     # version: the WASM and microservice must agree on character offsets.
     image: ghcr.io/open-source-legal/docxodus-service:1.2.0-docxodus12.4.1
   warp-ingest:
-    image: ghcr.io/open-source-legal/warp-ingest:1.0.0
+    image: ghcr.io/open-source-legal/warp-ingest:2.1.0
   gotenberg:
     image: gotenberg/gotenberg:8
   vector-embedder:
