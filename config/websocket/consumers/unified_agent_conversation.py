@@ -593,8 +593,13 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
             if (
                 self.user_id is None
                 and self.agent
-                and getattr(self.agent, "conversation_manager", None) is not None
-                and self.agent.conversation_manager.context_exhausted
+                and (
+                    conversation_manager := getattr(
+                        self.agent, "conversation_manager", None
+                    )
+                )
+                is not None
+                and conversation_manager.context_exhausted
             ):
                 await self._send_safe(
                     msg_type="ASYNC_ERROR",

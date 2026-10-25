@@ -155,6 +155,8 @@ repos:
           # migration off the 0.x line is tracked in #2273.
           - anthropic>=0.45.2,<1
           - spacy
+          # Match the tokenizer compatibility pin in requirements/base.txt.
+          - preshed==3.0.13
           - tokenizers>=0.21,<0.23
           - posthog==7.12.0
           # Range matches requirements/base.txt's runtime pin exactly.
