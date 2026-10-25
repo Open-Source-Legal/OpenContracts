@@ -6,4 +6,4 @@ python-decouple
 requests
 sentence-transformers[openvino]==5.6.0
 transformers==4.57.6
-optimum-intel[openvino]==1.27.0
+optimum-intel[openvino]==2.2.0
