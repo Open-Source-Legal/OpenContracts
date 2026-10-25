@@ -166,7 +166,7 @@
     "@types/react-helmet-async": "^1.0.3",
     "@types/uuid": "^8.3.4",
     "@vitest/coverage-istanbul": "^4.1.0",
-    "dotenv": "^16.6.1",
+    "dotenv": "^18.0.9",
     "fake-indexeddb": "^6.2.2",
     "husky": "^8.0.1",
     "jsdom": "^26.1.0",
