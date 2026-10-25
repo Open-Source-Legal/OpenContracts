@@ -42,7 +42,8 @@ concurrency:
 jobs:
   e2e:
     name: Login + Navigate All Views
-    runs-on: ubuntu-latest
+    # Playwright 1.56 does not support the Ubuntu 26.04 ubuntu-latest image.
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
       contents: read
