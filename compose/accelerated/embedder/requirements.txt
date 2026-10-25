@@ -1,7 +1,7 @@
 flask
 gunicorn
 numpy
-Pillow>=10
+Pillow>=13.0.0
 python-decouple
 requests
 sentence-transformers[openvino]==5.6.0
