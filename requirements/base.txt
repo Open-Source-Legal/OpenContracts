@@ -62,7 +62,7 @@ openai>=3.24.0,<4  # https://github.com/openai/openai-python (pydantic-ai 1.x re
 # extra caps ``fastmcp-slim<4``, and every fastmcp-slim 3.x requires
 # ``mcp<2`` -- against our ``mcp>=2.3`` pin that is unsatisfiable, and pip
 # reports it as ``resolution-too-deep`` rather than a conflict.
-pydantic-ai-slim[openai,anthropic,google]>=1.107.7,<2  # see issue #1451 before bumping the upper bound
+pydantic-ai-slim[openai,anthropic,google]>=1.107.9,<2  # see issue #1451 before bumping the upper bound
 spacy
 # preshed 3.0.14 breaks spaCy model loading during fresh CI image builds.
 preshed==3.0.13
