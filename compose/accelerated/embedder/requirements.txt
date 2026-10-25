@@ -4,6 +4,6 @@ numpy
 Pillow>=10
 python-decouple
 requests
-sentence-transformers[openvino]==5.6.0
+sentence-transformers[openvino]==6.2.0
 transformers==4.57.6
 optimum-intel[openvino]==1.27.0
