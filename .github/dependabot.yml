@@ -1,55 +1,83 @@
-# Config for Dependabot updates. See Documentation here:
-# https://help.github.com/github/administering-a-repository/configuration-options-for-dependency-updates
-
+# https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference
 version: 2
 updates:
-  # Update GitHub actions in workflows
   - package-ecosystem: "github-actions"
     directory: "/"
-    # Check for updates to GitHub Actions every weekday
     schedule:
       interval: "daily"
 
-  # Enable version updates for Docker
-  # We need to specify each Dockerfile in a separate entry because Dependabot doesn't
-  # support wildcards or recursively checking subdirectories. Check this issue for updates:
-  # https://github.com/dependabot/dependabot-core/issues/2178
+  # Base images in every Dockerfile. Keep both Django images on the same Python
+  # patch; changing the Python minor also requires updating CI and mypy.ini.
   - package-ecosystem: "docker"
-    # Look for a `Dockerfile` in the `compose/local/django` directory
-    directory: "compose/local/django/"
-    # Check for updates to GitHub Actions every weekday
+    directories:
+      - "/frontend"
+      - "/compose/local/django"
+      - "/compose/production/aws"
+      - "/compose/production/django"
+      - "/compose/production/postgres"
+      - "/compose/production/traefik"
+      - "/compose/accelerated/docling"
+      - "/compose/accelerated/embedder"
+    schedule:
+      interval: "daily"
+    groups:
+      python-base-image:
+        patterns:
+          - "python"
+    ignore:
+      - dependency-name: "python"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
+
+  # All stacks inherit third-party service images from compose.images.yml.
+  # The Compose updater requires a standard compose*.yml filename; local.yml,
+  # production.yml, test.yml and remote_worker.yml aren't discovered directly.
+  - package-ecosystem: "docker-compose"
+    directory: "/compose"
     schedule:
       interval: "daily"
 
-  # Enable version updates for Docker
-  - package-ecosystem: "docker"
-    # Look for a `Dockerfile` in the `compose/production/django` directory
-    directory: "compose/production/django/"
-    # Check for updates to GitHub Actions every weekday
-    schedule:
-      interval: "daily"
-
-  # Enable version updates for Docker
-  - package-ecosystem: "docker"
-    # Look for a `Dockerfile` in the `compose/production/postgres` directory
-    directory: "compose/production/postgres/"
-    # Check for updates to GitHub Actions every weekday
-    schedule:
-      interval: "daily"
-
-  # Enable version updates for Docker
-  - package-ecosystem: "docker"
-    # Look for a `Dockerfile` in the `compose/production/traefik` directory
-    directory: "compose/production/traefik/"
-    # Check for updates to GitHub Actions every weekday
-    schedule:
-      interval: "daily"
-
-  # Enable version updates for Python/Pip - Production
+  # Django and pipeline requirements (including requirements/*.txt).
   - package-ecosystem: "pip"
-    # Look for a `requirements.txt` in the `root` directory
-    # also 'setup.cfg', 'runtime.txt' and 'requirements/*.txt'
     directory: "/"
-    # Check for updates to GitHub Actions every weekday
     schedule:
       interval: "daily"
+    ignore:
+      # This wheel breaks spaCy tokenizer/model deserialization.
+      - dependency-name: "preshed"
+        versions: ["3.0.14"]
+
+  # Requirements installed inside the accelerated service images.
+  - package-ecosystem: "pip"
+    directories:
+      - "/compose/accelerated/docling"
+      - "/compose/accelerated/embedder"
+    schedule:
+      interval: "daily"
+    groups:
+      pytorch:
+        patterns:
+          - "torch"
+          - "torchvision"
+    # New PyTorch series need a coordinated change to the CUDA/ROCm wheel
+    # indexes in both Dockerfiles and validation on the supported accelerators.
+    ignore:
+      - dependency-name: "torch"
+        versions: [">=2.7"]
+      - dependency-name: "torchvision"
+        versions: [">=0.22"]
+
+  # Packages installed by yarn in the frontend Docker build.
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "daily"
+    # Coordinate Docxodus WASM changes with the microservice image suffix in
+    # compose/compose.images.yml to preserve character-offset alignment.
+    ignore:
+      - dependency-name: "docxodus"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"

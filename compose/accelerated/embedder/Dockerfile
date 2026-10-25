@@ -19,11 +19,11 @@ USER root
 WORKDIR /app
 
 ARG ACCEL=auto
-ARG TORCH_VERSION=2.6.0
 
 # Install the one torch wheel for the chosen accelerator family first. Doing
 # this before sentence-transformers prevents pip from temporarily installing a
 # second, multi-gigabyte CUDA wheel from PyPI into every image variant.
+COPY embedder/requirements-torch.txt /opt/accel/requirements-torch.txt
 RUN set -eux; \
     case "${ACCEL}" in \
       cuda)  IDX="https://download.pytorch.org/whl/cu124" ;; \
@@ -33,15 +33,12 @@ RUN set -eux; \
       *) echo "Unsupported ACCEL=${ACCEL}; expected auto, cpu, xpu, cuda, or rocm" >&2; exit 2 ;; \
     esac; \
     echo "ACCEL=${ACCEL} -> torch index ${IDX}"; \
-    pip install --no-cache-dir "torch==${TORCH_VERSION}" --index-url "${IDX}"
+    pip install --no-cache-dir -r /opt/accel/requirements-torch.txt --index-url "${IDX}"
 
 # Service deps + OpenVINO-backed sentence-transformers (covers Intel GPU/NPU/CPU).
-RUN pip install --no-cache-dir \
-      flask gunicorn numpy "Pillow>=10" python-decouple requests \
-      "sentence-transformers[openvino]==5.6.0" \
-      "transformers==4.57.6" \
-      "optimum-intel[openvino]==1.27.0"; \
-    pip check
+COPY embedder/requirements.txt /opt/accel/requirements.txt
+RUN pip install --no-cache-dir -r /opt/accel/requirements.txt \
+    && pip check
 
 ENV EMBEDDING_MODEL=multi-qa-MiniLM-L6-cos-v1 \
     TOKENIZER_MODEL=sentence-transformers/multi-qa-MiniLM-L6-cos-v1 \

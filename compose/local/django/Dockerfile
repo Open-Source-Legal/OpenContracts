@@ -6,12 +6,12 @@
 # which is ~5-10x cheaper than the C-trace path required on 3.11. With the
 # test suite running ``--cov`` on every push, that's the biggest single
 # wall-time lever in CI.
-ARG PYTHON_VERSION=3.12.13-slim-bookworm
+# Use literal image references so Dependabot can update both stages.
 
 # ---------------------------------------------------------------------------- #
 # Build stage: full toolchain for compiling wheels (psycopg2, opencv, etc.)    #
 # ---------------------------------------------------------------------------- #
-FROM python:${PYTHON_VERSION} AS python-build-stage
+FROM python:3.12.13-slim-bookworm AS python-build-stage
 
 ARG BUILD_ENVIRONMENT=local
 ARG GITHUB_ACTIONS
@@ -62,7 +62,7 @@ RUN pip wheel --wheel-dir /usr/src/app/wheels \
 # ---------------------------------------------------------------------------- #
 # Runtime stage: slim base, runtime libs only.                                 #
 # ---------------------------------------------------------------------------- #
-FROM python:${PYTHON_VERSION} AS python-run-stage
+FROM python:3.12.13-slim-bookworm AS python-run-stage
 
 ARG BUILD_ENVIRONMENT=local
 ARG APP_HOME=/app

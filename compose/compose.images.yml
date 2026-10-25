@@ -1,0 +1,29 @@
+# Shared third-party image references for local, production, test and remote
+# stacks. Keep versions here so Dependabot can update every consumer together.
+# This file supplies only images via `extends`; it isn't a standalone stack.
+# Pin floating tags to registry digests so Dependabot can propose rebuilds.
+# Locally built opencontractserver_* / oc-* images stay in their stack/accelerator
+# overlays and aren't registry dependencies.
+services:
+  redis:
+    image: redis:6
+  docling-parser:
+    image: jscrudato/docsling-local:latest@sha256:c35131594c257611131f9bcfd0af4b3adcf6064c96620ee67f42c3396acfd46b
+  docxodus-parser:
+    # Keep the Docxodus suffix aligned with frontend/package.json's docxodus
+    # version: the WASM and microservice must agree on character offsets.
+    image: ghcr.io/open-source-legal/docxodus-service:1.2.0-docxodus12.4.1
+  warp-ingest:
+    image: ghcr.io/open-source-legal/warp-ingest:1.0.0
+  gotenberg:
+    image: gotenberg/gotenberg:8
+  vector-embedder:
+    image: ghcr.io/jsv4/vectorembeddermicroservice:latest@sha256:5ca2fa2f8aa3d5972809c7f565bb6797fec60b05f8e33f94c5b01d93a046e8d5
+  production-vector-embedder:
+    image: jscrudato/vector-embedder-microservice:latest@sha256:c655273ad4d4461dbe8d7d028fc8561892cd25478d6cf5b965b483029fe17ed7
+  multimodal-embedder:
+    image: ghcr.io/jsv4/vectorembeddermicroservice-multimodal:latest@sha256:366eba6680278a95d70ceaaa2b3117aa5ea9829eb83472cf73c14e4f5fa99093
+  privacy_filter:
+    image: ghcr.io/open-source-legal/privacy-filter:latest@sha256:de0fb0d238c7b28753fb9f3e6243c58b419bb2ae4e51008f33ecf9d9b0b4d184
+  ci-stub:
+    image: busybox:latest@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e

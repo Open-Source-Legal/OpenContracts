@@ -124,22 +124,30 @@ services:
       - "0.0.0.0:5555:5555"
 
   redis:
-    image: redis:6
+    extends:
+      file: compose/compose.images.yml
+      service: redis
 
   vector-embedder:
-    image: jscrudato/vector-embedder-microservice
+    extends:
+      file: compose/compose.images.yml
+      service: production-vector-embedder
     container_name: vector-embedder
     environment:
       PORT: 8000
 
   docling-parser:
-    image: jscrudato/docsling-local
+    extends:
+      file: compose/compose.images.yml
+      service: docling-parser
     container_name: docling-parser
 
   docxodus-parser:
     # The frontend WASM (docxodus in package.json) and this microservice
     # must use the same Docxodus version for character offset alignment.
-    image: ghcr.io/open-source-legal/docxodus-service:1.2.0-docxodus12.4.1
+    extends:
+      file: compose/compose.images.yml
+      service: docxodus-parser
     container_name: docxodus-parser
 
   # Optional alternative PDF parser (deterministic, rule-based; renders straight
@@ -153,7 +161,9 @@ services:
     # Pinned (not :latest): Warp-Ingest's value proposition is *deterministic*
     # output, so a floating tag could silently change parse results without an
     # OpenContracts version bump. Mirrors docxodus-parser's exact-version pin.
-    image: ghcr.io/open-source-legal/warp-ingest:1.0.0
+    extends:
+      file: compose/compose.images.yml
+      service: warp-ingest
     container_name: warp-ingest
     profiles:
       - warp-ingest
@@ -165,12 +175,16 @@ services:
   # reach it at http://gotenberg:3000. No healthcheck: the stock image ships
   # neither curl nor python (dependents use condition: service_started).
   gotenberg:
-    image: gotenberg/gotenberg:8
+    extends:
+      file: compose/compose.images.yml
+      service: gotenberg
     container_name: gotenberg
     restart: unless-stopped
 
   privacy_filter:
-    image: ghcr.io/open-source-legal/privacy-filter:latest
+    extends:
+      file: compose/compose.images.yml
+      service: privacy_filter
     container_name: privacy_filter
     # Empty default so existing deployments that don't run the privacy
     # filter can still `docker compose -f production.yml up` without
