@@ -158,11 +158,15 @@ services:
     container_name: authority-pack-e2e-docxodus-parser
 
   gotenberg:
-    image: gotenberg/gotenberg:8
+    extends:
+      file: compose/compose.images.yml
+      service: gotenberg
     container_name: authority-pack-e2e-gotenberg
 
   warp-ingest:
-    image: ghcr.io/open-source-legal/warp-ingest:1.0.0
+    extends:
+      file: compose/compose.images.yml
+      service: warp-ingest
     container_name: authority-pack-e2e-warp-ingest
     environment:
       WARP_API_KEY: "abc123"

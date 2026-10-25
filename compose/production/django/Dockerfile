@@ -5,12 +5,12 @@
 #
 # Kept in sync with compose/local/django/Dockerfile. 3.12 is required for the
 # ``sys.monitoring``-backed coverage path used in CI; see that file's header.
-ARG PYTHON_VERSION=3.12.13-slim-bookworm
+# Use literal image references so Dependabot can update both stages.
 
 # ---------------------------------------------------------------------------- #
 # Build stage: full toolchain for compiling wheels (psycopg2, opencv, etc.)    #
 # ---------------------------------------------------------------------------- #
-FROM python:${PYTHON_VERSION} AS python-build-stage
+FROM python:3.12.13-slim-bookworm AS python-build-stage
 
 ARG BUILD_ENVIRONMENT=production
 
@@ -76,7 +76,7 @@ RUN wget --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -t 5 \
 # ---------------------------------------------------------------------------- #
 # Runtime stage: slim base, runtime libs only.                                 #
 # ---------------------------------------------------------------------------- #
-FROM python:${PYTHON_VERSION} AS python-run-stage
+FROM python:3.12.13-slim-bookworm AS python-run-stage
 
 ARG BUILD_ENVIRONMENT=production
 ARG APP_HOME=/app

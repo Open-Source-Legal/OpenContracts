@@ -1,0 +1,9 @@
+flask
+gunicorn
+numpy
+Pillow>=10
+python-decouple
+requests
+sentence-transformers[openvino]==5.6.0
+transformers==4.57.6
+optimum-intel[openvino]==1.27.0

@@ -10,14 +10,22 @@ services:
 
   # Stub out ML services so they don't start
   vector-embedder:
-    image: busybox
+    extends:
+      file: compose/compose.images.yml
+      service: ci-stub
     command: "true"
   multimodal-embedder:
-    image: busybox
+    extends:
+      file: compose/compose.images.yml
+      service: ci-stub
     command: "true"
   docling-parser:
-    image: busybox
+    extends:
+      file: compose/compose.images.yml
+      service: ci-stub
     command: "true"
   celeryworker:
-    image: busybox
+    extends:
+      file: compose/compose.images.yml
+      service: ci-stub
     command: "true"

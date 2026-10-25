@@ -28,7 +28,13 @@ def test_accelerated_dockerfiles_use_published_torch_26_indexes():
     embedder_dockerfile = EMBEDDER_DOCKERFILE.read_text(encoding="utf-8")
     docling_dockerfile = DOCLING_DOCKERFILE.read_text(encoding="utf-8")
 
-    assert "ARG TORCH_VERSION=2.6.0" in embedder_dockerfile
+    for service in ("embedder", "docling"):
+        requirements = (ACCEL_DIR / service / "requirements-torch.txt").read_text(
+            encoding="utf-8"
+        )
+        assert "torch==2.6." in requirements
+        if service == "docling":
+            assert "torchvision==0.21." in requirements
     for dockerfile in (embedder_dockerfile, docling_dockerfile):
         assert "https://download.pytorch.org/whl/cu124" in dockerfile
         assert "https://download.pytorch.org/whl/rocm6.2.4" in dockerfile
