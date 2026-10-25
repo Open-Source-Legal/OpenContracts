@@ -5,10 +5,6 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
-    ignore:
-      # This release fails before producing a Claude review.
-      - dependency-name: "anthropics/claude-code-action"
-        versions: ["1.0.262"]
 
   # Base images in every Dockerfile. Keep both Django images on the same Python
   # patch; changing the Python minor also requires updating CI and mypy.ini.
