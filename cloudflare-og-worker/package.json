@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20241127.0",
+    "@cloudflare/workers-types": "^5.20261025.1",
     "typescript": "^5.3.0",
     "vitest": "^4.1.11",
     "wrangler": "^4.149.0"
