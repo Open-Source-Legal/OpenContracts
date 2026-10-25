@@ -6,7 +6,7 @@
 # overlays and aren't registry dependencies.
 services:
   redis:
-    image: redis:6
+    image: redis:8
   docling-parser:
     image: jscrudato/docsling-local:latest@sha256:c35131594c257611131f9bcfd0af4b3adcf6064c96620ee67f42c3396acfd46b
   docxodus-parser:
