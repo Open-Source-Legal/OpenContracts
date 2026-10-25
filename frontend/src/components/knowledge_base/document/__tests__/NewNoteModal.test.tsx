@@ -279,7 +279,9 @@ describe("NewNoteModal", () => {
     });
 
     it("should disable buttons while loading", async () => {
-      renderComponent();
+      // Keep the mutation pending while checking its loading state. An
+      // immediate mock response can settle before user-event finishes clicking.
+      renderComponent({}, [{ ...createNoteMock, delay: Infinity }]);
 
       const titleField = screen.getByPlaceholderText("Enter note title...");
       await userEvent.type(titleField, "Test Note");
