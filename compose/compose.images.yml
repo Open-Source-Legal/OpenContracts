@@ -14,7 +14,7 @@ services:
     # version: the WASM and microservice must agree on character offsets.
     image: ghcr.io/open-source-legal/docxodus-service:1.2.0-docxodus12.4.1
   warp-ingest:
-    image: ghcr.io/open-source-legal/warp-ingest:1.0.0
+    image: ghcr.io/open-source-legal/warp-ingest:2.1.0
   gotenberg:
     image: gotenberg/gotenberg:8
   vector-embedder:
