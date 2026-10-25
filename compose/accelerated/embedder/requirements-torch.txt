@@ -1,3 +1,6 @@
 # Installed before service dependencies, from the accelerator-specific index.
 # Update this series together with the CUDA/ROCm indexes in both images.
 torch==2.6.0
+# Optimum requires torchvision; install its matching accelerator wheel here so
+# service dependency resolution cannot replace the selected torch variant.
+torchvision==0.21.0

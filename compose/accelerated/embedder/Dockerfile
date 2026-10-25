@@ -36,9 +36,16 @@ RUN set -eux; \
     pip install --no-cache-dir -r /opt/accel/requirements-torch.txt --index-url "${IDX}"
 
 # Service deps + OpenVINO-backed sentence-transformers (covers Intel GPU/NPU/CPU).
+# Git is only needed to install the temporary Optimum source pin (#2488).
+# Retain the selected accelerator wheels when resolving service dependencies.
 COPY embedder/requirements.txt /opt/accel/requirements.txt
-RUN pip install --no-cache-dir -r /opt/accel/requirements.txt \
-    && pip check
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && pip install --no-cache-dir -r /opt/accel/requirements.txt \
+       --constraint /opt/accel/requirements-torch.txt \
+    && pip check \
+    && apt-get purge -y --auto-remove git \
+    && rm -rf /var/lib/apt/lists/*
 
 ENV EMBEDDING_MODEL=multi-qa-MiniLM-L6-cos-v1 \
     TOKENIZER_MODEL=sentence-transformers/multi-qa-MiniLM-L6-cos-v1 \
