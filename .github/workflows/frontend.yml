@@ -50,7 +50,8 @@ jobs:
 
   component-test:
     name: Component Tests
-    runs-on: ubuntu-latest
+    # Playwright 1.56 cannot install browsers on Ubuntu 26.04 (ubuntu-latest).
+    runs-on: ubuntu-24.04
     needs: lint # Run only if lint job passes
     permissions:
       contents: read

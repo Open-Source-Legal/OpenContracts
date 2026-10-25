@@ -43,6 +43,10 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
+    ignore:
+      # This wheel breaks spaCy tokenizer/model deserialization.
+      - dependency-name: "preshed"
+        versions: ["3.0.14"]
 
   # Requirements installed inside the accelerated service images.
   - package-ecosystem: "pip"

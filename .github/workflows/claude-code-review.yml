@@ -72,3 +72,40 @@ jobs:
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://docs.claude.com/en/docs/claude-code/cli-reference for available options
           claude_args: '--allowed-tools "Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"'
+
+      - name: Diagnose failed Claude review
+        if: failure() && steps.claude-review.outcome == 'failure'
+        env:
+          EXECUTION_FILE: ${{ steps.claude-review.outputs.execution_file }}
+        # Report only the provider error category, keeping the review transcript
+        # and credentials out of the logs. The review step still fails normally.
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ.get("EXECUTION_FILE") or "/nonexistent")
+          if not path.is_file():
+              print("Claude review failed without an execution report.")
+              raise SystemExit(0)
+          events = json.loads(path.read_text())
+          if isinstance(events, dict):
+              events = [events]
+          error = "\n".join(
+              str(event.get("result", ""))
+              for event in events
+              if isinstance(event, dict) and event.get("is_error")
+          ).lower()
+          categories = [
+              ("authentication", ("oauth", "authentication", "invalid token", "401")),
+              ("account quota or rate limit", ("quota", "usage limit", "hit your limit", "credit balance", "429")),
+              ("model access", ("model not found", "does not exist", "not have access", "404")),
+              ("provider availability", ("overloaded", "api_error", "503", "502")),
+          ]
+          category = next(
+              (name for name, markers in categories if any(marker in error for marker in markers)),
+              "unclassified provider/agent error",
+          )
+          print(f"Claude review failure category: {category}")
+          PY
