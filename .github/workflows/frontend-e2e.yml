@@ -42,7 +42,7 @@ concurrency:
 jobs:
   e2e:
     name: Login + Navigate All Views
-    # Playwright 1.56 cannot install browsers on Ubuntu 26.04 (ubuntu-latest).
+    # Playwright 1.56 does not support the Ubuntu 26.04 ubuntu-latest image.
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:

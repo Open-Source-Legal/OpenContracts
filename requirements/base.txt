@@ -37,7 +37,7 @@ drf-extra-fields==3.7.0  # https://github.com/Hipo/drf-extra-fields
 
 # Doc Analysis (NLP dependencies, placeholder) - WARNING, these are all in same environment... not ideal.
 # ------------------------------------------------------------------------------
-pypdf>=6.20.1,<7  # https://github.com/py-pdf/pypdf
+pypdf>=6.21.0,<7  # https://github.com/py-pdf/pypdf
 plasmapdf==0.1.3  # https://github.com/Jsv4/plasmapdf
 pdf2image>=1.17.0
 openai>=3.24.0,<4  # https://github.com/openai/openai-python (pydantic-ai 1.x requires >=2.11.0)
@@ -64,11 +64,10 @@ openai>=3.24.0,<4  # https://github.com/openai/openai-python (pydantic-ai 1.x re
 # reports it as ``resolution-too-deep`` rather than a conflict.
 pydantic-ai-slim[openai,anthropic,google]>=1.107.7,<2  # see issue #1451 before bumping the upper bound
 spacy
-# preshed 3.0.14 makes spaCy tokenizer deserialization overflow in both Django
-# image smoke tests. Keep the working wheel until a fixed release is verified.
+# preshed 3.0.14 breaks spaCy model loading during fresh CI image builds.
 preshed==3.0.13
 pdfplumber>=0.11.10  # https://github.com/jsvine/pdfplumber - PDF token extraction
-shapely>=2.1.2  # https://github.com/shapely/shapely - spatial operations for bbox intersection
+shapely>=2.2.0  # https://github.com/shapely/shapely - spatial operations for bbox intersection
 
 # Data Processing Tools
 # -------------------------------------------------------------------------------
@@ -81,7 +80,7 @@ django-guardian
 
 # GraphQL
 # ------------------------------------------------------------------------------
-strawberry-graphql==0.334.4  # code-first GraphQL; replaced graphene-django (schema parity pinned by config/graphql/schema.graphql)
+strawberry-graphql==0.335.0  # code-first GraphQL; replaced graphene-django (schema parity pinned by config/graphql/schema.graphql)
 graphql-core>=3.3,<3.4  # strawberry>=0.328 requires 3.3; config/graphql/automation.py::_check uses its collect_fields/collect_subfields/FragmentDetails API, so a minor bump needs that re-checked
 
 # Telemetry
