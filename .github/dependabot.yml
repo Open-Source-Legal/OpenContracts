@@ -9,6 +9,10 @@ updates:
     # Check for updates to GitHub Actions every weekday
     schedule:
       interval: "daily"
+    ignore:
+      # This release fails before producing a Claude review.
+      - dependency-name: "anthropics/claude-code-action"
+        versions: ["1.0.262"]
 
   # Enable version updates for Docker
   # We need to specify each Dockerfile in a separate entry because Dependabot doesn't
