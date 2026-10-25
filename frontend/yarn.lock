@@ -4318,10 +4318,10 @@ jotai-apollo@^0.2.1:
   resolved "https://registry.yarnpkg.com/jotai-apollo/-/jotai-apollo-0.2.1.tgz#50e5c6a2b99ca1cfe5f67cdeabc6f0c6a0076f1d"
   integrity sha512-iUYmMCG1ootEZ21UD41kMQ2emI4FzJ3MQQN6cYHySIc4aDbTnUPIpsEu4svjdmKGmg0rybZuwc9oGGm5zW0Dhg==
 
-jotai@^2.10.2:
-  version "2.15.1"
-  resolved "https://registry.yarnpkg.com/jotai/-/jotai-2.15.1.tgz#fdeed68fb45515a8cdc42bba77dfcba70bb1b623"
-  integrity sha512-yHT1HAZ3ba2Q8wgaUQ+xfBzEtcS8ie687I8XVCBinfg4bNniyqLIN+utPXWKQE93LMF5fPbQSVRZqgpcN5yd6Q==
+jotai@^3.0.1:
+  version "3.0.1"
+  resolved "https://registry.yarnpkg.com/jotai/-/jotai-3.0.1.tgz#41dccd9fb2cae4a4a467acf2866194002b38ad10"
+  integrity sha512-6tS7wY9otdiNp26Wqb/1ds3OuVJVoV+tJlN4hpLrYmfFf/t9bauVt+zKBNSpS5qSl5h6GieVQ+OknVraZX+udQ==
 
 "js-tokens@^3.0.0 || ^4.0.0", js-tokens@^4.0.0:
   version "4.0.0"
@@ -6608,7 +6608,7 @@ typedarray-to-buffer@^3.1.5:
   dependencies:
     is-typedarray "^1.0.0"
 
-typescript@^5.3.0:
+typescript@^5.5.0:
   version "5.9.3"
   resolved "https://registry.yarnpkg.com/typescript/-/typescript-5.9.3.tgz#5b4f59e15310ab17a216f5d6cf53ee476ede670f"
   integrity sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==
