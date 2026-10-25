@@ -22,7 +22,7 @@
     "@rjsf/validator-ajv8": "^5.24.12",
     "@testing-library/jest-dom": "^6.4.5",
     "@testing-library/react": "12.1.5",
-    "@testing-library/user-event": "^13.5.0",
+    "@testing-library/user-event": "^14.6.8",
     "@tiptap/core": "^3.30.5",
     "@tiptap/extension-mention": "^3.10.1",
     "@tiptap/extension-placeholder": "^3.10.1",
