@@ -54,7 +54,7 @@ import {
 } from "../../components/SelectionActionMenu";
 import { clampMenuPosition } from "../../../../utils/layout";
 import { Z_INDEX } from "../../../../assets/configurations/constants";
-import DOMPurify from "dompurify";
+import DOMPurify, { type Config } from "dompurify";
 import { Tag, X } from "lucide-react";
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
 import { hexToRgb } from "../../../../utils/transform";
@@ -84,7 +84,7 @@ const CHAT_SOURCE_SELECTED_LABEL_ID = "__chat_source_selected__";
  * DOMPurify config that preserves docxodus formatting (styles, classes)
  * while blocking scripts, event handlers, and dangerous elements.
  */
-const SANITIZE_CONFIG: DOMPurify.Config = {
+const SANITIZE_CONFIG: Config = {
   FORCE_BODY: true,
   ADD_ATTR: [
     "data-annotation-id",
