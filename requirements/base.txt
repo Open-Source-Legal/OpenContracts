@@ -11,7 +11,7 @@ pydantic==2.*
 typing-extensions==4.*  # https://github.com/python/typing_extensions
 requests>=2.34.2,<3  # https://requests.readthedocs.io/en/latest/
 httpx>=0.28.1,<1  # https://github.com/encode/httpx - async HTTP for agent tools
-brotli>=1.2.0  # decoder for httpx Content-Encoding: br responses (e.g. OpenAI API, VCR cassettes). Floor raised to 1.2.0 to pick up the upstream security fix that bounds decompressor output via Decompressor.output_buffer_limit, preventing memory exhaustion from crafted br-encoded payloads.
+brotli>=1.2.1  # decoder for httpx Content-Encoding: br responses (e.g. OpenAI API, VCR cassettes). Floor raised to 1.2.0 to pick up the upstream security fix that bounds decompressor output via Decompressor.output_buffer_limit, preventing memory exhaustion from crafted br-encoded payloads.
 
 # Django
 # ------------------------------------------------------------------------------
