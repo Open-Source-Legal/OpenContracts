@@ -1,5 +1,5 @@
 # => Build Container
-FROM node:24-alpine as builder
+FROM node:26-alpine as builder
 
 WORKDIR /app
 COPY package.json .
