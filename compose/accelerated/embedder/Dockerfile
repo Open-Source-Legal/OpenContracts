@@ -14,7 +14,7 @@
 # Build:  docker build --build-arg ACCEL=auto -t oc-embedder:auto .
 # Run  :  docker run --device /dev/dri --group-add "$(stat -c '%g' /dev/dri/renderD128)" ...
 #         (add --gpus all for CUDA; --device /dev/kfd --device /dev/dri for ROCm)
-FROM openvino/ubuntu24_runtime@sha256:3eab9bc3f643e27526f347dd6fba15e95eee2c07257570bf988314dd37301aa0
+FROM openvino/ubuntu24_runtime@sha256:ef00731944b89db0148ff41bae9ef5f581dc9a1a2de90b1dd9a8ce1af69dc7b5
 USER root
 WORKDIR /app
 
