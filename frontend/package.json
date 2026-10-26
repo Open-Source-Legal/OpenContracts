@@ -68,7 +68,7 @@
     "react-dom": "18",
     "react-dropzone": "^14.2.10",
     "react-helmet-async": "^2.0.5",
-    "react-infinite-scroll-component": "^6.1.0",
+    "react-infinite-scroll-component": "^7.2.1",
     "react-intersection-observer": "^9.1.0",
     "react-json-tree": "^0.19.0",
     "react-json-view": "^1.21.3",
