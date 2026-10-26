@@ -9,7 +9,7 @@ COPY . .
 RUN yarn build
 
 # => Run container
-FROM nginx:1.27.5-alpine
+FROM nginx:1.31.0-alpine
 
 LABEL version="1.0"
 LABEL description="Base docker image for Open Contracts GUI"
