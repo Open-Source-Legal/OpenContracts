@@ -66,7 +66,7 @@
     "react-cool-inview": "^3.0.1",
     "react-countup": "^6.5.3",
     "react-dom": "18",
-    "react-dropzone": "^14.2.10",
+    "react-dropzone": "^20.1.4",
     "react-helmet-async": "^2.0.5",
     "react-infinite-scroll-component": "^6.1.0",
     "react-intersection-observer": "^9.1.0",
