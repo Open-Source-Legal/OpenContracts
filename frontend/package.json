@@ -173,7 +173,7 @@
     "nyc": "^18.0.0",
     "playwright": "^1.52.0",
     "prettier": "^2.7.1",
-    "vite-plugin-istanbul": "^8.0.0",
+    "vite-plugin-istanbul": "^9.0.1",
     "vitest": "^4.1.11"
   },
   "nyc": {
