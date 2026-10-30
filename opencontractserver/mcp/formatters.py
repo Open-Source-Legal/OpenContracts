@@ -22,6 +22,36 @@ def _truncate(text: str, max_chars: int) -> str:
     return text[:max_chars] + " …[truncated]"
 
 
+def _dedupe_search_hits(hits: list[dict]) -> list[dict]:
+    """Collapse search hits that resolve to the same annotation or block.
+
+    Passages are keyed by ``annotation_id`` — the annotation->embedding join
+    can return one row per stored vector, so the same annotation otherwise
+    appears multiple times with an identical score, wasting the caller's
+    ``limit`` budget. Blocks are keyed by ``relationship_id`` rather than
+    their truncated previews, which can be identical for distinct blocks.
+    The first occurrence wins, so callers should de-duplicate *after*
+    sorting by score to keep the highest-scoring
+    instance. Hits missing an identity fall back to a per-position key so a
+    ``None`` id never collapses distinct hits into one.
+    """
+    seen: set = set()
+    deduped: list[dict] = []
+    for index, hit in enumerate(hits):
+        key: tuple
+        if hit.get("type") == "passage":
+            annotation_id = hit.get("annotation_id")
+            key = ("passage", annotation_id) if annotation_id else ("passage", index)
+        else:
+            relationship_id = hit.get("relationship_id")
+            key = ("block", relationship_id) if relationship_id else ("block", index)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(hit)
+    return deduped
+
+
 def format_corpus_summary(corpus: Corpus) -> dict:
     """Format a corpus for list display."""
     return {
@@ -128,6 +158,7 @@ def format_search_block(
 
     ``result`` already carries ``block_text``, ``label_text``, ``document_id``
     and member ids, so only a light document slug/title lookup is needed.
+    Expose the relationship id for stable deduplication of truncated previews.
 
     Callers formatting many blocks (e.g. ``search_corpus``) should pass a
     pre-fetched ``doc_lookup`` mapping ``document_id -> (slug, title)`` to avoid
@@ -135,13 +166,14 @@ def format_search_block(
     up lazily so single-block callers stay correct.
     """
     from opencontractserver.constants.mcp import MCP_BLOCK_SNIPPET_MAX_CHARS
-    from opencontractserver.documents.models import Document
 
     doc_slug, doc_title = None, ""
     if result.document_id:
         if doc_lookup is not None:
             doc_slug, doc_title = doc_lookup.get(result.document_id, (None, ""))
         else:
+            from opencontractserver.documents.models import Document
+
             doc = (
                 Document.objects.filter(pk=result.document_id)
                 .only("slug", "title")
@@ -155,6 +187,9 @@ def format_search_block(
     )
     return {
         "type": "block",
+        "relationship_id": (
+            str(result.relationship.pk) if result.relationship is not None else None
+        ),
         "document_slug": doc_slug,
         "document_title": doc_title,
         "page": None,
