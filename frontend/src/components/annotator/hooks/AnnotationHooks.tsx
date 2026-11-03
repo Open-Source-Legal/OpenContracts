@@ -1,4 +1,4 @@
-import { useAtom, useAtomValue } from "jotai";
+import { useAtom, useAtomValue, useStore } from "jotai";
 import { useCallback, useMemo } from "react";
 import { useMutation } from "@apollo/client";
 import { toast } from "react-toastify";
@@ -58,6 +58,12 @@ import { AnnotationLabelType } from "../../../types/graphql-api";
 import { useCorpusState } from "../context/CorpusAtom";
 import { hasAnyTokens } from "../../../utils/compactAnnotationJson";
 import { isSpanBasedFileType } from "../../../utils/files";
+import { pendingAnnotationReviewAtom } from "../context/AnnotationReviewAtom";
+import {
+  AnnotationReviewRow,
+  CARRY_FORWARD_ANNOTATION,
+  REVIEW_REFETCH_QUERIES,
+} from "../../../graphql/annotationVersionReview";
 
 /**
  * Hook to manage PdfAnnotations state.
@@ -74,7 +80,12 @@ export function usePdfAnnotations() {
     (annotations: (ServerTokenAnnotation | ServerSpanAnnotation)[]) => {
       setPdfAnnotations((prev) => {
         // Ensure a new object is always created for the update
-        const updatedAnnotations = [...prev.annotations, ...annotations];
+        // A mutation and its refetch can deliver the same saved row.
+        const updatedAnnotations = Array.from(
+          new Map(
+            [...prev.annotations, ...annotations].map((item) => [item.id, item])
+          ).values()
+        );
         return new PdfAnnotations(
           updatedAnnotations, // Use the new array
           prev.relations,
@@ -137,7 +148,14 @@ export function usePdfAnnotations() {
         return new PdfAnnotations(
           prev.annotations,
           prev.relations,
-          [...prev.docTypes, ...docTypeAnnotations],
+          Array.from(
+            new Map(
+              [...prev.docTypes, ...docTypeAnnotations].map((item) => [
+                item.id,
+                item,
+              ])
+            ).values()
+          ),
           true
         );
       });
@@ -215,9 +233,16 @@ export function useInitialAnnotations() {
  * Hook to create a new annotation.
  */
 export function useCreateAnnotation() {
+  const store = useStore();
   const { addMultipleAnnotations } = usePdfAnnotations();
   const selectedDocument = useAtomValue(selectedDocumentAtom);
   const { selectedCorpus } = useCorpusState();
+  const [pendingReview, setPendingReview] = useAtom(
+    pendingAnnotationReviewAtom
+  );
+  const [carryForward] = useMutation<{
+    carryForwardAnnotation: AnnotationReviewRow;
+  }>(CARRY_FORWARD_ANNOTATION, { refetchQueries: REVIEW_REFETCH_QUERIES });
 
   const [createAnnotation] = useMutation<
     NewAnnotationOutputType,
@@ -247,6 +272,9 @@ export function useCreateAnnotation() {
 
     // Always add local annotation fallback in case mutation fails or is not called
     let annotationAddedLocally = false;
+    const reviewing =
+      pendingReview?.documentId === selectedDocument.id &&
+      pendingReview.corpusId === selectedCorpus.id;
 
     try {
       const variablesToSend = {
@@ -262,22 +290,38 @@ export function useCreateAnnotation() {
             : LabelType.TokenLabel,
       };
 
-      const result = await createAnnotation({
-        variables: variablesToSend,
-      });
+      const createdAnnotationData = reviewing
+        ? (
+            await carryForward({
+              variables: {
+                annotationId: pendingReview.annotationId,
+                targetDocumentId: selectedDocument.id,
+                annotationLabelId: annotation.annotationLabel.id,
+                placement: { json: annotation.json },
+              },
+            })
+          ).data?.carryForwardAnnotation.successor
+        : (await createAnnotation({ variables: variablesToSend })).data
+            ?.addAnnotation?.annotation;
 
-      const data = result?.data;
-
-      if (data?.addAnnotation?.annotation) {
-        const createdAnnotationData = data.addAnnotation.annotation;
-
+      if (createdAnnotationData) {
+        if (
+          reviewing &&
+          store.get(selectedDocumentAtom)?.id !== selectedDocument.id
+        )
+          return;
         let newAnnotation: ServerTokenAnnotation | ServerSpanAnnotation;
+        // Only a review successor carries a version state.
+        const versionState =
+          "versionState" in createdAnnotationData
+            ? createdAnnotationData.versionState
+            : null;
 
         if (isSpanBasedFileType(selectedDocument.fileType)) {
           newAnnotation = new ServerSpanAnnotation(
             createdAnnotationData.page,
             createdAnnotationData.annotationLabel,
-            createdAnnotationData.rawText,
+            createdAnnotationData.rawText ?? "",
             false,
             createdAnnotationData.json as SpanAnnotationJson,
             getPermissions(createdAnnotationData.myPermissions || []),
@@ -286,13 +330,14 @@ export function useCreateAnnotation() {
             false,
             createdAnnotationData.id,
             undefined,
-            createdAnnotationData.linkUrl ?? null
+            createdAnnotationData.linkUrl ?? null,
+            versionState
           );
         } else {
           newAnnotation = new ServerTokenAnnotation(
             createdAnnotationData.page,
             createdAnnotationData.annotationLabel,
-            createdAnnotationData.rawText,
+            createdAnnotationData.rawText ?? "",
             false,
             createdAnnotationData.json ?? {},
             getPermissions(createdAnnotationData.myPermissions || []),
@@ -301,12 +346,23 @@ export function useCreateAnnotation() {
             false,
             createdAnnotationData.id,
             undefined,
-            createdAnnotationData.linkUrl ?? null
+            createdAnnotationData.linkUrl ?? null,
+            versionState
           );
         }
 
         addMultipleAnnotations([newAnnotation]);
-        toast.success("Added your annotation to the database.");
+        if (reviewing)
+          setPendingReview((current) =>
+            current?.annotationId === pendingReview.annotationId
+              ? null
+              : current
+          );
+        toast.success(
+          reviewing
+            ? "Annotation review saved."
+            : "Added your annotation to the database."
+        );
         annotationAddedLocally = true;
       }
     } catch (error: unknown) {
@@ -314,7 +370,7 @@ export function useCreateAnnotation() {
     }
 
     // Fallback: if mutation didn't add annotation, add locally
-    if (!annotationAddedLocally) {
+    if (!annotationAddedLocally && !reviewing) {
       addMultipleAnnotations([annotation]);
     }
   };
@@ -326,6 +382,10 @@ export function useCreateAnnotation() {
     selectedCorpus,
     createAnnotation,
     addMultipleAnnotations,
+    pendingReview,
+    setPendingReview,
+    carryForward,
+    store,
   ]);
 }
 

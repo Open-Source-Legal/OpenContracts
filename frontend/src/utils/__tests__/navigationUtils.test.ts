@@ -3,6 +3,7 @@ import {
   buildQueryParams,
   getCorpusUrl,
   getDocumentUrl,
+  getDocumentVersionUrl,
   navigateToCorpus,
   navigateToDocument,
   isCanonicalPath,
@@ -1086,5 +1087,42 @@ describe("getResearchReportUrl()", () => {
 
   it("returns '#' when slug is missing", () => {
     expect(getResearchReportUrl({ slug: "" })).toBe("#");
+  });
+});
+
+describe("getDocumentVersionUrl()", () => {
+  const corpusDocRoute = {
+    pathname: "/d/alice/filings/contract-v1",
+    search: "",
+  };
+
+  it("pins a historical version by slug and ?v", () => {
+    expect(
+      getDocumentVersionUrl(corpusDocRoute, {
+        documentSlug: "contract-v1",
+        versionNumber: 1,
+        isCurrent: false,
+      })
+    ).toBe("/d/alice/filings/contract-v1?v=1");
+  });
+
+  it("drops ?v and restores the current slug, keeping other params", () => {
+    expect(
+      getDocumentVersionUrl(
+        { pathname: "/d/alice/filings/contract-v1", search: "?v=1&tab=notes" },
+        { documentSlug: "contract-v3", versionNumber: 3, isCurrent: true }
+      )
+    ).toBe("/d/alice/filings/contract-v3?tab=notes");
+  });
+
+  it("leaves a non-document pathname alone — the viewer is an overlay", () => {
+    // The knowledge-base modal persists across routes; rewriting the last
+    // segment of a corpus route would replace the corpus slug with a document.
+    expect(
+      getDocumentVersionUrl(
+        { pathname: "/c/alice/filings", search: "" },
+        { documentSlug: "contract-v1", versionNumber: 1, isCurrent: false }
+      )
+    ).toBe("/c/alice/filings?v=1");
   });
 });

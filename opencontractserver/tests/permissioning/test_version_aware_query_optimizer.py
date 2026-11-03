@@ -161,6 +161,61 @@ class TestVersionAwareAnnotationService(TestCase):
 
         logger.info("✓ Can query old versions when explicitly requested")
 
+    def test_historical_reads_still_require_a_path_into_the_corpus(self):
+        """``check_current_version=False`` relaxes currency, never corpus linkage.
+
+        Effective permissions are ``MIN(document, corpus)`` and structural
+        annotations are shared across corpuses by ``structural_set``, so
+        without a linkage check, READ on a superseded document plus READ on
+        any corpus at all would expose that document's parsed structure.
+        """
+        from opencontractserver.annotations.models import StructuralAnnotationSet
+
+        doc_v1, _, _ = import_document(
+            corpus=self.corpus, path="/test.pdf", content=b"Version 1", user=self.user
+        )
+        set_permissions_for_obj_to_user(self.user, doc_v1, [PermissionTypes.READ])
+        doc_v1.structural_annotation_set = StructuralAnnotationSet.objects.create(
+            content_hash="historical-read-hash", creator=self.user
+        )
+        doc_v1.save(update_fields=["structural_annotation_set"])
+        Annotation.objects.create(
+            structural_set=doc_v1.structural_annotation_set,
+            annotation_label=self.label,
+            raw_text="Structural Header",
+            creator=self.user,
+            structural=True,
+        )
+        import_document(
+            corpus=self.corpus, path="/test.pdf", content=b"Version 2", user=self.user
+        )
+
+        unrelated = Corpus.objects.create(title="Unrelated", creator=self.other_user)
+        set_permissions_for_obj_to_user(
+            self.user, unrelated, [PermissionTypes.READ, PermissionTypes.UPDATE]
+        )
+
+        self.assertEqual(
+            AnnotationService.get_document_annotations(
+                document_id=doc_v1.id,
+                user=self.user,
+                corpus_id=unrelated.id,
+                check_current_version=False,
+            ).count(),
+            0,
+            "A corpus the document never lived in must expose nothing",
+        )
+        self.assertEqual(
+            AnnotationService.get_document_annotations(
+                document_id=doc_v1.id,
+                user=self.user,
+                corpus_id=self.corpus.id,
+                check_current_version=False,
+            ).count(),
+            1,
+            "The document's own corpus still reads its superseded annotations",
+        )
+
     def test_path_based_queries_return_current_by_default(self):
         """Test that path-based queries return current version by default."""
         # Create version history

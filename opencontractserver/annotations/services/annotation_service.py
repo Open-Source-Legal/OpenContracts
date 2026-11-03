@@ -290,19 +290,26 @@ class AnnotationService(BaseService):
         if not can_read:
             return Annotation.objects.none()
 
-        # Check if document has active path in corpus (version awareness)
-        if check_current_version and corpus_id:
+        # Check the document's path into this corpus (version awareness).
+        #
+        # The linkage check is NOT optional: ``_compute_effective_permissions``
+        # only enforces ``MIN(document, corpus)``, so two independent grants
+        # would otherwise read annotations scoped to a corpus the document was
+        # never part of. ``check_current_version`` only decides *which* path
+        # counts — the live one, or any surviving one for historical reads.
+        if corpus_id:
             from opencontractserver.documents.models import DocumentPath
 
-            has_active_path = DocumentPath.objects.filter(
+            paths = DocumentPath.objects.filter(
                 document_id=document_id,
                 corpus_id=corpus_id,
-                is_current=True,
                 is_deleted=False,
-            ).exists()
+            )
+            if check_current_version:
+                paths = paths.filter(is_current=True)
 
-            if not has_active_path:
-                # Document is deleted or not current in corpus
+            if not paths.exists():
+                # Document is deleted, superseded, or never lived in this corpus
                 return Annotation.objects.none()
 
         # Fetch the document (request-cached if ``context`` is provided so we

@@ -121,6 +121,34 @@ Partial failures during bulk restore are handled gracefully &mdash; successfully
 restored documents are removed from the trash while failed ones remain with an
 error message.
 
+## Reviewing annotations after an update
+
+When a new version finishes processing, your annotations from the previous
+version are carried onto it automatically wherever their text still appears
+exactly once. Carried annotations are marked **Auto-carried · unreviewed**;
+those that could not be matched are marked **Needs placement**. The version
+pill shows how many still need review. Open **Carried-over annotations** to:
+
+1. **Approve** an auto-carried annotation as it is.
+2. **Place** it on a corrected passage using the normal annotation tools.
+3. **Drop** it if it no longer applies.
+
+![Reviewing annotations carried from the previous version](../assets/images/screenshots/auto/versioning--annotation-review--stale.png)
+
+Approved and corrected annotations show who reviewed them and when. You need
+edit permission on both the document and its corpus; read-only viewers can
+inspect the review. Relationships between your annotations are carried once
+both ends are on the new version. Unreviewed annotations keep following later
+uploads, still flagged, and unmatched ones are retried against each new text.
+Older versions keep their original annotations unchanged.
+
+Handwritten document-to-document links follow updated documents automatically.
+
+Citation links open the version originally cited. In **References**, **Cited vN**
+opens that evidence and **Current vN** opens the newer text when available.
+Enable **Show superseded versions** to include citations from older source
+documents. The version selector can switch back to the latest version.
+
 ## Technical Details
 
 ### Architecture
