@@ -39,6 +39,9 @@ from django.core.exceptions import AppRegistryNotReady, ImproperlyConfigured
 from django.db import Error as DatabaseError
 
 from opencontractserver.llms.llm_registry import parse_model_spec
+from opencontractserver.pipeline.llm_providers.orcarouter_provider import (
+    ORCAROUTER_DEFAULT_BASE_URL,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +205,40 @@ def _construct_model(
     Returns ``None`` for providers we have no construction recipe for, so
     the caller can fall back to the bare spec string (env credentials).
     """
+    if provider_key == "orcarouter":
+        # OrcaRouter is an OpenAI-compatible model routing gateway. pydantic-ai
+        # has no native ``orcarouter:`` provider, so a bare spec string would
+        # raise "Unknown model" at agent construction — this branch ALWAYS
+        # builds a concrete OpenAI-compatible model. DB-configured credentials
+        # win; otherwise the ``ORCAROUTER_API_KEY`` env var and the OrcaRouter
+        # default endpoint are used. An invalid DB-configured endpoint falls
+        # back to the default rather than returning ``None`` (which the caller
+        # would turn back into the unresolvable bare spec).
+        import os
+
+        from pydantic_ai.models.openai import OpenAIChatModel
+        from pydantic_ai.providers.openai import OpenAIProvider
+
+        api_key = creds.get("api_key") or os.environ.get("ORCAROUTER_API_KEY")
+        base_url = creds.get("base_url")
+        if not base_url:
+            base_url = ORCAROUTER_DEFAULT_BASE_URL
+        else:
+            from urllib.parse import urlparse
+
+            if urlparse(base_url).scheme not in ("http", "https"):
+                logger.warning(
+                    "DB-configured base_url for provider %r is not a valid "
+                    "http(s) URL (%r); using the OrcaRouter default endpoint.",
+                    provider_key,
+                    base_url,
+                )
+                base_url = ORCAROUTER_DEFAULT_BASE_URL
+        return OpenAIChatModel(
+            model_name,
+            provider=OpenAIProvider(api_key=api_key, base_url=base_url),
+        )
+
     api_key = creds.get("api_key")
     base_url = creds.get("base_url")
 
@@ -361,7 +398,7 @@ def build_agent_model(spec: str) -> Any:
     env_spec = f"openai-responses:{model_name}" if responses_api else spec
 
     creds = _get_db_credentials(provider_key)
-    if not creds:
+    if not creds and provider_key != "orcarouter":
         return env_spec
 
     try:
