@@ -1,8 +1,8 @@
 """
 Pins the stock ``local.yml`` wiring that issue #2514 found broken.
 
-Nothing else exercises these files: the test stack uses ``test.yml`` and a
-different worker command, so a regression here only surfaces on a fresh install.
+The backend suite doesn't run these files: it uses ``test.yml`` and no real
+worker, so a regression here would otherwise only surface on a fresh install.
 """
 
 import shlex
