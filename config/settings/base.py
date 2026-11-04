@@ -965,7 +965,8 @@ WORKER_UPLOAD_STALE_MINUTES = int(env("WORKER_UPLOAD_STALE_MINUTES", default="15
 
 # Minutes a Document may sit in processing_status=PROCESSING (with
 # backend_lock=True) before the reconcile_stuck_documents sweep marks it
-# FAILED. Default 30 min — comfortably beyond ingest_doc's max retry/backoff
+# FAILED. Measured from when ingest_doc first picks the document up, not from
+# upload. Default 30 min — comfortably beyond ingest_doc's max retry/backoff
 # window (~15 min) so the sweep never races a legitimately-retrying document.
 DOCUMENT_PROCESSING_STALE_MINUTES = int(
     env("DOCUMENT_PROCESSING_STALE_MINUTES", default="30")

@@ -33,7 +33,10 @@ from opencontractserver.constants import (
     MAX_PROCESSING_ERROR_LENGTH,
     MAX_PROCESSING_TRACEBACK_LENGTH,
 )
-from opencontractserver.constants.document_processing import MARKDOWN_MIME_TYPE
+from opencontractserver.constants.document_processing import (
+    MARKDOWN_MIME_TYPE,
+    STUCK_DOCUMENT_SWEEP_ERROR_PREFIX,
+)
 from opencontractserver.constants.truncation import (
     MAX_DOC_TITLE_FALLBACK_LENGTH,
     MAX_NOTIFICATION_ERROR_LENGTH,
@@ -265,6 +268,12 @@ def reconcile_stuck_documents() -> dict[str, int]:
     max retry/backoff window so it never races a legitimately-retrying doc —
     and marks it FAILED via :func:`_mark_document_failed` (which also notifies
     the creator and lights up the retry path).
+
+    ``ingest_doc`` restarts that clock when it first picks a document up, so
+    queue time doesn't count. The sweep still can't distinguish a dead chain
+    from a healthy one whose remaining steps are queued behind a deep
+    ``doc_parse`` backlog, so its verdict is provisional: if the chain does
+    finish, ``set_doc_lock_state`` overturns it.
     """
     from django.conf import settings
 
@@ -310,8 +319,7 @@ def reconcile_stuck_documents() -> dict[str, int]:
         _mark_document_failed(
             document,
             error_msg=(
-                "Processing did not complete and was reclaimed by the "
-                "stuck-document reconciliation sweep "
+                f"{STUCK_DOCUMENT_SWEEP_ERROR_PREFIX} "
                 f"(no progress for over {settings.DOCUMENT_PROCESSING_STALE_MINUTES} "
                 "minutes; the ingest pipeline halted without reaching a "
                 "terminal state)."
@@ -380,6 +388,9 @@ def set_doc_lock_state(*args, locked: bool, doc_id: int):
     When unlocking (locked=False):
     - First checks if processing failed - if so, keeps the document locked
     - If processing succeeded, unlocks and sets status to COMPLETED
+    - A FAILED written by ``reconcile_stuck_documents`` is the exception: this
+      task only runs when every earlier chain step succeeded, so reaching it
+      disproves the sweep's "pipeline halted" verdict and the document completes
     - Triggers corpus actions for all corpuses the document belongs to
 
     Uses DocumentPath as the source of truth for corpus membership (not M2M).
@@ -391,25 +402,35 @@ def set_doc_lock_state(*args, locked: bool, doc_id: int):
     from opencontractserver.tasks.corpus_tasks import process_corpus_action
 
     document = Document.objects.get(pk=doc_id)
+    update_fields = ["backend_lock", "processing_finished", "processing_status"]
 
     # If unlocking, check if processing actually succeeded
     if not locked:
         if document.processing_status == DocumentProcessingStatus.FAILED:
-            # Document failed processing - keep it locked
-            logger.warning(
-                f"[set_doc_lock_state] Document {doc_id} failed processing, "
-                "keeping locked (status=FAILED)"
+            if not (document.processing_error or "").startswith(
+                STUCK_DOCUMENT_SWEEP_ERROR_PREFIX
+            ):
+                # Document failed processing - keep it locked
+                logger.warning(
+                    f"[set_doc_lock_state] Document {doc_id} failed processing, "
+                    "keeping locked (status=FAILED)"
+                )
+                return
+
+            logger.info(
+                f"[set_doc_lock_state] Document {doc_id} finished after the "
+                "stuck-document sweep reclaimed it; clearing the failure"
             )
-            return
+            document.processing_error = ""
+            document.processing_error_traceback = ""
+            update_fields += ["processing_error", "processing_error_traceback"]
 
         # Processing succeeded - set status to COMPLETED
         document.processing_status = DocumentProcessingStatus.COMPLETED
 
     document.backend_lock = locked
     document.processing_finished = timezone.now()
-    document.save(
-        update_fields=["backend_lock", "processing_finished", "processing_status"]
-    )
+    document.save(update_fields=update_fields)
 
     # Trigger corpus actions when unlocking (document is now ready)
     # Query DocumentPath as the source of truth for corpus membership
@@ -805,8 +826,17 @@ def ingest_doc(self, user_id: int, doc_id: int) -> dict[str, Any]:
 
     # Set processing status to PROCESSING at start of first attempt
     if self.request.retries == 0:
+        update_fields = ["processing_status"]
+        # Time spent queued must not count against the stale window, so restart
+        # the clock here. Only on leaving PENDING, though: a worker-lost
+        # redelivery also arrives with retries == 0, and restarting the clock
+        # for it would let a document that keeps killing its worker dodge
+        # reconcile_stuck_documents forever.
+        if document.processing_status == DocumentProcessingStatus.PENDING:
+            document.processing_started = timezone.now()
+            update_fields.append("processing_started")
         document.processing_status = DocumentProcessingStatus.PROCESSING
-        document.save(update_fields=["processing_status"])
+        document.save(update_fields=update_fields)
 
     # Look up corpus from DocumentPath (if document is in a corpus)
     # This ensures structural annotations get the corpus context for proper embeddings

@@ -47,8 +47,11 @@ optionally §4.
 ### 3a. Disable the stuck-document watchdog
 `reconcile_stuck_documents` (a `django_celery_beat` PeriodicTask, every 300 s)
 marks any doc with no progress in `DOCUMENT_PROCESSING_STALE_MINUTES` (default
-30) as FAILED. With a serial backlog, a parsed doc waits >30 min for its
-finalize step and gets falsely failed. Disable it during the batch — use
+30, measured from when `ingest_doc` picks the doc up) as FAILED. With a serial
+backlog, a parsed doc can wait >30 min for its finalize step and get swept. It
+recovers to COMPLETED when that step runs (`set_doc_lock_state`), but its creator
+still gets a failure notification. To avoid those, disable the sweep during the
+batch — use
 `.save()` + `PeriodicTasks.changed()` (a `.update()` bypasses the scheduler
 signal and the sweep keeps running), then reload beat:
 
