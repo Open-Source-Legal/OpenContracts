@@ -38,6 +38,12 @@ from opencontractserver.constants.context_guardrails import (
     MODEL_CONTEXT_WINDOWS,
     TOOL_OUTPUT_TRUNCATION_NOTICE,
 )
+from opencontractserver.llms.orcarouter_context import (
+    get_orcarouter_context_window,
+)
+from opencontractserver.pipeline.llm_providers.orcarouter_provider import (
+    ORCAROUTER_PROVIDER_KEY,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +104,10 @@ def get_context_window_for_model(model_name: str) -> int:
     provider prefix is stripped before lookup since the
     :data:`MODEL_CONTEXT_WINDOWS` constants are keyed by bare model
     name only.
+
+    ``orcarouter:`` specs are the exception: their windows come from the
+    gateway's model listing (see :mod:`opencontractserver.llms.orcarouter_context`),
+    cached when the agent model is built. This lookup never performs I/O.
     """
     if not model_name:
         return DEFAULT_CONTEXT_WINDOW
@@ -105,6 +115,11 @@ def get_context_window_for_model(model_name: str) -> int:
     # Strip pydantic-ai provider prefix (e.g. "anthropic:") so prefixed
     # and bare specs hit the same lookup table.
     lookup_name = model_name.split(":", 1)[1] if ":" in model_name else model_name
+
+    # OrcaRouter windows come from the gateway's live model listing, cached
+    # when the agent model is built — never from the static table.
+    if lookup_name and model_name.startswith(f"{ORCAROUTER_PROVIDER_KEY}:"):
+        return get_orcarouter_context_window(lookup_name)
 
     # Exact match
     if lookup_name in MODEL_CONTEXT_WINDOWS:

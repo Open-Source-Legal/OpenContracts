@@ -194,6 +194,21 @@ class TestPipelineRegistryDiscoversLLMProviders(TestCase):
         self.assertIn("anthropic", provider_keys)
         self.assertIn("google-gla", provider_keys)
         self.assertIn("ollama", provider_keys)
+        self.assertIn("orcarouter", provider_keys)
+
+    def test_orcarouter_provider_metadata(self):
+        orcarouter = get_llm_provider_by_key_cached("orcarouter")
+        assert orcarouter is not None
+        self.assertEqual(orcarouter.component_type, ComponentType.LLM_PROVIDER)
+        self.assertEqual(orcarouter.title, "OrcaRouter")
+        self.assertTrue(orcarouter.requires_api_key)
+        self.assertIn("orcarouter/auto", orcarouter.supported_models)
+        # The default endpoint is surfaced in the settings schema for the UI.
+        schema = {entry["name"]: entry for entry in orcarouter.settings_schema}
+        self.assertIn("api_key", schema)
+        self.assertEqual(schema["api_key"]["env_var"], "ORCAROUTER_API_KEY")
+        self.assertIn("base_url", schema)
+        self.assertEqual(schema["base_url"]["default"], "https://api.orcarouter.ai/v1")
 
     def test_provider_metadata_round_trips(self):
         anthropic = get_llm_provider_by_key_cached("anthropic")

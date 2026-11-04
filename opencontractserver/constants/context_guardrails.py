@@ -79,6 +79,35 @@ MODEL_CONTEXT_WINDOWS: dict[str, int] = {
 DEFAULT_CONTEXT_WINDOW: int = 128_000
 
 # ---------------------------------------------------------------------------
+# OrcaRouter (gateway) context windows
+# ---------------------------------------------------------------------------
+# ``orcarouter:`` windows are resolved dynamically from the gateway's
+# OpenAI-compatible ``/models`` listing (``llms/orcarouter_context.py``), not
+# from MODEL_CONTEXT_WINDOWS. This fallback applies until a listing has been
+# fetched, or when it is unreachable / omits the model's window. It sits below
+# DEFAULT_CONTEXT_WINDOW on purpose: ``orcarouter/auto`` picks the upstream
+# model per request, and under-estimating only costs earlier compaction while
+# over-estimating a small routed model is a hard context overflow.
+ORCAROUTER_FALLBACK_CONTEXT_WINDOW: int = 64_000
+
+# How long a fetched ``/models`` listing (or a failed fetch) is reused before
+# the next agent build re-queries the gateway.
+ORCAROUTER_MODELS_CACHE_TTL_SECONDS: float = 3_600.0
+
+# Per-request timeout for the ``/models`` fetch. Kept short: it runs inline in
+# an agent build, and a slow gateway must not stall chat.
+ORCAROUTER_MODELS_FETCH_TIMEOUT_SECONDS: float = 3.0
+
+# Response keys, in priority order, that may carry a model's context length in
+# an OpenAI-compatible ``/models`` entry. OpenAI's own listing has none of
+# them; routing gateways commonly expose ``context_length``.
+ORCAROUTER_CONTEXT_LENGTH_KEYS: tuple[str, ...] = (
+    "context_length",
+    "context_window",
+    "max_context_length",
+)
+
+# ---------------------------------------------------------------------------
 # Compaction thresholds
 # ---------------------------------------------------------------------------
 # Fraction of the model context window at which compaction is triggered.
