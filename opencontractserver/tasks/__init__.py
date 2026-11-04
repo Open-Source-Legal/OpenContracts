@@ -12,6 +12,7 @@ from .doc_analysis_tasks import *  # noqa: F403, F401
 from .doc_tasks import burn_doc_annotations
 from .export_tasks import package_annotated_docs
 from .extract_orchestrator_tasks import run_extract
+from .foreclosure_tasks import california_foreclosure_compliance
 from .fork_tasks import fork_corpus
 from .import_tasks import (
     import_corpus,
@@ -36,6 +37,7 @@ from .telemetry_tasks import send_usage_heartbeat
 # by default search tasks in package.tasks
 
 __all__ = [
+    "california_foreclosure_compliance",
     "corpus_reference_enrichment",
     "crawl_authorities",
     "run_extract",
