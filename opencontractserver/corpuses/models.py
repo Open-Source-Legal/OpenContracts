@@ -1132,7 +1132,10 @@ class Corpus(InstanceUserCanMixin, TreeNode):
             content: File content bytes. Required unless ``content_file`` is
                 supplied instead.
             user: The user performing the operation (required)
-            path: The filesystem path within the corpus (auto-generated if not provided)
+            path: The filesystem path within the corpus (auto-generated if not provided).
+                A generated path reflects ``folder``, so same-named files in different
+                folders stay separate documents; see
+                ``CorpusPathService.resolve_folder_import_path``.
             folder: Optional CorpusFolder to place the document in
             filename: Original filename (used for path generation if path not provided)
             file_type: MIME type of the content (determines storage field)
@@ -1175,7 +1178,19 @@ class Corpus(InstanceUserCanMixin, TreeNode):
             if filename:
                 # Use filename to generate path
                 safe_filename = sanitize_corpus_filename(filename)
-                path = f"{DEFAULT_DOCUMENT_PATH_PREFIX}/{safe_filename}"
+                if folder:
+                    from opencontractserver.corpuses.services.paths import (
+                        CorpusPathService,
+                    )
+
+                    path = CorpusPathService.resolve_folder_import_path(
+                        self,
+                        folder,
+                        safe_filename,
+                        user,  # type: ignore[arg-type]
+                    )
+                else:
+                    path = f"{DEFAULT_DOCUMENT_PATH_PREFIX}/{safe_filename}"
             else:
                 path = f"{DEFAULT_DOCUMENT_PATH_PREFIX}/doc_{uuid.uuid4().hex[:8]}"
 

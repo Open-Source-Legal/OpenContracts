@@ -748,7 +748,9 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
             "sanitisation (non-alphanumeric characters other than -_. collapse "
             "to _), so calling this tool twice with the same — or with two "
             "titles that sanitize to the same path — replaces the existing "
-            "document with a new version."
+            "document with a new version. Same-titled documents in different "
+            "folders are separate: omit folder_id to update a document wherever "
+            "it lives, and pass it if the title matches several."
         ),
         # CORPUS category because this writes a new document/version into
         # the corpus filesystem — only available to corpus-level agents.
@@ -775,7 +777,8 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
             ),
             (
                 "folder_id",
-                "Optional CorpusFolder ID inside the same corpus. Omit for corpus root.",
+                "Optional CorpusFolder ID inside the same corpus. Omit to update "
+                "an existing document by title, or to create one at corpus root.",
                 False,
             ),
             (
