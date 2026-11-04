@@ -26,4 +26,4 @@ services:
   privacy_filter:
     image: ghcr.io/open-source-legal/privacy-filter:latest@sha256:de0fb0d238c7b28753fb9f3e6243c58b419bb2ae4e51008f33ecf9d9b0b4d184
   ci-stub:
-    image: busybox:latest@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e
+    image: busybox:latest@sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4
