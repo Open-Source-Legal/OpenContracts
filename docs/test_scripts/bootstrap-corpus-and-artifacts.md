@@ -64,8 +64,9 @@ t.enabled = False; t.save(); PeriodicTasks.changed(t)
 ```bash
 docker compose -f local.yml restart celerybeat
 ```
-One more sweep may fire before the scheduler syncs; recover its casualties with
-§3d. **Re-enable when done (§8).**
+One more sweep may fire before the scheduler syncs. Documents it catches recover
+when their chain finishes; use §3d only for ones whose chain really died.
+**Re-enable when done (§8).**
 
 ### 3b. Raise the docling request timeout
 Large scanned PDFs exceed the 300 s default and fail after retries. The setting
@@ -93,8 +94,11 @@ lag behind the serial finalize step):
 docs = Corpus.objects.get(pk=65)._get_active_documents()
 docs.exclude(txt_extract_file="").exclude(txt_extract_file=None).count()        # parsed
 docs.filter(processing_status="failed").exclude(txt_extract_file="").exclude(txt_extract_file=None) \
-    .update(processing_status="completed", backend_lock=False, processing_error="")   # recover parsed-but-reaped
+    .update(processing_status="completed", backend_lock=False, processing_error="")   # last resort, see below
 ```
+Healthy documents the sweep caught complete on their own, so the `.update()` is
+only for parsed documents whose chain died. It skips corpus actions and
+notifications, so prefer retrying them where re-parsing is affordable.
 
 ---
 

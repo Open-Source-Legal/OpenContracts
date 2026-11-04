@@ -264,14 +264,13 @@ def reconcile_stuck_documents() -> dict[str, int]:
     cover failures that surface as exceptions; this sweep is the last line of
     defense for the silent ones. It reclaims any PROCESSING + locked document
     whose ``processing_started`` is older than
-    ``settings.DOCUMENT_PROCESSING_STALE_MINUTES`` — comfortably beyond the
-    max retry/backoff window so it never races a legitimately-retrying doc —
-    and marks it FAILED via :func:`_mark_document_failed` (which also notifies
-    the creator and lights up the retry path).
+    ``settings.DOCUMENT_PROCESSING_STALE_MINUTES`` and marks it FAILED via
+    :func:`_mark_document_failed` (which also notifies the creator and lights up
+    the retry path).
 
     ``ingest_doc`` restarts that clock when it first picks a document up, so
-    queue time doesn't count. The sweep still can't distinguish a dead chain
-    from a healthy one whose remaining steps are queued behind a deep
+    time queued before that doesn't count. The sweep still can't distinguish a
+    dead chain from a healthy one that is retrying or waiting behind a deep
     ``doc_parse`` backlog, so its verdict is provisional: if the chain does
     finish, ``set_doc_lock_state`` overturns it.
     """
@@ -406,17 +405,20 @@ def set_doc_lock_state(*args, locked: bool, doc_id: int):
 
     # If unlocking, check if processing actually succeeded
     if not locked:
-        if document.processing_status == DocumentProcessingStatus.FAILED:
-            if not (document.processing_error or "").startswith(
-                STUCK_DOCUMENT_SWEEP_ERROR_PREFIX
-            ):
-                # Document failed processing - keep it locked
-                logger.warning(
-                    f"[set_doc_lock_state] Document {doc_id} failed processing, "
-                    "keeping locked (status=FAILED)"
-                )
-                return
+        swept = (document.processing_error or "").startswith(
+            STUCK_DOCUMENT_SWEEP_ERROR_PREFIX
+        )
+        if document.processing_status == DocumentProcessingStatus.FAILED and not swept:
+            # Document failed processing - keep it locked
+            logger.warning(
+                f"[set_doc_lock_state] Document {doc_id} failed processing, "
+                "keeping locked (status=FAILED)"
+            )
+            return
 
+        # Checked apart from the status: a redelivered ingest_doc moves a swept
+        # document back to PROCESSING but leaves the sweep's error in place.
+        if swept:
             logger.info(
                 f"[set_doc_lock_state] Document {doc_id} finished after the "
                 "stuck-document sweep reclaimed it; clearing the failure"

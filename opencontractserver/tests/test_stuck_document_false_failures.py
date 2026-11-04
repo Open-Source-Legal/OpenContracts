@@ -114,7 +114,8 @@ class TestIngestStartRestartsStaleClock(StuckDocumentTestBase):
         self.assertEqual(doc.processing_status, DocumentProcessingStatus.FAILED)
 
     def test_celery_retry_does_not_reset_the_clock(self):
-        doc = self._make_doc(status=DocumentProcessingStatus.PROCESSING)
+        # Seeded PENDING so that only ``retries`` keeps the clock from restarting.
+        doc = self._make_doc(status=DocumentProcessingStatus.PENDING)
         original_start = doc.processing_started
 
         self._run_ingest(doc, retries=1)
@@ -192,13 +193,20 @@ class TestLateUnlockRecoversSweptDocument(StuckDocumentTestBase):
         self.assertTrue(doc.backend_lock)
         self.assertEqual(doc.processing_error, quoted)
 
-    def test_swept_document_whose_chain_died_stays_failed(self):
-        """No late unlock arrives for a dead chain: the sweep's verdict stands."""
+    def test_redelivery_onto_a_swept_document_still_clears_the_error(self):
+        """A redelivered ingest_doc flips FAILED back to PROCESSING, error intact."""
         doc = self._make_doc(status=DocumentProcessingStatus.PROCESSING)
         self._sweep(doc)
+        with patch(
+            "opencontractserver.tasks.doc_tasks._resolve_parser_for_ingest",
+            return_value=("parser", MagicMock(), {}),
+        ):
+            ingest_doc.apply(kwargs={"user_id": self.user.pk, "doc_id": doc.pk})
+        doc.refresh_from_db()
+        self.assertEqual(doc.processing_status, DocumentProcessingStatus.PROCESSING)
 
-        self.assertEqual(reconcile_stuck_documents()["reconciled"], 0)
+        set_doc_lock_state(locked=False, doc_id=doc.pk)
 
         doc.refresh_from_db()
-        self.assertEqual(doc.processing_status, DocumentProcessingStatus.FAILED)
-        self.assertTrue(doc.backend_lock)
+        self.assertEqual(doc.processing_status, DocumentProcessingStatus.COMPLETED)
+        self.assertEqual(doc.processing_error, "")
