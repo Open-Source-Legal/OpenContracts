@@ -5356,11 +5356,6 @@ react-helmet-async@*, react-helmet-async@^2.0.5:
     react-fast-compare "^3.2.2"
     shallowequal "^1.1.0"
 
-react-infinite-scroll-component@^7.2.1:
-  version "7.2.1"
-  resolved "https://registry.yarnpkg.com/react-infinite-scroll-component/-/react-infinite-scroll-component-7.2.1.tgz#95bd7a9b9ed34c9460eb30339f60f66e2db1f0ac"
-  integrity sha512-yPuEf6VHBJXFt+YXDxjlnAuhorUwiA2cKURx/P6a7WW3k+TvwY/mbx7KP1rQ1hxGzDcwreczRyLIv6eSd1sFIw==
-
 react-intersection-observer@^9.1.0:
   version "9.16.0"
   resolved "https://registry.yarnpkg.com/react-intersection-observer/-/react-intersection-observer-9.16.0.tgz#7376d54edc47293300961010844d53b273ee0fb9"
