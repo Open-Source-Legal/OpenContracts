@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from django.db import IntegrityError, transaction
 from django.db.models.signals import post_save
@@ -206,7 +206,8 @@ class CorpusPathService(BaseService):
             return folder_path
         if existing_paths:
             return min(existing_paths)
-        if len(folder_path) > DocumentPath._meta.get_field("path").max_length:
+        max_length = cast(int, DocumentPath._meta.get_field("path").max_length)
+        if len(folder_path) > max_length:
             folder_path = f"{DEFAULT_DOCUMENT_PATH_PREFIX}/{filename}"
         return cls.disambiguate_path(folder_path, corpus)
 
