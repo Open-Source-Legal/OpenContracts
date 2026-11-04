@@ -1184,7 +1184,7 @@ class Corpus(InstanceUserCanMixin, TreeNode):
                     )
 
                     path = CorpusPathService.resolve_folder_import_path(
-                        self, folder, safe_filename
+                        self, folder, safe_filename, user
                     )
                 else:
                     path = f"{DEFAULT_DOCUMENT_PATH_PREFIX}/{safe_filename}"
