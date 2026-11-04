@@ -6,7 +6,10 @@ COPY package.json .
 COPY yarn.lock .
 RUN npm install --global yarn@1.22.22 && yarn install --frozen-lockfile
 COPY . .
-RUN yarn build
+# The build peaks above 2 GB of heap, which is V8's default limit on a machine or
+# Docker VM with less RAM. Scoped to this one command, so it never reaches runtime.
+ARG NODE_MAX_OLD_SPACE_SIZE=4096
+RUN NODE_OPTIONS=--max-old-space-size=${NODE_MAX_OLD_SPACE_SIZE} yarn build
 
 # => Run container
 FROM nginx:1.31.8-alpine

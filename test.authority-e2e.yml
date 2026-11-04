@@ -101,10 +101,10 @@ services:
       OPENAI_API_KEY: ${AUTHORITY_E2E_OPENAI_API_KEY:-}
       OPENAI_MODEL: ${AUTHORITY_E2E_OPENAI_MODEL:-}
       ANTHROPIC_API_KEY: ${AUTHORITY_E2E_ANTHROPIC_API_KEY:-}
-    # The local development entrypoint wraps Celery in ``watchfiles``. Its
-    # relative ``media`` ignore does not cover this nested E2E media mount, so
-    # every parser output would restart the worker mid-import. Run the same
-    # queues directly for this disposable full-stack acceptance environment.
+    # The local development entrypoint wraps Celery in ``watchfiles``, and a
+    # source reload would kill an in-flight import. This disposable full-stack
+    # acceptance environment has no use for reloads, so run the same queues
+    # directly.
     command:
       - celery
       - -A

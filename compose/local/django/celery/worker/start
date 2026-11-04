@@ -4,4 +4,8 @@ set -o errexit
 set -o nounset
 
 
-watchfiles --ignore-paths frontend,node_modules,.git,__pycache__,.mypy_cache,.pytest_cache,media,staticfiles,docs,.claude,.playwright-mcp,playwright-report-e2e,test-results,.pilot_data --target-type command "celery -A config.celery_app worker -l INFO --concurrency=1 -Q celery,worker_uploads,doc_parse"
+# Reload only on Python source changes. A reload SIGINTs the worker and SIGKILLs
+# it 5s later, killing any task in flight, and with LOCAL storage the worker's own
+# parse output lands under opencontractserver/media, inside the watched tree.
+# The media ignore keeps an uploaded .py file from counting as a source change.
+watchfiles --filter python --ignore-paths opencontractserver/media --target-type command "celery -A config.celery_app worker -l INFO --concurrency=1 -Q celery,worker_uploads,doc_parse" opencontractserver config

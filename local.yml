@@ -68,6 +68,12 @@ services:
       # `--profile warp-ingest` stack sends an empty X-API-Key and warp-ingest
       # 401s every PDF parse. Verified against the running service.
       WARP_INGEST_API_KEY: ${WARP_INGEST_API_KEY:-abc123}
+      # Same contract for the embedders: migrate_pipeline_settings seeds the keys
+      # from these variables on boot, and with neither set it seeds nothing, so
+      # Django sends no X-API-Key and every embedding request 401s. Sourced from
+      # the same host vars and defaults as the embedder services below.
+      VECTOR_EMBEDDER_API_KEY: ${VECTOR_EMBEDDER_API_KEY:-abc123}
+      MULTIMODAL_EMBEDDER_API_KEY: ${MULTIMODAL_EMBEDDER_API_KEY:-abc123}
     ports:
       - "8000:8000"
     command: /start
@@ -212,13 +218,17 @@ services:
     restart: unless-stopped
 
   # The embedder images read VECTOR_EMBEDDER_API_KEY (compose/accelerated/
-  # embedder/main.py), NOT API_KEY — the old ``API_KEY`` key was silently ignored
-  # (the image fell back to its built-in "abc123" default, which happened to
-  # match the abc123 in .envs/.local/.django, so overrides never took effect).
-  # Source each service's key from the SAME host var Django uses to call it
-  # (VECTOR_/MULTIMODAL_EMBEDDER_API_KEY in .envs/.local/.django) so an override
-  # stays in sync on both sides. The abc123 fallback is a LOCAL DEVELOPMENT ONLY
-  # placeholder — override before exposing these services off the docker bridge.
+  # embedder/main.py), NOT API_KEY. Each service's key comes from the SAME host
+  # var that the django and celeryworker services forward above. Set it in the
+  # host shell or a root .env: a value in .envs/.local/.django reaches neither
+  # side, because these containers don't load that file and django's
+  # ``environment:`` entry takes precedence over it.
+  # Django only uses that var to seed PipelineSettings on first boot, so changing
+  # it later updates the embedder but not the stored key, and requests 401 until
+  # you also change it in the admin UI (System Settings) or run
+  # ``migrate_pipeline_settings --force --component <class>``.
+  # The abc123 fallback is a LOCAL DEVELOPMENT ONLY placeholder — override before
+  # exposing these services off the docker bridge.
   vector-embedder:
     extends:
       file: compose/compose.images.yml
@@ -330,6 +340,8 @@ services:
       # See the django service: parsing runs here, so the worker is the side
       # that actually calls warp-ingest. Same variable, same default.
       WARP_INGEST_API_KEY: ${WARP_INGEST_API_KEY:-abc123}
+      VECTOR_EMBEDDER_API_KEY: ${VECTOR_EMBEDDER_API_KEY:-abc123}
+      MULTIMODAL_EMBEDDER_API_KEY: ${MULTIMODAL_EMBEDDER_API_KEY:-abc123}
     command: /app/compose/local/django/celery/worker/start
 
 
