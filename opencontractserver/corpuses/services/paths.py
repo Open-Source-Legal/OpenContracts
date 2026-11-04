@@ -129,6 +129,55 @@ class CorpusPathService(BaseService):
         else:
             return f"/{filename}"
 
+    @classmethod
+    def resolve_folder_import_path(
+        cls, corpus: Corpus, folder: CorpusFolder, filename: str
+    ) -> str:
+        """
+        Choose the path for importing ``filename`` into ``folder``.
+
+        For callers that pick a path from a name alone. Two documents share a
+        version tree exactly when they share a path, so the path decides whether
+        an import versions an existing document. A folder-less default such as
+        ``/documents/<filename>`` would make same-named files in different folders
+        versions of one another, hiding the first.
+
+        Returns, in order of preference:
+
+        1. ``/<folder path>/<filename>`` if a document in ``folder`` already holds it.
+        2. Any other active path in ``folder`` ending in ``filename``, so that
+           re-importing a document stored at a legacy ``/documents/<filename>``
+           path still versions it.
+        3. ``/<folder path>/<filename>``, disambiguated in case a document in
+           another folder holds it.
+
+        Args:
+            corpus: The corpus being imported into.
+            folder: The target folder.
+            filename: A filename already passed through
+                :func:`opencontractserver.shared.utils.sanitize_corpus_filename`.
+
+        Returns:
+            The path to pass to ``import_document``.
+        """
+        from opencontractserver.documents.models import DocumentPath
+
+        folder_path = cls._compute_moved_path(f"/{filename}", folder)
+        existing_paths = set(
+            DocumentPath.objects.filter(
+                corpus=corpus,
+                folder=folder,
+                path__endswith=f"/{filename}",
+                is_current=True,
+                is_deleted=False,
+            ).values_list("path", flat=True)
+        )
+        if folder_path in existing_paths:
+            return folder_path
+        if existing_paths:
+            return min(existing_paths)
+        return cls.disambiguate_path(folder_path, corpus)
+
     @staticmethod
     def _target_directory_string_from_path(
         folder_path: str | None,
@@ -188,7 +237,7 @@ class CorpusPathService(BaseService):
         ``bulk_create`` + manual ``post_save`` dispatch).
 
         Paths that are **not** folder-derived (e.g. the ``/documents/<title>``
-        default an upload assigns regardless of folder) are intentionally left
+        default ``add_document`` assigns regardless of folder) are intentionally left
         untouched: they never reflected the folder location, so a rename does
         not make them any more stale. This keeps the change minimal and
         collision-free (source and target directories are disjoint because the

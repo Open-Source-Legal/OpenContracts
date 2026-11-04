@@ -25,7 +25,7 @@ from ._helpers import _db_sync_to_async
 
 
 def _derive_path_from_title(title: str) -> str:
-    """Generate a corpus filesystem path from a document title.
+    """Generate a corpus filesystem path for a document with no target folder.
 
     Mirrors the sanitisation used by ``Corpus.add_document`` so that
     callers that pass the same title repeatedly hit the same path and
@@ -89,7 +89,10 @@ def create_or_update_text_document(
     """
     from django.contrib.auth import get_user_model
 
-    from opencontractserver.corpuses.services import FolderCRUDService
+    from opencontractserver.corpuses.services import (
+        CorpusPathService,
+        FolderCRUDService,
+    )
     from opencontractserver.documents.document_service import DocumentService
     from opencontractserver.shared.services.base import BaseService
     from opencontractserver.types.enums import PermissionTypes
@@ -154,7 +157,12 @@ def create_or_update_text_document(
                 f"Folder with id={folder_id} does not exist or is not accessible."
             )
 
-    path = _derive_path_from_title(title)
+    if folder:
+        path = CorpusPathService.resolve_folder_import_path(
+            corpus, folder, sanitize_corpus_filename(title)
+        )
+    else:
+        path = _derive_path_from_title(title)
 
     # Apply the same quota check that DocumentService.create_document enforces.
     # Every version-up creates a new Document row (sharing the version tree),
