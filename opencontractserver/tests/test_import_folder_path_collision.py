@@ -10,7 +10,7 @@ The contract these tests pin:
 - An import with no folder keeps its ``/documents/<name>`` default.
 - The agent tool updates by title, so a call with no folder finds the document
   wherever it lives, and refuses to guess between several.
-- A name match never reaches a document the importer can't read.
+- A name match never reaches a document the importer can't update.
 """
 
 from django.contrib.auth import get_user_model
@@ -203,7 +203,7 @@ class TestImportContentFolderPaths(FolderImportTestBase):
         self._assert_independent(first, second)
 
 
-class TestImportOverDocumentsTheUserCannotRead(FolderImportTestBase):
+class TestImportOverDocumentsTheUserCannotUpdate(FolderImportTestBase):
     """Corpus write access alone must not reach another user's private document."""
 
     def setUp(self):
@@ -248,10 +248,23 @@ class TestImportOverDocumentsTheUserCannotRead(FolderImportTestBase):
         self.assertEqual(status, "created")
         self._assert_private_document_untouched(private)
 
-    def test_readable_document_is_still_versioned_by_a_collaborator(self):
+    def test_read_access_alone_does_not_replace_a_document(self):
+        """Versioning replaces content, so it needs what the version mutation needs."""
         shared, _, _ = self._import(b"AAA", self.folder_a)
         set_permissions_for_obj_to_user(
             self.collaborator, shared, [PermissionTypes.READ]
+        )
+
+        _, status, path = self._import(b"BBB", self.folder_a, user=self.collaborator)
+
+        self.assertEqual(status, "created")
+        self.assertEqual(path.path, "/Folder_A/summary_1.txt")
+        self._assert_private_document_untouched(shared)
+
+    def test_editable_document_is_still_versioned_by_a_collaborator(self):
+        shared, _, _ = self._import(b"AAA", self.folder_a)
+        set_permissions_for_obj_to_user(
+            self.collaborator, shared, [PermissionTypes.UPDATE]
         )
 
         second, status, _ = self._import(b"BBB", self.folder_a, user=self.collaborator)

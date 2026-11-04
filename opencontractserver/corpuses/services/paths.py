@@ -43,8 +43,8 @@ class CorpusPathService(BaseService):
 
     Shared across the corpus/document layers; they perform NO corpus permission
     checks — the calling code gates those first. The two ``resolve_*`` methods do
-    check READ on each document they match, because a name match must not reach a
-    document the caller can't see.
+    check UPDATE on each document they match, because a name match must not
+    supersede a document the caller can't change.
 
     The naming convention is mixed. ``disambiguate_path``,
     ``reconcile_paths_after_folder_change`` and the ``resolve_*`` import-path
@@ -134,14 +134,16 @@ class CorpusPathService(BaseService):
             return f"/{filename}"
 
     @classmethod
-    def _readable_paths_named(
+    def _updatable_paths_named(
         cls, corpus: Corpus, filename: str, user: User, **scope: Any
     ) -> set[str]:
-        """Active paths ending in ``filename`` whose document ``user`` can READ.
+        """Active paths ending in ``filename`` whose document ``user`` can UPDATE.
 
-        Corpus write access doesn't imply document access, so a document the user
-        can't read must not be versioned by a name match: that would hide it from
-        its owner and confirm that it exists.
+        Versioning replaces a document's current content, so a name match must
+        require what an explicit new version does: UPDATE on the document as well
+        as the corpus write access the caller has already checked. Anything less
+        lets a corpus editor supersede a document they can't change, hiding it
+        from its owner.
         """
         from opencontractserver.documents.models import DocumentPath
         from opencontractserver.types.enums import PermissionTypes
@@ -156,7 +158,7 @@ class CorpusPathService(BaseService):
         return {
             row.path
             for row in rows
-            if cls.user_has(row.document, user, PermissionTypes.READ)
+            if cls.user_has(row.document, user, PermissionTypes.UPDATE)
         }
 
     @classmethod
@@ -174,10 +176,10 @@ class CorpusPathService(BaseService):
 
         Returns, in order of preference:
 
-        1. ``/<folder path>/<filename>`` if ``user`` can read the document in
+        1. ``/<folder path>/<filename>`` if ``user`` can update the document in
            ``folder`` that holds it.
         2. Any other path in ``folder`` ending in ``filename`` whose document
-           ``user`` can read, so that re-importing a document stored at a legacy
+           ``user`` can update, so that re-importing a document stored at a legacy
            ``/documents/<filename>`` path still versions it.
         3. ``/<folder path>/<filename>``, or the default path if that won't fit,
            disambiguated in case another document holds it.
@@ -199,7 +201,7 @@ class CorpusPathService(BaseService):
         from opencontractserver.documents.models import DocumentPath
 
         folder_path = cls._compute_moved_path(f"/{filename}", folder)
-        existing_paths = cls._readable_paths_named(
+        existing_paths = cls._updatable_paths_named(
             corpus, filename, user, folder=folder
         )
         if folder_path in existing_paths:
@@ -229,14 +231,14 @@ class CorpusPathService(BaseService):
 
         Returns:
             ``/documents/<filename>`` if that is taken or nothing matches, otherwise
-            the only path ending in ``filename`` whose document ``user`` can read.
+            the only path ending in ``filename`` whose document ``user`` can update.
 
         Raises:
-            ValueError: If several folders hold a readable match and none of them
+            ValueError: If several folders hold an updatable match and none of them
                 is the default path, so the target is ambiguous.
         """
         default_path = f"{DEFAULT_DOCUMENT_PATH_PREFIX}/{filename}"
-        existing_paths = cls._readable_paths_named(corpus, filename, user)
+        existing_paths = cls._updatable_paths_named(corpus, filename, user)
         if default_path in existing_paths or not existing_paths:
             return default_path
         if len(existing_paths) > 1:
