@@ -1073,8 +1073,8 @@ class MCPToolsSearchTest(TestCase):
             {"type": "passage", "annotation_id": "7", "similarity_score": 0.91},
             {"type": "passage", "annotation_id": "7", "similarity_score": 0.88},
             {"type": "passage", "annotation_id": "9", "similarity_score": 0.80},
-            {"type": "block", "document_slug": "d", "label": "G", "text": "t"},
-            {"type": "block", "document_slug": "d", "label": "G", "text": "t"},
+            {"type": "block", "relationship_id": "11", "text": "t"},
+            {"type": "block", "relationship_id": "11", "text": "t"},
         ]
         out = _dedupe_search_hits(hits)
         self.assertEqual(
