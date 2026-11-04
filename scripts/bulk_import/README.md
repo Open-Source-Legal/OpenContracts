@@ -154,9 +154,12 @@ bottleneck is parsing, not upload.
    - `document_imports` throttle (DRF `DEFAULT_THROTTLE_RATES`) — raise from the
      default `120/hour` if you want submission headroom (optional; parse-drain
      is the real limiter).
-   - `DOCUMENT_PROCESSING_STALE_MINUTES` → e.g. `120`. Under a deep backlog the
-     `reconcile_stuck_documents` beat (default 30 min) can otherwise mark
-     still-queued docs `FAILED`.
+   - `DOCUMENT_PROCESSING_STALE_MINUTES` → e.g. `120`. The clock starts when
+     `ingest_doc` picks a doc up, but its remaining steps still queue behind the
+     `doc_parse` backlog, so under a deep backlog `reconcile_stuck_documents`
+     (default 30 min) can mark healthy docs `FAILED` and notify their creators.
+     They complete on their own when the chain finishes; raising this avoids the
+     false alarm.
 4. **Confirm parser capacity.** `DOCLING_PARSER_SERVICE_URL` and its
    replicas/concurrency set the true throughput ceiling — size it for your
    target docs/hour.

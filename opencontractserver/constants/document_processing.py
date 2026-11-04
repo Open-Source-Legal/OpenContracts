@@ -214,6 +214,14 @@ PERSONAL_CORPUS_DESCRIPTION = "Your personal document collection"
 # Maximum length for error message stored on Document.processing_error
 MAX_PROCESSING_ERROR_LENGTH = 5000
 
+# Leading text of the ``processing_error`` written by the
+# ``reconcile_stuck_documents`` sweep. ``set_doc_lock_state`` matches on it to tell
+# a sweep verdict, which a late-finishing chain may overturn, from a real failure.
+STUCK_DOCUMENT_SWEEP_ERROR_PREFIX = (
+    "Processing did not complete and was reclaimed by the "
+    "stuck-document reconciliation sweep"
+)
+
 # Maximum length for traceback stored on Document.processing_error_traceback
 MAX_PROCESSING_TRACEBACK_LENGTH = 10000
 
