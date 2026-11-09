@@ -19,7 +19,7 @@ responses==0.26.3  # https://github.com/getsentry/responses
 # removed, which breaks every VCR cassette entry (issues #1920 / #2140,
 # kevin1024/vcrpy#995, fixed upstream in #996). aiohttp is an unpinned
 # transitive dep, so a fresh CI resolution picks up 3.14+.
-vcrpy==8.3.0
+vcrpy==9.4.2
 
 # Profiling
 # ------------------------------------------------------------------------------
