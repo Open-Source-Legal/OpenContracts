@@ -47,6 +47,10 @@ updates:
       # This wheel breaks spaCy tokenizer/model deserialization.
       - dependency-name: "preshed"
         versions: ["3.0.14"]
+      # Kombu 5.7's Redis transport needs the TIME command. Read the note
+      # beside the pin in requirements/base.txt before lifting this.
+      - dependency-name: "kombu"
+        versions: [">=5.7"]
 
   # Requirements installed inside the accelerated service images.
   - package-ecosystem: "pip"
