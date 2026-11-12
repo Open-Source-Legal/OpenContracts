@@ -46,6 +46,8 @@ MULTIMODAL_EMBEDDER_VECTOR_SIZE=1536  # OpenAI-compatible models
 MULTIMODAL_EMBEDDER_API_KEY=your-api-key
 ```
 
+With `local.yml`, set this as a host variable rather than in `.envs/.local/.django`: compose forwards it to `django`, `celeryworker` and the embedder, and overrides the env file. It only seeds `PipelineSettings` on first boot, so to change a stored key use System Settings in the admin UI or `migrate_pipeline_settings --force --component <class>`. Without `--component`, `--force` overwrites every stored setting.
+
 ### Embedding Weights
 
 When combining text and image embeddings for multimodal annotations:
