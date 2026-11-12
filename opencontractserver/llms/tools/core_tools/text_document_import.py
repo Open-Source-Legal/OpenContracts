@@ -14,7 +14,6 @@ otherwise a fresh document is added at that path.
 from typing import Any
 
 from opencontractserver.constants.document_processing import (
-    DEFAULT_DOCUMENT_PATH_PREFIX,
     MAX_FILE_UPLOAD_SIZE_BYTES,
     TEXT_MIMETYPES,
 )
@@ -22,22 +21,6 @@ from opencontractserver.corpuses.models import Corpus
 from opencontractserver.shared.utils import sanitize_corpus_filename
 
 from ._helpers import _db_sync_to_async
-
-
-def _derive_path_from_title(title: str) -> str:
-    """Generate a corpus filesystem path from a document title.
-
-    Mirrors the sanitisation used by ``Corpus.add_document`` so that
-    callers that pass the same title repeatedly hit the same path and
-    therefore the same version tree.
-
-    Note: non-alphanumeric characters (other than ``-``, ``_``, ``.``)
-    collapse to ``_``, so distinct titles can derive to the same path.
-    For example, ``"My Doc"`` and ``"My_Doc"`` both produce
-    ``/documents/My_Doc`` — calling the tool with either title will
-    version-up the other.
-    """
-    return f"{DEFAULT_DOCUMENT_PATH_PREFIX}/{sanitize_corpus_filename(title)}"
 
 
 def create_or_update_text_document(
@@ -66,14 +49,18 @@ def create_or_update_text_document(
     Args:
         corpus_id: ID of the target corpus.
         title: Title of the document. Used as the document title and to
-            derive the corpus filesystem path (so calling the tool twice
-            with the same title and corpus version-ups the existing doc).
+            derive the corpus filesystem path, so calling the tool twice with
+            the same title versions the existing doc. Non-alphanumeric
+            characters other than ``-``, ``_`` and ``.`` collapse to ``_``, so
+            ``"My Doc"`` and ``"My_Doc"`` count as the same title.
         content: Full text content of the document (UTF-8).
         author_id: ID of the user performing the operation.
         description: Optional description applied to the new (or new
             version of the) document.
-        folder_id: Optional CorpusFolder ID inside the same corpus. When
-            omitted the document lives at the corpus root.
+        folder_id: Optional CorpusFolder ID inside the same corpus. Same-titled
+            documents in different folders are separate documents. When omitted,
+            a document with this title is updated wherever it lives, otherwise
+            a new one is created at the corpus root.
         file_type: MIME type. Must be one of ``TEXT_MIMETYPES``.
 
     Returns:
@@ -86,10 +73,15 @@ def create_or_update_text_document(
             accessible, the file_type is unsupported, the content is empty,
             or the upload quota is exceeded.
         PermissionError: If the user lacks UPDATE permission on the corpus.
+        ValueError: If ``folder_id`` is omitted and the title matches documents
+            in several folders.
     """
     from django.contrib.auth import get_user_model
 
-    from opencontractserver.corpuses.services import FolderCRUDService
+    from opencontractserver.corpuses.services import (
+        CorpusPathService,
+        FolderCRUDService,
+    )
     from opencontractserver.documents.document_service import DocumentService
     from opencontractserver.shared.services.base import BaseService
     from opencontractserver.types.enums import PermissionTypes
@@ -154,7 +146,13 @@ def create_or_update_text_document(
                 f"Folder with id={folder_id} does not exist or is not accessible."
             )
 
-    path = _derive_path_from_title(title)
+    filename = sanitize_corpus_filename(title)
+    if folder:
+        path = CorpusPathService.resolve_folder_import_path(
+            corpus, folder, filename, user
+        )
+    else:
+        path = CorpusPathService.resolve_named_update_path(corpus, filename, user)
 
     # Apply the same quota check that DocumentService.create_document enforces.
     # Every version-up creates a new Document row (sharing the version tree),

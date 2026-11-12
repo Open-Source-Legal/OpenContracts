@@ -17,12 +17,13 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from django.db import IntegrityError, transaction
 from django.db.models.signals import post_save
 
 from opencontractserver.constants.document_processing import (
+    DEFAULT_DOCUMENT_PATH_PREFIX,
     MAX_PATH_CREATE_RETRIES,
     MAX_PATH_DISAMBIGUATION_SUFFIX,
     PATH_CONFLICT_MSG,
@@ -40,11 +41,14 @@ logger = logging.getLogger(__name__)
 class CorpusPathService(BaseService):
     """Low-level :class:`DocumentPath` path-manipulation + signal-replay helpers.
 
-    Shared across the corpus/document layers; they perform NO permission
-    checks — the calling code gates corpus permissions first.
+    Shared across the corpus/document layers; they perform NO corpus permission
+    checks — the calling code gates those first. The two ``resolve_*`` methods do
+    check UPDATE on each document they match, because a name match must not
+    supersede a document the caller can't change.
 
-    The naming convention is mixed. ``disambiguate_path`` and
-    ``reconcile_paths_after_folder_change`` are **public**: ``disambiguate_path``
+    The naming convention is mixed. ``disambiguate_path``,
+    ``reconcile_paths_after_folder_change`` and the ``resolve_*`` import-path
+    methods are **public**: ``disambiguate_path``
     is called throughout the corpus service layer and beyond it — e.g.
     ``Corpus.add_document`` in the model layer and
     ``documents.versioning.restore_document``. The remaining methods are
@@ -129,6 +133,121 @@ class CorpusPathService(BaseService):
         else:
             return f"/{filename}"
 
+    @classmethod
+    def _updatable_paths_named(
+        cls, corpus: Corpus, filename: str, user: User, **scope: Any
+    ) -> set[str]:
+        """Active paths ending in ``filename`` whose document ``user`` can UPDATE.
+
+        Versioning replaces a document's current content, so a name match must
+        require what an explicit new version does: UPDATE on the document as well
+        as the corpus write access the caller has already checked. Anything less
+        lets a corpus editor supersede a document they can't change, hiding it
+        from its owner.
+        """
+        from opencontractserver.documents.models import DocumentPath
+        from opencontractserver.types.enums import PermissionTypes
+
+        rows = DocumentPath.objects.filter(
+            corpus=corpus,
+            path__endswith=f"/{filename}",
+            is_current=True,
+            is_deleted=False,
+            **scope,
+        ).select_related("document")
+        return {
+            row.path
+            for row in rows
+            if cls.user_has(row.document, user, PermissionTypes.UPDATE)
+        }
+
+    @classmethod
+    def resolve_folder_import_path(
+        cls, corpus: Corpus, folder: CorpusFolder, filename: str, user: User
+    ) -> str:
+        """
+        Choose the path for importing ``filename`` into ``folder``.
+
+        For callers that pick a path from a name alone. Two documents share a
+        version tree exactly when they share a path, so the path decides whether
+        an import versions an existing document. A folder-less default such as
+        ``/documents/<filename>`` would make same-named files in different folders
+        versions of one another, hiding the first.
+
+        Returns, in order of preference:
+
+        1. ``/<folder path>/<filename>`` if ``user`` can update the document in
+           ``folder`` that holds it.
+        2. Any other path in ``folder`` ending in ``filename`` whose document
+           ``user`` can update, so that re-importing a document stored at a legacy
+           ``/documents/<filename>`` path still versions it.
+        3. ``/<folder path>/<filename>``, or the default path if that won't fit,
+           disambiguated in case another document holds it.
+
+        A path disambiguated by rule 3 isn't matched on the next import, which
+        adds another document rather than a version. That is deliberate: treating
+        ``report_1.pdf`` as ``report.pdf`` could version an unrelated file.
+
+        Args:
+            corpus: The corpus being imported into.
+            folder: The target folder.
+            filename: A filename already passed through
+                :func:`opencontractserver.shared.utils.sanitize_corpus_filename`.
+            user: The user performing the import.
+
+        Returns:
+            The path to pass to ``import_document``.
+        """
+        from opencontractserver.documents.models import DocumentPath
+
+        folder_path = cls._compute_moved_path(f"/{filename}", folder)
+        existing_paths = cls._updatable_paths_named(
+            corpus, filename, user, folder=folder
+        )
+        if folder_path in existing_paths:
+            return folder_path
+        if existing_paths:
+            return min(existing_paths)
+        max_length = cast(int, DocumentPath._meta.get_field("path").max_length)
+        if len(folder_path) > max_length:
+            folder_path = f"{DEFAULT_DOCUMENT_PATH_PREFIX}/{filename}"
+        return cls.disambiguate_path(folder_path, corpus)
+
+    @classmethod
+    def resolve_named_update_path(
+        cls, corpus: Corpus, filename: str, user: User
+    ) -> str:
+        """
+        Choose the path for a create-or-update by name, with no folder given.
+
+        For callers whose contract is "same name, new version": the document may
+        live in any folder, and the caller needn't restate which.
+
+        Args:
+            corpus: The corpus being written to.
+            filename: A filename already passed through
+                :func:`opencontractserver.shared.utils.sanitize_corpus_filename`.
+            user: The user performing the write.
+
+        Returns:
+            ``/documents/<filename>`` if that is taken or nothing matches, otherwise
+            the only path ending in ``filename`` whose document ``user`` can update.
+
+        Raises:
+            ValueError: If several folders hold an updatable match and none of them
+                is the default path, so the target is ambiguous.
+        """
+        default_path = f"{DEFAULT_DOCUMENT_PATH_PREFIX}/{filename}"
+        existing_paths = cls._updatable_paths_named(corpus, filename, user)
+        if default_path in existing_paths or not existing_paths:
+            return default_path
+        if len(existing_paths) > 1:
+            raise ValueError(
+                f"Several documents are named {filename!r}: "
+                f"{sorted(existing_paths)}. Pass folder_id to choose one."
+            )
+        return existing_paths.pop()
+
     @staticmethod
     def _target_directory_string_from_path(
         folder_path: str | None,
@@ -188,7 +307,7 @@ class CorpusPathService(BaseService):
         ``bulk_create`` + manual ``post_save`` dispatch).
 
         Paths that are **not** folder-derived (e.g. the ``/documents/<title>``
-        default an upload assigns regardless of folder) are intentionally left
+        default ``add_document`` assigns regardless of folder) are intentionally left
         untouched: they never reflected the folder location, so a rename does
         not make them any more stale. This keeps the change minimal and
         collision-free (source and target directories are disjoint because the
