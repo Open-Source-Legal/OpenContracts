@@ -10,7 +10,16 @@ Behaviour is preserved exactly — this is a relocation, not a rewrite.
 
 from typing import Optional
 
-from django.db.models import BooleanField, Case, Count, Q, QuerySet, Value, When
+from django.db.models import (
+    BooleanField,
+    Case,
+    Count,
+    Prefetch,
+    Q,
+    QuerySet,
+    Value,
+    When,
+)
 
 from opencontractserver.annotations.services.annotation_service import (
     AnnotationService,
@@ -199,13 +208,31 @@ class RelationshipService(BaseService):
         # raw doc+corpus values on structural rows).
         user_is_superuser = bool(getattr(user, "is_superuser", False))
 
+        endpoints: list[str | Prefetch] = [
+            "source_annotations__annotation_label",
+            "target_annotations__annotation_label",
+        ]
+        if not document.is_current:
+            # Historical viewers need their original endpoints. The general
+            # annotation connection hides superseded paths, so prefetch with
+            # the same document/corpus/privacy gate as the historical viewer.
+            visible_annotations = AnnotationService.get_document_annotations(
+                document_id,
+                user,
+                corpus_id=corpus_id,
+                analysis_id=analysis_id,
+                check_current_version=False,
+                context=context,
+            )
+            endpoints = [
+                Prefetch(field, queryset=visible_annotations)
+                for field in ("source_annotations", "target_annotations")
+            ]
+
         # Optimize with prefetches and annotate with computed permissions
         qs = (
             qs.select_related("relationship_label", "creator")
-            .prefetch_related(
-                "source_annotations__annotation_label",
-                "target_annotations__annotation_label",
-            )
+            .prefetch_related(*endpoints)
             .annotate(
                 # Store computed permissions for backwards compatibility
                 _can_read=Value(can_read),
