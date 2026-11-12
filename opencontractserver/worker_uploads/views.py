@@ -92,7 +92,9 @@ class WorkerDocumentUploadView(APIView):
         # Enforce file size limit
         max_size = settings.MAX_WORKER_UPLOAD_SIZE_BYTES
         uploaded_file = request.FILES.get("file")
-        if max_size and uploaded_file and uploaded_file.size > max_size:
+        # django-stubs types UploadedFile.size as ``int | None``; multipart
+        # uploads always carry a size, so a missing one is never over the limit.
+        if max_size and uploaded_file and (uploaded_file.size or 0) > max_size:
             return Response(
                 {
                     "error": "File too large.",
