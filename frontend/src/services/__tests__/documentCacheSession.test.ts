@@ -1,5 +1,5 @@
 import "fake-indexeddb/auto";
-import FDBFactory from "fake-indexeddb/lib/FDBFactory";
+import { IDBFactory as FDBFactory } from "fake-indexeddb";
 import axios, { AxiosHeaders } from "axios";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { documentCacheManager } from "../documentCacheManager";

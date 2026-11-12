@@ -82,6 +82,12 @@ class VisibleToUserTests(TestCase):
         Scoped to the two test users that is exactly 2 rows.
         """
         result = Corpus.objects.visible_to_user(self.superuser)
+        # Visibility branch must not impose its own ordering — that's the
+        # resolver / caller's job (issue #1668 — Fix #5 ordering asymmetry).
+        # Checked before evaluation: since django-tree-queries 0.26 the tree
+        # compiler adds its depth-first ``tree_ordering`` to ``query.order_by``
+        # when the queryset is compiled.
+        self.assertEqual(result.query.order_by, ())
 
         # Filter to corpuses created by this test's users to make the assertion
         # resilient to fixture-level personal corpuses (e.g. the one auto-created
@@ -94,9 +100,6 @@ class VisibleToUserTests(TestCase):
         # no-grant superuser.
         self.assertNotIn(self.private_corpus, result)
         self.assertIn(self.public_corpus, result)
-        # Visibility branch must not impose its own ordering — that's the
-        # resolver / caller's job (issue #1668 — Fix #5 ordering asymmetry).
-        self.assertEqual(result.query.order_by, ())
 
     def test_superuser_single_model_access_computed_normally(self):
         """A no-grant superuser cannot reach a private stranger corpus, but

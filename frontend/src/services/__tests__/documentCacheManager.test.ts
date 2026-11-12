@@ -2,8 +2,10 @@
  * Tests for Document Cache Manager
  */
 import "fake-indexeddb/auto";
-import FDBFactory from "fake-indexeddb/lib/FDBFactory";
-import FDBKeyRange from "fake-indexeddb/lib/FDBKeyRange";
+import {
+  IDBFactory as FDBFactory,
+  IDBKeyRange as FDBKeyRange,
+} from "fake-indexeddb";
 import { DocumentCacheManager } from "../documentCacheManager";
 import { vi } from "vitest";
 

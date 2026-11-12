@@ -42,7 +42,7 @@ class ParseGenericLiteralTests(SimpleTestCase):
         self.assertEqual(_parse_generic_literal(FloatValueNode(value="3.14")), 3.14)
 
     def test_list_value_node_parses_each_element_recursively(self) -> None:
-        ast = ListValueNode(values=[IntValueNode(value="1"), IntValueNode(value="2")])
+        ast = ListValueNode(values=(IntValueNode(value="1"), IntValueNode(value="2")))
         self.assertEqual(_parse_generic_literal(ast), [1, 2])
 
     def test_enum_value_node_returns_the_raw_enum_name(self) -> None:

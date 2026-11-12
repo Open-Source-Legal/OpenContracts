@@ -54,6 +54,13 @@ GOTENBERG_CONVERTER_REQUEST_TIMEOUT_SECONDS = 300
 # frontend dev server's 3000 mapping).
 DEFAULT_GOTENBERG_SERVICE_URL = "http://gotenberg:3000"
 
+# 4xx statuses a parsing/conversion service returns for its own capacity or
+# timing, not for a bad document: 408 Request Timeout and 429 Too Many
+# Requests (e.g. an autoscaled service at its instance limit). Retrying these
+# can succeed, so ``is_transient_http_status`` treats them as transient while
+# every other 4xx stays permanent.
+TRANSIENT_HTTP_CLIENT_ERROR_STATUSES = frozenset({408, 429})
+
 # File types that are stored as txt_extract_file (plain text, no parsing needed).
 # Shared between versioning.py and corpus models.py — single source of truth.
 TEXT_MIMETYPES = {"text/plain", MARKDOWN_MIME_TYPE, "application/txt"}

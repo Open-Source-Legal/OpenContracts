@@ -225,6 +225,28 @@ class TestV2ExportUtilities(TestCase):
         self.assertEqual(result[1]["name"], "Child Folder")
         self.assertIsNotNone(result[1]["parent_id"])
 
+    def test_package_corpus_folders_parent_created_after_child(self):
+        """A folder moved under a newer folder still exports its parent.
+
+        The parent's ID is higher than the child's, so ID order would visit
+        the child first and drop its ``parent_id``. Depth-first order visits
+        the parent first.
+        """
+        moved = CorpusFolder.objects.create(
+            corpus=self.corpus, name="Moved", creator=self.user
+        )
+        newer_parent = CorpusFolder.objects.create(
+            corpus=self.corpus, name="Newer Parent", creator=self.user
+        )
+        self.assertGreater(newer_parent.pk, moved.pk)
+        moved.parent = newer_parent
+        moved.save()
+
+        result = package_corpus_folders(self.corpus)
+
+        self.assertEqual([f["name"] for f in result], ["Newer Parent", "Moved"])
+        self.assertEqual(result[1]["parent_id"], str(newer_parent.pk))
+
     def test_package_document_paths(self):
         """Test exporting DocumentPath version trees."""
         # Create document

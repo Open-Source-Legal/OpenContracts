@@ -13,12 +13,16 @@ from graphql import (
     get_named_type,
     get_operation_ast,
 )
-from graphql.execution.collect_fields import collect_fields
+from graphql.execution.collect_fields import (
+    FragmentDetails,
+    collect_fields,
+    collect_subfields,
+)
 from graphql.execution.values import (
     get_argument_values,
     get_variable_values,
 )
-from graphql.language import FragmentDefinitionNode, SelectionSetNode
+from graphql.language import FragmentDefinitionNode
 from rest_framework.exceptions import PermissionDenied
 from strawberry.extensions import SchemaExtension
 
@@ -144,13 +148,15 @@ OBJECT_FIELDS = {
 }
 
 
-def _check(user, schema, parent, selection_set, fragments, variables, *, root=False):
-    # Use execution's collector: it handles directives/type conditions and
-    # visits each named fragment once, avoiding exponential fragment expansion.
-    groups = collect_fields(schema, fragments, variables, parent, selection_set)
-    for nodes in groups.values():
+def _check(
+    user, schema, operation, parent, fields, fragments, variables, *, root=False
+):
+    # ``fields`` comes from execution's collector: it handles directives/type
+    # conditions and visits each named fragment once, avoiding exponential
+    # fragment expansion. Fields under ``@defer`` are collected too.
+    for details in fields.values():
         # Validation guarantees merged fields have the same name/arguments.
-        node = nodes[0]
+        node = details[0].node
         name = node.name.value
         if name == "__typename":
             continue
@@ -162,7 +168,9 @@ def _check(user, schema, parent, selection_set, fragments, variables, *, root=Fa
             if policy is None:
                 raise PermissionDenied(DENIED)
             scope, corpus_arg = policy
-            args = get_argument_values(field, node, variables)
+            args = get_argument_values(
+                field, node, variables, details[0].fragment_variable_values
+            )
             require_scope(user, scope, args.get(corpus_arg) if corpus_arg else None)
             if scope == Scope.AUTHORITY_ADMIN and not is_authority_admin(user):
                 raise PermissionDenied(DENIED)
@@ -181,23 +189,50 @@ def _check(user, schema, parent, selection_set, fragments, variables, *, root=Fa
                     require_scope(user, Scope.CORPUS_PUBLISH)
         elif parent.name == "CorpusType" and name not in CORPUS_FIELDS:
             raise PermissionDenied(DENIED)
-        children = tuple(
-            child
-            for selected in nodes
-            if selected.selection_set
-            for child in selected.selection_set.selections
-        )
-        if children:
+        if any(selected.node.selection_set for selected in details):
             if not root and name not in OBJECT_FIELDS.get(parent.name, set()):
                 raise PermissionDenied(DENIED)
+            child_type = get_named_type(field.type)
             _check(
                 user,
                 schema,
-                get_named_type(field.type),
-                SelectionSetNode(selections=children),
+                operation,
+                child_type,
+                collect_subfields(
+                    schema, fragments, variables, operation, child_type, details
+                ).grouped_field_set,
                 fragments,
                 variables,
             )
+
+
+def _check_operation(user, schema, document, operation, variables):
+    """Check the whole selected operation; raise PermissionDenied on denial."""
+    fragments = {
+        node.name.value: FragmentDetails(node)
+        for node in document.definitions
+        if isinstance(node, FragmentDefinitionNode)
+    }
+    # Fragment variables are experimental syntax; their values are not
+    # coerced here, so deny rather than check arguments against the wrong
+    # variables.
+    if any(details.definition.variable_definitions for details in fragments.values()):
+        raise PermissionDenied(DENIED)
+    parent = schema.get_root_type(operation.operation)
+    if parent is None:
+        raise PermissionDenied(DENIED)
+    _check(
+        user,
+        schema,
+        operation,
+        parent,
+        collect_fields(
+            schema, fragments, variables, parent, operation
+        ).grouped_field_set,
+        fragments,
+        variables,
+        root=True,
+    )
 
 
 class AutomationScopeExtension(SchemaExtension):
@@ -223,22 +258,8 @@ class AutomationScopeExtension(SchemaExtension):
                 if isinstance(variables, list):
                     context.result = ExecutionResult(data=None, errors=variables)
                 else:
-                    fragments = {
-                        node.name.value: node
-                        for node in document.definitions
-                        if isinstance(node, FragmentDefinitionNode)
-                    }
                     try:
-                        parent = schema.get_root_type(operation.operation)
-                        _check(
-                            user,
-                            schema,
-                            parent,
-                            operation.selection_set,
-                            fragments,
-                            variables,
-                            root=True,
-                        )
+                        _check_operation(user, schema, document, operation, variables)
                     except PermissionDenied:
                         context.result = ExecutionResult(
                             data=None, errors=[GraphQLError(DENIED)]

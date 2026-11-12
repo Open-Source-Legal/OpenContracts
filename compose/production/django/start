@@ -6,4 +6,5 @@ set -o nounset
 
 python /app/manage.py collectstatic --noinput
 
-daphne -b 0.0.0.0 -p 5000 --websocket_timeout $DJANGO_WORKER_TIMEOUT config.asgi:application
+# Resource and agent permission lookups run before accepting the socket.
+daphne -b 0.0.0.0 -p 5000 --websocket_timeout $DJANGO_WORKER_TIMEOUT --websocket_connect_timeout 30 config.asgi:application

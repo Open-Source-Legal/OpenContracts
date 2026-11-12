@@ -1,5 +1,6 @@
 from .agent_tasks import generate_agent_response, trigger_agent_responses_for_message
 from .badge_tasks import check_auto_badges, check_badges_for_all_users
+from .chunk_tasks import parse_document_chunk, reassemble_and_save_chunks
 from .cleanup_tasks import (
     cleanup_orphaned_document_blobs_task,
     delete_analysis_and_annotations_task,
@@ -61,4 +62,6 @@ __all__ = [
     "check_conversations_for_curation",
     "curate_corpus_memory",
     "repair_document_embeddings",
+    "parse_document_chunk",
+    "reassemble_and_save_chunks",
 ]

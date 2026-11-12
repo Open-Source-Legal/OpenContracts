@@ -7,7 +7,9 @@ Provides a formal settings/secrets pattern for agent tools, mirroring the
 Tools declare a nested ``Settings`` dataclass using ``PipelineSetting``
 metadata for schema extraction, validation, and encrypted secret storage.
 Settings and secrets are persisted in the ``PipelineSettings`` singleton
-under a ``tool:<tool_key>`` namespace.
+under a ``tool:<tool_key>`` namespace. ``SECRET`` fields are dropped from the
+Settings repr when the subclass is defined (see
+``settings_schema.hide_secret_settings_from_repr``).
 
 Example::
 
@@ -51,6 +53,7 @@ from opencontractserver.pipeline.base.settings_schema import (
     get_required_settings,
     get_secret_settings,
     get_settings_schema,
+    hide_secret_settings_from_repr,
     validate_settings_detailed,
 )
 
@@ -74,6 +77,10 @@ class BaseTool:
 
     #: Nested Settings dataclass — subclasses override this.
     Settings: ClassVar[type[Any] | None] = None
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        hide_secret_settings_from_repr(cls.__dict__.get("Settings"))
 
     # ------------------------------------------------------------------
     # Full key

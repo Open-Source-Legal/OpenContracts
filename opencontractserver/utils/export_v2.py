@@ -169,8 +169,12 @@ def package_corpus_folders(corpus: Corpus) -> list[CorpusFolderExport]:
     folders_export: list[CorpusFolderExport] = []
 
     try:
-        # Get all folders for this corpus, ordered by ID (parents before children)
-        folders = corpus.folders.all().order_by("id")
+        # Depth-first tree order puts every parent before its children, which
+        # the parent_export_id lookup below depends on. ID order does not: a
+        # folder moved under a newer folder would lose its parent. (Before
+        # django-tree-queries 0.26 an explicit order_by() was silently
+        # replaced by the tree ordering, which hid that.)
+        folders = corpus.folders.order_by("tree_ordering")
 
         # Build export ID mapping (db_id -> export_id)
         folder_id_map: dict[int, str] = {}

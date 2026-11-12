@@ -148,7 +148,9 @@ export const FileDropZone: React.FC<FileDropZoneProps> = ({
         for (const file of files) {
           if (file.size > maxSizeBytes) {
             oversizedFiles.push({
-              file,
+              // react-dropzone >=20 types rejections as FileWithPath; native
+              // input files carry no path, so widen at this boundary.
+              file: file as FileRejection["file"],
               errors: [
                 {
                   code: "file-too-large",

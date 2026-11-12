@@ -48,7 +48,10 @@ class PipelineComponentBase(ABC):
                 )
 
     Settings are loaded once during __init__ and cached. Use reload_settings()
-    to refresh settings from the database if needed.
+    to refresh settings from the database if needed. ``SECRET`` fields are
+    dropped from the Settings repr when the subclass is defined (see
+    ``settings_schema.hide_secret_settings_from_repr``), so logging the
+    instance cannot write a key.
 
     For backwards compatibility, components without a Settings dataclass can
     still use get_component_settings() to get a cached dictionary of settings.
@@ -70,6 +73,15 @@ class PipelineComponentBase(ABC):
     input_schema: ClassVar[Mapping] = (
         {}
     )  # If you want user to provide inputs, define a jsonschema here
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        # Import here to avoid circular imports
+        from opencontractserver.pipeline.base.settings_schema import (
+            hide_secret_settings_from_repr,
+        )
+
+        hide_secret_settings_from_repr(cls.__dict__.get("Settings"))
 
     def __init__(
         self, *, component_settings: Optional[dict[str, Any]] = None, **kwargs

@@ -186,7 +186,9 @@ ingestion pipeline uses to decide whether to retry:
 - **Timeout / connection errors** → transient (retryable).
 - **4xx** (e.g. `415` unsupported media type, `401` bad key, `422` both
   `apply_ocr` and `disable_ocr` set) → permanent (no retry).
-- **5xx** → transient.
+- **408 / 429** (service busy) and **5xx** → transient. The same rule applies to
+  every parser and converter
+  (`opencontractserver/pipeline/base/exceptions.py::is_transient_http_status`).
 - A `apply_ocr` + `disable_ocr` conflict is caught client-side and fails fast
   (permanent) before any HTTP call.
 

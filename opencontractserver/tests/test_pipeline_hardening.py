@@ -24,7 +24,10 @@ from opencontractserver.notifications.models import (
     Notification,
     NotificationTypeChoices,
 )
-from opencontractserver.pipeline.base.exceptions import DocumentParsingError
+from opencontractserver.pipeline.base.exceptions import (
+    DocumentParsingError,
+    is_transient_http_status,
+)
 from opencontractserver.tasks.doc_tasks import (
     _mark_document_failed,
     mark_doc_failed_on_chain_error,
@@ -60,6 +63,25 @@ class TestDocumentParsingError(TestCase):
         """Test that DocumentParsingError is a proper Exception subclass."""
         error = DocumentParsingError("Test")
         self.assertIsInstance(error, Exception)
+
+
+class TestIsTransientHttpStatus(TestCase):
+    """A busy service (408/429) is retryable; other 4xx are not."""
+
+    def test_busy_statuses_are_transient(self):
+        for status in (408, 429):
+            with self.subTest(status=status):
+                self.assertTrue(is_transient_http_status(status))
+
+    def test_other_client_errors_are_permanent(self):
+        for status in (400, 401, 403, 404, 413, 415, 422):
+            with self.subTest(status=status):
+                self.assertFalse(is_transient_http_status(status))
+
+    def test_server_errors_are_transient(self):
+        for status in (500, 502, 503, 504):
+            with self.subTest(status=status):
+                self.assertTrue(is_transient_http_status(status))
 
 
 class TestMarkDocumentFailed(TestCase):

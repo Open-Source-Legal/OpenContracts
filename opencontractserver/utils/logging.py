@@ -4,6 +4,8 @@ Logging utilities for OpenContracts.
 Provides helper functions for safe logging that avoid exposing sensitive data.
 """
 
+import dataclasses
+from collections.abc import Iterable
 from typing import Any
 
 # Keys that should be redacted in logs (case-insensitive partial match)
@@ -22,16 +24,35 @@ SENSITIVE_KEY_PATTERNS = (
 )
 
 
-def redact_sensitive_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
-    """
-    Recursively redact sensitive values from a kwargs dict before logging.
+def _is_dataclass_instance(value: Any) -> bool:
+    """A dataclass *instance* (a component's ``Settings``), not the class."""
+    return dataclasses.is_dataclass(value) and not isinstance(value, type)
 
-    Matches keys containing common sensitive patterns like 'api_key', 'secret',
-    'password', 'token', etc. (case-insensitive). Handles nested dictionaries
-    and lists of dictionaries.
+
+def _is_redactable(value: Any) -> bool:
+    """A nested value that is itself redacted rather than copied through."""
+    return isinstance(value, dict) or _is_dataclass_instance(value)
+
+
+def _items(mapping: Any) -> Iterable[tuple[str, Any]]:
+    """``(name, value)`` pairs of a dataclass instance or any ``.items()`` mapping."""
+    if _is_dataclass_instance(mapping):
+        return ((f.name, getattr(mapping, f.name)) for f in dataclasses.fields(mapping))
+    return mapping.items()
+
+
+def redact_sensitive_kwargs(kwargs: Any) -> dict[str, Any]:
+    """
+    Recursively redact sensitive values from a mapping before logging.
+
+    Accepts a dict or a dataclass instance (e.g. a pipeline component's
+    ``Settings``), and returns a plain dict either way. Matches keys containing
+    common sensitive patterns like 'api_key', 'secret', 'password', 'token',
+    etc. (case-insensitive). Handles nested dicts / dataclasses and lists of
+    them.
 
     Args:
-        kwargs: Dictionary of keyword arguments that may contain sensitive values.
+        kwargs: Dict or dataclass instance that may contain sensitive values.
 
     Returns:
         A new dictionary with sensitive values replaced with '***'.
@@ -44,14 +65,14 @@ def redact_sensitive_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
         {"config": {"api_key": "***"}}
     """
     result: dict[str, Any] = {}
-    for k, v in kwargs.items():
+    for k, v in _items(kwargs):
         if any(pattern in k.lower() for pattern in SENSITIVE_KEY_PATTERNS):
             result[k] = "***"
-        elif isinstance(v, dict):
+        elif _is_redactable(v):
             result[k] = redact_sensitive_kwargs(v)
         elif isinstance(v, list):
             result[k] = [
-                redact_sensitive_kwargs(item) if isinstance(item, dict) else item
+                redact_sensitive_kwargs(item) if _is_redactable(item) else item
                 for item in v
             ]
         else:

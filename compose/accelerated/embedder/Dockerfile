@@ -14,16 +14,16 @@
 # Build:  docker build --build-arg ACCEL=auto -t oc-embedder:auto .
 # Run  :  docker run --device /dev/dri --group-add "$(stat -c '%g' /dev/dri/renderD128)" ...
 #         (add --gpus all for CUDA; --device /dev/kfd --device /dev/dri for ROCm)
-FROM openvino/ubuntu24_runtime@sha256:3eab9bc3f643e27526f347dd6fba15e95eee2c07257570bf988314dd37301aa0
+FROM openvino/ubuntu24_runtime@sha256:ef00731944b89db0148ff41bae9ef5f581dc9a1a2de90b1dd9a8ce1af69dc7b5
 USER root
 WORKDIR /app
 
 ARG ACCEL=auto
-ARG TORCH_VERSION=2.6.0
 
 # Install the one torch wheel for the chosen accelerator family first. Doing
 # this before sentence-transformers prevents pip from temporarily installing a
 # second, multi-gigabyte CUDA wheel from PyPI into every image variant.
+COPY embedder/requirements-torch.txt /opt/accel/requirements-torch.txt
 RUN set -eux; \
     case "${ACCEL}" in \
       cuda)  IDX="https://download.pytorch.org/whl/cu124" ;; \
@@ -33,15 +33,19 @@ RUN set -eux; \
       *) echo "Unsupported ACCEL=${ACCEL}; expected auto, cpu, xpu, cuda, or rocm" >&2; exit 2 ;; \
     esac; \
     echo "ACCEL=${ACCEL} -> torch index ${IDX}"; \
-    pip install --no-cache-dir "torch==${TORCH_VERSION}" --index-url "${IDX}"
+    pip install --no-cache-dir -r /opt/accel/requirements-torch.txt --index-url "${IDX}"
 
 # Service deps + OpenVINO-backed sentence-transformers (covers Intel GPU/NPU/CPU).
-RUN pip install --no-cache-dir \
-      flask gunicorn numpy "Pillow>=10" python-decouple requests \
-      "sentence-transformers[openvino]==5.6.0" \
-      "transformers==4.57.6" \
-      "optimum-intel[openvino]==1.27.0"; \
-    pip check
+# Git is only needed to install the temporary Optimum source pin (#2488).
+# Retain the selected accelerator wheels when resolving service dependencies.
+COPY embedder/requirements.txt /opt/accel/requirements.txt
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && pip install --no-cache-dir -r /opt/accel/requirements.txt \
+       --constraint /opt/accel/requirements-torch.txt \
+    && pip check \
+    && apt-get purge -y --auto-remove git \
+    && rm -rf /var/lib/apt/lists/*
 
 ENV EMBEDDING_MODEL=multi-qa-MiniLM-L6-cos-v1 \
     TOKENIZER_MODEL=sentence-transformers/multi-qa-MiniLM-L6-cos-v1 \

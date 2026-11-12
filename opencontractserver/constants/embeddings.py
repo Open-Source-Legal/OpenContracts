@@ -20,3 +20,12 @@ DEFAULT_OPENAI_EMBEDDING_MODEL = "text-embedding-3-small"
 DEFAULT_OPENAI_EMBEDDING_DIMENSIONS = OPENAI_MODEL_DIMENSIONS[
     DEFAULT_OPENAI_EMBEDDING_MODEL
 ]
+
+# Postgres regex for text with nothing to embed: exactly the characters
+# Python's str.isspace() matches, which str.strip() removes and the embedding
+# tasks therefore skip. Spelled out because Postgres' \s follows the database
+# locale and may not match Unicode spaces such as NBSP.
+BLANK_TEXT_SQL_PATTERN = (
+    r"^[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a"
+    r"\u2028\u2029\u202f\u205f\u3000]*$"
+)

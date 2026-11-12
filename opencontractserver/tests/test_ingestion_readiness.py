@@ -1,5 +1,7 @@
 """Readiness checks stored artifacts; repair reuses inference without parsing."""
 
+import re
+import sys
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -20,6 +22,7 @@ from opencontractserver.annotations.models import (
     Embedding,
     StructuralAnnotationSet,
 )
+from opencontractserver.constants.embeddings import BLANK_TEXT_SQL_PATTERN
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.corpuses.services.corpus_service import CorpusService
 from opencontractserver.documents.models import (
@@ -105,6 +108,19 @@ class ReadinessFixtures(SimpleTestCase):
         request_repair(doc, self.corpus, user=self.user)
         repair_document_embeddings(EmbeddingRepair.objects.get(document=doc).pk)
         return assess_document(doc, self.corpus)
+
+
+class BlankTextPatternTests(SimpleTestCase):
+    def test_pattern_matches_exactly_what_str_strip_removes(self):
+        # Readiness (SQL) and the embedding tasks (str.strip) must agree on
+        # blank text, or readiness waits on vectors that are never made.
+        mismatched = [
+            hex(code)
+            for code in range(sys.maxunicode + 1)
+            if bool(re.fullmatch(BLANK_TEXT_SQL_PATTERN, chr(code)))
+            != chr(code).isspace()
+        ]
+        self.assertEqual(mismatched, [])
 
 
 class ReadinessTests(ReadinessFixtures, TestCase):
@@ -460,7 +476,9 @@ class ReadinessTests(ReadinessFixtures, TestCase):
             structural_set=shared,
             raw_text="Shared clause",
         )
-        for raw_text in ("", " \t\n\f"):
+        # Python's str.strip(), which the embedding tasks use to skip text,
+        # also removes Unicode spaces such as NBSP that PDF text layers emit.
+        for raw_text in ("", " \t\n\f", "\u00a0", "\u3000", "\u2028\u00a0\u205f"):
             Annotation.objects.create(
                 document=self.doc,
                 corpus=self.corpus,

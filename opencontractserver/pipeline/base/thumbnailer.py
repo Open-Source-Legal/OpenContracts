@@ -6,6 +6,7 @@ from django.core.files.base import File
 
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.utils.files import read_field_file_text
+from opencontractserver.utils.logging import redact_sensitive_kwargs
 
 from .base_component import PipelineComponentBase
 
@@ -86,7 +87,8 @@ class BaseThumbnailGenerator(PipelineComponentBase, ABC):
             merged_kwargs = {**default_dimensions, **component_settings, **kwargs}
 
             logger.info(
-                f"Calling _generate_thumbnail_impl with merged kwargs: {merged_kwargs}"
+                "Calling _generate_thumbnail_impl with merged kwargs: "
+                f"{redact_sensitive_kwargs(merged_kwargs)}"
             )
             result = self._generate_thumbnail_impl(
                 txt_content, pdf_bytes, **merged_kwargs

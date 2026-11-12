@@ -26,6 +26,7 @@ from opencontractserver.types.dicts import (
     TextSpanData,
 )
 from opencontractserver.types.enums import LabelType
+from opencontractserver.utils.logging import redact_sensitive_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +136,7 @@ class TxtParser(BaseParser):
         """
         logger.info(
             f"TxtParser - Parsing doc {doc_id} for user {user_id} "
-            f"with effective kwargs: {all_kwargs}"
+            f"with effective kwargs: {redact_sensitive_kwargs(all_kwargs)}"
         )
 
         document = Document.objects.get(pk=doc_id)

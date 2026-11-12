@@ -80,7 +80,11 @@ def valid_embeddings(path, dimension, configuration):
 
 
 def embeddable_annotations(annotations):
-    """Exclude empty text, including tabs and form feeds that SQL TRIM leaves."""
+    """Exclude text the embedding tasks skip as blank (see BLANK_TEXT_SQL_PATTERN)."""
     from django.db.models import Q
 
-    return annotations.exclude(Q(raw_text__isnull=True) | Q(raw_text__regex=r"^\s*$"))
+    from opencontractserver.constants.embeddings import BLANK_TEXT_SQL_PATTERN
+
+    return annotations.exclude(
+        Q(raw_text__isnull=True) | Q(raw_text__regex=BLANK_TEXT_SQL_PATTERN)
+    )

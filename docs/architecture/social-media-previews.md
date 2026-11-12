@@ -11,7 +11,7 @@ This architecture is **already implemented** in this repository:
 
 Important note for dev tooling:
 
-- **`schema.graphql` may be stale** relative to the running backend schema. If you rely on `schema.graphql` (e.g., for codegen), regenerate it after GraphQL changes (see [Generating GraphQL Schema Files](../walkthrough/advanced/generate-graphql-schema-files.md)).
+- **`schema.graphql` may be stale** relative to the running backend schema. If you rely on `schema.graphql`, regenerate it after GraphQL changes (see [Generating GraphQL Schema Files](../walkthrough/advanced/generate-graphql-schema-files.md)).
 
 ## Table of Contents
 

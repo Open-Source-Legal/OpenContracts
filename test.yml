@@ -5,7 +5,9 @@ volumes:
 services:
 
   vector-embedder:
-    image: ghcr.io/jsv4/vectorembeddermicroservice:latest
+    extends:
+      file: compose/compose.images.yml
+      service: vector-embedder
     # build:
     #   context: .
     #   dockerfile: ./compose/local/vector-embedder/Dockerfile
@@ -17,7 +19,9 @@ services:
       VECTOR_EMBEDDER_API_KEY: ${VECTOR_EMBEDDER_API_KEY:-abc123}
 
   multimodal-embedder:
-    image: ghcr.io/jsv4/vectorembeddermicroservice-multimodal:latest
+    extends:
+      file: compose/compose.images.yml
+      service: multimodal-embedder
     container_name: multimodal-embedder
     environment:
       PORT: 8000
@@ -30,13 +34,17 @@ services:
       VECTOR_EMBEDDER_API_KEY: ${MULTIMODAL_EMBEDDER_API_KEY:-abc123}
 
   docling-parser:
-    image: jscrudato/docsling-local
+    extends:
+      file: compose/compose.images.yml
+      service: docling-parser
     container_name: docling-parser
 
   docxodus-parser:
     # The frontend WASM (docxodus in package.json) and this microservice
     # must use the same Docxodus version for character offset alignment.
-    image: ghcr.io/open-source-legal/docxodus-service:1.2.0-docxodus12.4.1
+    extends:
+      file: compose/compose.images.yml
+      service: docxodus-parser
     container_name: docxodus-parser
 
   django: &django
@@ -100,7 +108,9 @@ services:
       start_period: 10s
 
   redis:
-    image: redis:6
+    extends:
+      file: compose/compose.images.yml
+      service: redis
     container_name: redis
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]

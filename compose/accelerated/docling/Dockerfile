@@ -37,6 +37,7 @@ RUN set -eux; \
     fi
 
 # Swap torch for the chosen accelerator wheel (force over the base's cu124 wheel).
+COPY docling/requirements-torch.txt /opt/accel/requirements-torch.txt
 RUN set -eux; \
     case "${ACCEL}" in \
       cuda)  IDX="https://download.pytorch.org/whl/cu124" ;; \
@@ -47,7 +48,7 @@ RUN set -eux; \
     esac; \
     echo "ACCEL=${ACCEL} -> torch index ${IDX}"; \
     pip install --no-cache-dir --force-reinstall \
-      torch==2.6.0 torchvision==0.21.0 --index-url "${IDX}"
+      -r /opt/accel/requirements-torch.txt --index-url "${IDX}"
 
 # Detector + entrypoint (shared, single source at the build-context root).
 COPY accel_detect.py /opt/accel/accel_detect.py

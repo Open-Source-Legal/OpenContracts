@@ -33,7 +33,10 @@ from requests.exceptions import ConnectionError, RequestException, Timeout
 from opencontractserver.constants.document_processing import (
     WARP_INGEST_PARSER_REQUEST_TIMEOUT_SECONDS,
 )
-from opencontractserver.pipeline.base.exceptions import DocumentParsingError
+from opencontractserver.pipeline.base.exceptions import (
+    DocumentParsingError,
+    is_transient_http_status,
+)
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.pipeline.base.parser import BaseParser
 from opencontractserver.pipeline.base.settings_schema import (
@@ -336,16 +339,15 @@ class WarpIngestParser(BaseParser):
             logger.error(msg)
             raise DocumentParsingError(msg, is_transient=True)
         except RequestException as e:
-            # 4xx (bad request, unsupported media type, auth) are permanent;
-            # 5xx (server error, unavailable) are transient and worth retrying.
+            # 4xx (bad request, unsupported media type, auth) are permanent,
+            # except 408/429 (service busy); 5xx are transient.
             is_transient = True
             status_code = None
             response_text = ""
             if hasattr(e, "response") and e.response is not None:
                 status_code = e.response.status_code
                 response_text = e.response.text[:500]
-                if 400 <= status_code < 500:
-                    is_transient = False
+                is_transient = is_transient_http_status(status_code)
 
             msg = f"Request to Warp-Ingest parser service failed for document {doc_id}: {e}"
             if status_code:

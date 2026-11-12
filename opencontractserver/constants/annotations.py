@@ -202,3 +202,22 @@ ANNOTATION_COUNT_CACHE_PREFIX = "oc:annotation_count:v1"
 # research's to choose. This is only the fallback for callers that express no
 # preference; the two agreeing today is coincidence, not a contract.
 ANNOTATION_TEXT_SEARCH_DEFAULT_LIMIT = 10
+
+# Structural label names (lower-cased) whose regions are meaningful without
+# word characters: figures and formulas may carry no text, tables may hold
+# only layout whitespace, and a checkbox's glyph is its state. Parsers name
+# these differently, so ``utils/contentless_annotations.py`` matches them
+# case-insensitively and never drops them as contentless.
+CONTENT_REGION_LABELS = frozenset(
+    {
+        "chart",
+        "checkbox_selected",
+        "checkbox_unselected",
+        "equation",
+        "figure",
+        "formula",
+        "image",
+        "picture",
+        "table",
+    }
+)

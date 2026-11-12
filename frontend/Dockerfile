@@ -1,15 +1,15 @@
 # => Build Container
-FROM node:20-alpine as builder
+FROM node:26-alpine as builder
 
 WORKDIR /app
 COPY package.json .
 COPY yarn.lock .
-RUN yarn install
+RUN npm install --global yarn@1.22.22 && yarn install --frozen-lockfile
 COPY . .
 RUN yarn build
 
 # => Run container
-FROM nginx:1.27.5-alpine
+FROM nginx:1.31.8-alpine
 
 LABEL version="1.0"
 LABEL description="Base docker image for Open Contracts GUI"

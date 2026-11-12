@@ -8,7 +8,10 @@ from django.core.files.storage import default_storage
 from requests.exceptions import ConnectionError, RequestException, Timeout
 
 from opencontractserver.annotations.models import LABEL_TYPES
-from opencontractserver.pipeline.base.exceptions import DocumentParsingError
+from opencontractserver.pipeline.base.exceptions import (
+    DocumentParsingError,
+    is_transient_http_status,
+)
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.pipeline.base.parser import BaseParser
 from opencontractserver.pipeline.base.settings_schema import (
@@ -193,8 +196,7 @@ class DocxodusServiceParser(BaseParser):
             if hasattr(e, "response") and e.response is not None:
                 status_code = e.response.status_code
                 response_text = e.response.text[:500]
-                if 400 <= status_code < 500:
-                    is_transient = False
+                is_transient = is_transient_http_status(status_code)
 
             msg = (
                 f"Request to Docxodus parser service failed for document {doc_id}: {e}"

@@ -89,5 +89,4 @@ at the top of the file.
 3. `components/widgets/chat/` — agent/tool interaction surface
 
 When replacing `any` with a real type, prefer reusing types from
-`frontend/src/types/graphql-api.ts` (or the GraphQL codegen output) over
-hand-rolled shapes.
+`frontend/src/types/graphql-api.ts` over hand-rolled shapes.

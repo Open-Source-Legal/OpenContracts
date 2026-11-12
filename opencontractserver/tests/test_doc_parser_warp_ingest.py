@@ -381,6 +381,23 @@ class TestWarpIngestParser(TestCase):
 
     @patch(_POST_PATH)
     @patch(_STORAGE_PATH)
+    def test_429_is_transient(self, mock_open, mock_post):
+        """429 means the service is busy, so the error is retryable."""
+        self._mock_storage(mock_open)
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+        mock_response.text = "Too Many Requests"
+        error = RequestException("Too Many Requests")
+        error.response = mock_response
+        mock_post.side_effect = error
+
+        with self.assertRaises(DocumentParsingError) as ctx:
+            self.parser.parse_document(user_id=self.user.id, doc_id=self.doc.id)
+
+        self.assertTrue(ctx.exception.is_transient)
+
+    @patch(_POST_PATH)
+    @patch(_STORAGE_PATH)
     def test_5xx_is_transient(self, mock_open, mock_post):
         self._mock_storage(mock_open)
         mock_response = MagicMock()

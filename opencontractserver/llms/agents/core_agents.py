@@ -269,7 +269,9 @@ class AgentConfig:
     # Basic configuration
     user_id: Optional[int] = None
     model_name: str = "gpt-4o"
-    api_key: Optional[str] = None
+    # Kept out of repr so no log call can write the key by formatting the
+    # config. Populated from settings.OPENAI_API_KEY by get_default_config().
+    api_key: Optional[str] = field(default=None, repr=False)
     embedder_path: Optional[str] = None
     similarity_top_k: int = 10
     streaming: bool = True

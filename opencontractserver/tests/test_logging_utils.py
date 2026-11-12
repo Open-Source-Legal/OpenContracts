@@ -2,6 +2,8 @@
 Tests for opencontractserver/utils/logging.py
 """
 
+from dataclasses import dataclass
+
 from django.test import TestCase
 
 from opencontractserver.utils.logging import redact_sensitive_kwargs
@@ -161,4 +163,28 @@ class TestRedactSensitiveKwargs(TestCase):
         self.assertEqual(
             result,
             {"credential": "***", "user_credential": "***", "credentials_file": "***"},
+        )
+
+    def test_redacts_dataclass_instance(self):
+        """A Settings dataclass is accepted and rendered as a redacted dict."""
+
+        @dataclass
+        class Settings:
+            api_key: str
+            timeout: int
+
+        result = redact_sensitive_kwargs(Settings(api_key="sk-1", timeout=3))
+        self.assertEqual(result, {"api_key": "***", "timeout": 3})
+
+    def test_redacts_nested_dataclass_values(self):
+        """Dataclasses nested in dicts and lists are redacted like dicts."""
+
+        @dataclass
+        class Inner:
+            client_secret: str
+
+        result = redact_sensitive_kwargs({"inner": Inner("s"), "items": [Inner("t")]})
+        self.assertEqual(
+            result,
+            {"inner": {"client_secret": "***"}, "items": [{"client_secret": "***"}]},
         )

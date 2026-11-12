@@ -60,7 +60,8 @@ concurrency:
 jobs:
   e2e-websocket:
     name: WebSocket auth handshake (login → notify → agent chat)
-    runs-on: ubuntu-latest
+    # Playwright 1.56 does not support the Ubuntu 26.04 ubuntu-latest image.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read
@@ -72,7 +73,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Install Yarn
         run: npm install -g yarn
@@ -221,14 +222,14 @@ jobs:
 
       - name: Upload backend logs on failure
         if: failure()
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: e2e-websocket-backend-logs
           path: artifacts/
 
       - name: Upload Playwright HTML report on failure
         if: failure()
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: e2e-websocket-playwright-report
           path: frontend/playwright-report-e2e/

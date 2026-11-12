@@ -122,7 +122,9 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:6
+    extends:
+      file: compose/compose.images.yml
+      service: redis
     container_name: redis
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -135,7 +137,9 @@ services:
     restart: unless-stopped
 
   docling-parser:
-    image: jscrudato/docsling-local
+    extends:
+      file: compose/compose.images.yml
+      service: docling-parser
     container_name: docling-parser
     # Hard cap so a runaway parse (or unreleased memory across many requests)
     # gets this ONE container OOM-killed by the kernel cgroup instead of
@@ -151,7 +155,9 @@ services:
   docxodus-parser:
     # The frontend WASM (docxodus in package.json) and this microservice
     # must use the same Docxodus version for character offset alignment.
-    image: ghcr.io/open-source-legal/docxodus-service:1.2.0-docxodus12.4.1
+    extends:
+      file: compose/compose.images.yml
+      service: docxodus-parser
     container_name: docxodus-parser
     # Hard cap — see docling-parser's mem_limit comment.
     mem_limit: 1g
@@ -168,7 +174,9 @@ services:
     # Pinned (not :latest): Warp-Ingest's value proposition is *deterministic*
     # output, so a floating tag could silently change parse results without an
     # OpenContracts version bump. Mirrors docxodus-parser's exact-version pin.
-    image: ghcr.io/open-source-legal/warp-ingest:1.0.0
+    extends:
+      file: compose/compose.images.yml
+      service: warp-ingest
     container_name: warp-ingest
     profiles:
       - warp-ingest
@@ -195,7 +203,9 @@ services:
   # ships neither curl nor python (matching docling/docxodus, dependents use
   # condition: service_started).
   gotenberg:
-    image: gotenberg/gotenberg:8
+    extends:
+      file: compose/compose.images.yml
+      service: gotenberg
     container_name: gotenberg
     # Hard cap — see docling-parser's mem_limit comment.
     mem_limit: 2g
@@ -210,7 +220,9 @@ services:
   # stays in sync on both sides. The abc123 fallback is a LOCAL DEVELOPMENT ONLY
   # placeholder — override before exposing these services off the docker bridge.
   vector-embedder:
-    image: ghcr.io/jsv4/vectorembeddermicroservice:latest
+    extends:
+      file: compose/compose.images.yml
+      service: vector-embedder
     container_name: vector-embedder
     environment:
       PORT: 8000
@@ -222,7 +234,9 @@ services:
     restart: unless-stopped
 
   multimodal-embedder:
-    image: ghcr.io/jsv4/vectorembeddermicroservice-multimodal:latest
+    extends:
+      file: compose/compose.images.yml
+      service: multimodal-embedder
     container_name: multimodal-embedder
     environment:
       PORT: 8000
@@ -246,7 +260,9 @@ services:
   # from the host, exec into the django container and curl
   # ``http://privacy_filter:8000/v1/detect``.
   privacy_filter:
-    image: ghcr.io/open-source-legal/privacy-filter:latest
+    extends:
+      file: compose/compose.images.yml
+      service: privacy_filter
     container_name: privacy_filter
     environment:
       API_KEYS: dev-only-not-secret

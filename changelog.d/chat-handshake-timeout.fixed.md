@@ -1,0 +1,1 @@
+Allow 30 seconds for production WebSocket handshakes so corpus and agent permission lookups can complete before accepting new questions. Show chat transport failures with a reconnect action that preserves the page, and disable Apollo development checks in production bundles.

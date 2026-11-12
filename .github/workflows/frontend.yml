@@ -27,7 +27,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Install Yarn
         run: npm install -g yarn
@@ -50,7 +50,8 @@ jobs:
 
   component-test:
     name: Component Tests
-    runs-on: ubuntu-latest
+    # Playwright 1.56 does not support the Ubuntu 26.04 ubuntu-latest image.
+    runs-on: ubuntu-24.04
     needs: lint # Run only if lint job passes
     permissions:
       contents: read
@@ -61,7 +62,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Install Yarn
         run: npm install -g yarn # Still need global yarn
@@ -115,7 +116,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "24"
       - name: Install Yarn
         run: npm install -g yarn
       - name: Clear Yarn Cache
@@ -137,7 +138,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "24"
       - name: Install Yarn
         run: npm install -g yarn
       - name: Clear Yarn Cache

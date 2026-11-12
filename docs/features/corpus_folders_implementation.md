@@ -427,7 +427,7 @@ export const expandedFolderIdsAtom = atomWithStorage<Set<string>>(
 
 1. **GraphQL Layer** (1-2 hours)
    - Create fragments, queries, mutations
-   - Run codegen to generate TypeScript types
+   - Add the matching TypeScript types to `frontend/src/types/graphql-api.ts` (hand-maintained; there is no codegen step)
 
 2. **State Management** (1 hour)
    - Create Jotai atoms

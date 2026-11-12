@@ -47,7 +47,8 @@ concurrency:
 jobs:
   e2e-extract:
     name: Extract pipeline (PDF upload → run → CSV)
-    runs-on: ubuntu-latest
+    # Playwright 1.56 cannot install browsers on Ubuntu 26.04 (ubuntu-latest).
+    runs-on: ubuntu-24.04
     # Allow image/service startup, Playwright's 25-minute global budget,
     # and diagnostic uploads to finish before the job is terminated.
     timeout-minutes: 45
@@ -61,7 +62,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Install Yarn
         run: npm install -g yarn
@@ -261,14 +262,14 @@ jobs:
 
       - name: Upload backend logs on failure
         if: failure() || cancelled()
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: e2e-extract-backend-logs
           path: artifacts/
 
       - name: Upload Playwright HTML report on failure
         if: failure() || cancelled()
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: e2e-extract-playwright-report
           path: |

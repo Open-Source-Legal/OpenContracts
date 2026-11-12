@@ -5,6 +5,7 @@ from typing import Optional
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.pipeline.base.thumbnailer import BaseThumbnailGenerator
 from opencontractserver.utils.files import create_text_thumbnail
+from opencontractserver.utils.logging import redact_sensitive_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,8 @@ class TextThumbnailGenerator(BaseThumbnailGenerator):
         height = all_kwargs.get("height", 300)
         width = all_kwargs.get("width", 300)
         logger.debug(
-            f"TextThumbnailGenerator generating with height={height}, width={width}. All kwargs: {all_kwargs}"
+            f"TextThumbnailGenerator generating with height={height}, width={width}. "
+            f"All kwargs: {redact_sensitive_kwargs(all_kwargs)}"
         )
 
         if txt_content:

@@ -1,0 +1,1 @@
+Upgrade the accelerated embedder to patched Transformers 5.15.1 and Sentence Transformers 6.2.0 using a temporary, commit-pinned Optimum Intel version. Preserve matching accelerator-specific PyTorch and torchvision wheels during dependency installation. Track the move back to a stable Optimum release in #2488.

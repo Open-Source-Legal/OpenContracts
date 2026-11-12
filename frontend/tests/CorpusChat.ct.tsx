@@ -1620,6 +1620,48 @@ test.describe("CorpusChat", () => {
     await component.unmount();
   });
 
+  test("transport failure shows an error and reconnect preserves the draft", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[emptyConversationsMock, emptyConversationsMock]}
+        corpusId={TEST_CORPUS_ID}
+        forceNewChat
+      />
+    );
+
+    const input = page.locator("textarea").first();
+    await expect(input).toBeEnabled();
+    await input.fill("question kept after reconnect");
+
+    await page.evaluate(() => {
+      const sockets = Array.from(
+        (window as any).WebSocketInstances as Set<any>
+      );
+      const socket = sockets[sockets.length - 1];
+      socket.readyState = 3;
+      socket.onerror?.({});
+      socket.onclose?.({ code: 1006 });
+    });
+
+    await expect(
+      page.getByText("Unable to connect to chat. Retrying automatically.")
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Reconnect" }).click();
+    await expect(
+      page.getByText("Unable to connect to chat. Retrying automatically.")
+    ).toHaveCount(0);
+    await expect(input).toHaveValue("question kept after reconnect");
+    await input.press("Enter");
+    await expect(
+      page.getByText("Echo: question kept after reconnect", { exact: true })
+    ).toBeVisible();
+
+    await component.unmount();
+  });
+
   test("initialQuery is auto-sent once the WebSocket is ready", async ({
     mount,
     page,

@@ -13,6 +13,9 @@ from opencontractserver.pipeline.base.exceptions import DocumentParsingError
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.types.dicts import OpenContractDocExport
 from opencontractserver.utils.compact_pawls import compact_pawls_pages
+from opencontractserver.utils.contentless_annotations import (
+    contentless_structural_filter,
+)
 from opencontractserver.utils.importing import (
     import_annotations,
     import_relationships,
@@ -232,6 +235,17 @@ class BaseParser(PipelineComponentBase, ABC):
 
         logger.info(f"Target label type for textual annotations: {target_label_type}")
 
+        # Whitespace- and glyph-only structural elements are noise; drop them
+        # before labels are created so no label exists only for dropped rows.
+        labelled_text, relationship_data, dropped = contentless_structural_filter(
+            open_contracts_data.get("labelled_text", []),
+            open_contracts_data.get("relationships") or [],
+        )
+        if dropped:
+            logger.info(
+                f"Dropped {dropped} contentless structural annotations for doc {doc_id}"
+            )
+
         # 1) Build a data dict for text annotation labels
         text_labels_data_dict = {
             label_data["annotationLabel"]: {
@@ -243,7 +257,7 @@ class BaseParser(PipelineComponentBase, ABC):
                 "creator_id": user_id,
                 "read_only": True,
             }
-            for label_data in open_contracts_data.get("labelled_text", [])
+            for label_data in labelled_text
         }
 
         logger.info(f"Text label data dict: {text_labels_data_dict}")
@@ -266,14 +280,13 @@ class BaseParser(PipelineComponentBase, ABC):
             user_id=user_id,
             doc_obj=document,
             corpus_obj=corpus_obj,
-            annotations_data=open_contracts_data.get("labelled_text", []),
+            annotations_data=labelled_text,
             label_lookup=existing_text_labels,
             label_type=target_label_type,
             pawls_data=cast("list[dict[Any, Any]]", pawls_file_content),
         )
 
         # 4) If there are relationships, load/create relationship labels and then import
-        relationship_data = open_contracts_data.get("relationships", [])
         if relationship_data:
             # Build label data dict for relationship labels
             relationship_label_texts = {

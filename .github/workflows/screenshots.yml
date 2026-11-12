@@ -20,7 +20,8 @@ defaults:
 jobs:
   update-screenshots:
     name: Capture & Commit Screenshots
-    runs-on: ubuntu-latest
+    # Playwright 1.56 cannot install browsers on Ubuntu 26.04 (ubuntu-latest).
+    runs-on: ubuntu-24.04
     steps:
       - name: Resolve PR head ref
         id: pr
@@ -51,7 +52,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Install Yarn
         run: npm install -g yarn

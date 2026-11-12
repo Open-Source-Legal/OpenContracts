@@ -395,6 +395,20 @@ class GotenbergFileConverterTestCase(TestCase):
         self.assertFalse(ctx.exception.is_transient)
 
     @patch(GOTENBERG_REQUESTS_POST)
+    def test_429_is_transient(self, mock_post):
+        response = MagicMock()
+        response.status_code = 429
+        response.text = "busy"
+        error = HTTPError(response=response)
+        mock_response = MagicMock()
+        mock_response.raise_for_status.side_effect = error
+        mock_post.return_value = mock_response
+
+        with self.assertRaises(FileConversionError) as ctx:
+            GotenbergFileConverter().convert_to_pdf(b"x", "a.doc")
+        self.assertTrue(ctx.exception.is_transient)
+
+    @patch(GOTENBERG_REQUESTS_POST)
     def test_5xx_is_transient(self, mock_post):
         response = MagicMock()
         response.status_code = 503

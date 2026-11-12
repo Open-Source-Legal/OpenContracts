@@ -10,10 +10,11 @@ from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.utils import timezone
-from graphql import GraphQLObjectType
+from graphql import GraphQLObjectType, get_operation_ast, get_variable_values, parse
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.test import APIClient
 
-from config.graphql.automation import OPERATIONS
+from config.graphql.automation import OPERATIONS, _check_operation
 from config.graphql.schema import schema
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.document_imports.models import ChunkedUploadSession
@@ -321,6 +322,53 @@ class AutomationCredentialTests(TestCase):
             )
         self.assertNotIn("errors", result)
         self.assertEqual(gate.call_count, 1)
+
+    def check_document(self, query, variables=None, **parse_options):
+        """Run the policy walk directly, without schema validation in front."""
+        graphql_schema = schema._schema
+        document = parse(query, **parse_options)
+        operation = get_operation_ast(document)
+        assert operation is not None
+        coerced = get_variable_values(
+            graphql_schema, operation.variable_definitions or (), variables or {}
+        )
+        self.user.automation_credential = self.credential
+        _check_operation(self.user, graphql_schema, document, operation, coerced)
+
+    def test_deferred_fragments_are_policy_checked(self):
+        own = {"id": to_global_id("CorpusType", self.corpus.pk)}
+        self.check_document(
+            "query($id: ID!) { corpus(id: $id) { id ... @defer { title } } }", own
+        )
+        with self.assertRaises(PermissionDenied):
+            self.check_document(
+                "query($id: ID!) { corpus(id: $id) { id ... @defer { creator { email } } } }",
+                own,
+            )
+        # The corpus argument of a deferred root field still reaches the scope
+        # check: the credential is bound to self.corpus only.
+        with self.assertRaises(PermissionDenied):
+            self.check_document(
+                "query($id: ID!) { ...Root @defer } "
+                "fragment Root on Query { corpus(id: $id) { id } }",
+                {"id": to_global_id("CorpusType", self.other_corpus.pk)},
+            )
+
+    def test_fragment_variables_are_denied(self):
+        # An all-corpus credential would allow corpus(id: ...) whatever the
+        # value, so only the fragment-variable rule can deny this.
+        self.credential, _ = self.mint(all_corpuses=True)
+        with self.assertRaises(PermissionDenied):
+            self.check_document(
+                'query { ...Pick(id: "x") } '
+                "fragment Pick($id: ID!) on Query { corpus(id: $id) { id } }",
+                experimental_fragment_arguments=True,
+            )
+
+    def test_operation_without_a_root_type_is_denied(self):
+        self.assertIsNone(schema._schema.subscription_type)
+        with self.assertRaises(PermissionDenied):
+            self.check_document("subscription { corpus { id } }")
 
     def test_merged_fields_check_every_nested_selection(self):
         result = self.graphql(

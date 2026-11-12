@@ -25,11 +25,10 @@ from graphql import (
     GraphQLObjectType,
     GraphQLScalarType,
     GraphQLUnionType,
-    Undefined,
     build_schema,
     print_ast,
 )
-from graphql.utilities import ast_from_value
+from graphql.utilities import get_default_value_ast
 
 GOLDEN_PATH = Path(__file__).resolve().parents[2] / "config/graphql/schema.graphql"
 
@@ -49,10 +48,11 @@ def _kind(t) -> str:
 
 
 def _printed_default(arg) -> str | None:
-    if arg.default_value is Undefined:
-        return None
-    node = ast_from_value(arg.default_value, arg.type)
-    return print_ast(node) if node else repr(arg.default_value)
+    # graphql-core 3.3 keeps SDL-built defaults as literals in ``arg.default``
+    # and leaves the deprecated ``arg.default_value`` Undefined; this helper
+    # reads both forms.
+    node = get_default_value_ast(arg)
+    return print_ast(node) if node else None
 
 
 class SchemaParityTestCase(SimpleTestCase):

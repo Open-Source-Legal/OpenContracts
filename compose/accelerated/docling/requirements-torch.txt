@@ -1,0 +1,4 @@
+# Installed from the accelerator-specific index selected by the Dockerfile.
+# Update this series together with the CUDA/ROCm indexes in both images.
+torch==2.6.0
+torchvision==0.21.0

@@ -17,7 +17,10 @@ from opencontractserver.constants.document_processing import (
     DOCLING_PARSER_REQUEST_TIMEOUT_SECONDS,
 )
 from opencontractserver.pipeline.base.chunked_parser import BaseChunkedParser
-from opencontractserver.pipeline.base.exceptions import DocumentParsingError
+from opencontractserver.pipeline.base.exceptions import (
+    DocumentParsingError,
+    is_transient_http_status,
+)
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.pipeline.base.settings_schema import (
     PipelineSetting,
@@ -30,6 +33,7 @@ from opencontractserver.types.dicts import (
     TokenIdPythonType,
 )
 from opencontractserver.utils.cloud import maybe_add_cloud_run_auth
+from opencontractserver.utils.logging import redact_sensitive_kwargs
 from opencontractserver.utils.pdf_token_extraction import (
     crop_image_from_pdf,
     extract_images_from_pdf,
@@ -388,8 +392,8 @@ class DoclingParser(BaseChunkedParser):
             f"chunk {chunk_index + 1}/{total_chunks}" if total_chunks > 1 else "full"
         )
         logger.info(
-            f"DoclingParser - Parsing doc {doc_id} ({chunk_label}) "
-            f"for user {user_id} with effective kwargs: {all_kwargs}"
+            f"DoclingParser - Parsing doc {doc_id} ({chunk_label}) for user {user_id} "
+            f"with effective kwargs: {redact_sensitive_kwargs(all_kwargs)}"
         )
 
         # Get settings from all_kwargs (which includes component_settings and
@@ -468,13 +472,17 @@ class DoclingParser(BaseChunkedParser):
                 if hasattr(e, "response") and e.response is not None:
                     status_code = e.response.status_code
                     response_text = e.response.text[:500]  # Limit error text length
-                    # 4xx errors are typically permanent (bad request, unauthorized, etc.)
-                    # 5xx errors are typically transient (server error, service unavailable)
-                    if 400 <= status_code < 500:
+                    # 4xx is permanent except 408/429 (service busy); 5xx is
+                    # transient unless the body names a content failure.
+                    if not is_transient_http_status(status_code):
                         is_transient = False
-                    elif response_text and any(
-                        sig in response_text.lower()
-                        for sig in _DOCLING_PERMANENT_FAILURE_SIGNATURES
+                    elif (
+                        status_code >= 500
+                        and response_text
+                        and any(
+                            sig in response_text.lower()
+                            for sig in _DOCLING_PERMANENT_FAILURE_SIGNATURES
+                        )
                     ):
                         # 5xx whose body is a docling content-conversion
                         # failure: the PDF itself is unparseable, so retrying

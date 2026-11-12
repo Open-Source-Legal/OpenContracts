@@ -118,6 +118,11 @@ export default defineConfig(async () => {
     },
     // Handle static asset imports better in tests
     define: {
+      // Apollo 3 defaults to development checks when this flag is undefined.
+      // Replace it at build time so production bundles omit those checks.
+      "globalThis.__DEV__": JSON.stringify(
+        process.env.NODE_ENV !== "production"
+      ),
       // Add TEST environment variable that code can check
       // This will be false in production/development
       "import.meta.env.TEST": JSON.stringify(false),

@@ -1,14 +1,14 @@
 -r base.txt
 
 psycopg2-binary==2.9.13  # https://github.com/psycopg/psycopg2
-watchfiles==1.2.0  # https://github.com/samuelcolvin/watchfiles
+watchfiles==1.3.0  # https://github.com/samuelcolvin/watchfiles
 
 # Testing
 # ------------------------------------------------------------------------------
 
-mypy==2.3.1  # https://github.com/python/mypy
+mypy==2.4.0  # https://github.com/python/mypy
 django-stubs==6.1.1  # https://github.com/typeddjango/django-stubs
-pytest==9.1.1  # https://github.com/pytest-dev/pytest
+pytest==9.2.0  # https://github.com/pytest-dev/pytest
 pytest-cov==7.1.0  # https://github.com/pytest-dev/pytest-cov
 pytest-xdist==3.8.0  # https://github.com/pytest-dev/pytest-xdist (parallel test execution)
 pytest-timeout==2.4.0  # https://github.com/pytest-dev/pytest-timeout (per-test hang guard in CI)
@@ -19,7 +19,7 @@ responses==0.26.3  # https://github.com/getsentry/responses
 # removed, which breaks every VCR cassette entry (issues #1920 / #2140,
 # kevin1024/vcrpy#995, fixed upstream in #996). aiohttp is an unpinned
 # transitive dep, so a fresh CI resolution picks up 3.14+.
-vcrpy==8.3.0
+vcrpy==9.4.2
 
 # Profiling
 # ------------------------------------------------------------------------------
@@ -28,11 +28,11 @@ django-silk==5.6.0
 
 # Code quality
 # ------------------------------------------------------------------------------
-flake8==7.3.0 # https://github.com/PyCQA/flake8
+flake8==7.5.0 # https://github.com/PyCQA/flake8
 flake8-isort==7.0.0  # https://github.com/gforcada/flake8-isort
-coverage==7.16.1  # https://github.com/nedbat/coveragepy
-black==26.5.1  # https://github.com/psf/black
-pre-commit==4.6.2  # https://github.com/pre-commit/pre-commit
+coverage==7.17.0  # https://github.com/nedbat/coveragepy
+black==26.10.1  # https://github.com/psf/black
+pre-commit==4.7.0  # https://github.com/pre-commit/pre-commit
 
 # Django
 # ------------------------------------------------------------------------------
@@ -59,12 +59,12 @@ pytesseract
 # Not directly required, pinned by Snyk to avoid a vulnerability
 # ------------------------------------------------------------------------------
 django==5.2.17  # https://www.djangoproject.com/
-twisted>=26.4.0 # not directly required, pinned by Snyk to avoid a vulnerability
+twisted>=26.10.0 # not directly required, pinned by Snyk to avoid a vulnerability
 ipython>=9.17.1 # not directly required, pinned by Snyk to avoid a vulnerability
 requests>=2.34.2,<3 # not directly required, pinned by Snyk to avoid a vulnerability
 setuptools>=84.0.0 # not directly required, pinned by Snyk to avoid a vulnerability
-sqlparse>=0.6.0 # not directly required, pinned by Snyk to avoid a vulnerability
-tornado>=6.5.8 # not directly required, pinned by Snyk to avoid a vulnerability
-urllib3>=2.7.0 # not directly required, pinned by Snyk to avoid a vulnerability
-zipp>=4.1.0 # not directly required, pinned by Snyk to avoid a vulnerability
+sqlparse>=0.6.1 # not directly required, pinned by Snyk to avoid a vulnerability
+tornado>=6.6 # not directly required, pinned by Snyk to avoid a vulnerability
+urllib3>=2.8.0 # not directly required, pinned by Snyk to avoid a vulnerability
+zipp>=4.1.2 # not directly required, pinned by Snyk to avoid a vulnerability
 pillow>=12.3.0 # not directly required, pinned by Snyk to avoid a vulnerability

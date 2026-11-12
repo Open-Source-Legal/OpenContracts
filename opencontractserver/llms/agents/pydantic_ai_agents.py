@@ -2510,7 +2510,15 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
         logger.debug(
             f"Creating Pydantic-AI document agent for document {document} and corpus {corpus}"
         )
-        logger.debug(f"Config (type {type(config)}): {config}")
+        # A summary, not the config: AgentConfig carries the API key, the
+        # system prompt and loaded messages.
+        logger.debug(
+            "Config: model=%s user_id=%s conversation_id=%s storage=%s",
+            config.model_name,
+            config.user_id,
+            config.conversation_id,
+            config.storage_backend,
+        )
         # Provide explicit corpus (may be None for standalone) so the factory can pick the proper embedder
         context = await CoreDocumentAgentFactory.create_context(
             document, corpus, config

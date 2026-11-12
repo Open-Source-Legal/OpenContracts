@@ -33,6 +33,11 @@ Example usage in a component:
                     description="Request timeout in seconds",
                 )}
             )
+
+A ``SECRET`` field is never part of the Settings repr: the component base
+classes call :func:`hide_secret_settings_from_repr` when the subclass is
+defined, so ``f"{self.settings}"`` cannot write a key to a log however the
+field was declared.
 """
 
 import dataclasses
@@ -111,6 +116,44 @@ def get_pipeline_setting(field_obj: dataclasses.Field) -> Optional[PipelineSetti
     if not field_obj.metadata:
         return None
     return field_obj.metadata.get("pipeline_setting")
+
+
+def hide_secret_settings_from_repr(settings_class: Any) -> None:
+    """Drop every ``SECRET`` field from a Settings dataclass's repr.
+
+    Called from ``PipelineComponentBase.__init_subclass__`` and
+    ``BaseTool.__init_subclass__`` with the subclass's own ``Settings`` so a
+    secret can't reach a log through ``f"{self.settings}"`` even when the
+    field was declared without ``repr=False``. Flips ``Field.repr`` so
+    introspection agrees, and regenerates ``__repr__`` when the dataclass
+    decorator generated one (a hand-written ``__repr__`` under
+    ``@dataclass(repr=False)`` is left alone). No-op for anything that is not
+    a dataclass or has nothing to hide.
+    """
+    if not isinstance(settings_class, type) or not dataclasses.is_dataclass(
+        settings_class
+    ):
+        return
+    leaking = [
+        field_obj
+        for field_obj in fields(settings_class)
+        if field_obj.repr
+        and (setting := get_pipeline_setting(field_obj)) is not None
+        and setting.setting_type is SettingType.SECRET
+    ]
+    if not leaking:
+        return
+    for field_obj in leaking:
+        field_obj.repr = False
+    if not settings_class.__dataclass_params__.repr:  # type: ignore[attr-defined]
+        return
+    shown = tuple(f.name for f in fields(settings_class) if f.repr)
+
+    def __repr__(self: Any) -> str:
+        body = ", ".join(f"{name}={getattr(self, name)!r}" for name in shown)
+        return f"{type(self).__qualname__}({body})"
+
+    setattr(settings_class, "__repr__", __repr__)
 
 
 def get_settings_schema(component_class: type) -> dict[str, dict[str, Any]]:

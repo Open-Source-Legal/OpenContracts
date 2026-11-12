@@ -258,6 +258,19 @@ class TestDocxodusServiceParser(TestCase):
         self.assertFalse(ctx.exception.is_transient)
 
     @patch("opencontractserver.pipeline.parsers.docxodus_parser.requests.post")
+    def test_parse_document_http_429_is_transient(self, mock_post):
+        """429 means the service is busy, so the error is retryable."""
+        mock_post.return_value = MockResponse(429, {"error": "Too Many Requests"})
+
+        parser = DocxodusServiceParser()
+        parser.service_url = "http://docxodus-parser:8080/parse"
+
+        with self.assertRaises(DocumentParsingError) as ctx:
+            parser._parse_document_impl(user_id=self.user.id, doc_id=self.doc.id)
+
+        self.assertTrue(ctx.exception.is_transient)
+
+    @patch("opencontractserver.pipeline.parsers.docxodus_parser.requests.post")
     def test_parse_document_http_5xx_error(self, mock_post):
         """Test that a 5xx HTTP error raises a transient DocumentParsingError."""
         mock_post.return_value = MockResponse(502, {"error": "Bad Gateway"})

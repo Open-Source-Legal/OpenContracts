@@ -1082,6 +1082,34 @@ class TestDoclingParser4xxErrors(TestCase):
         # 5xx errors should be transient
         self.assertTrue(ctx.exception.is_transient)
 
+    @patch(
+        "opencontractserver.pipeline.base.chunked_parser.get_pdf_page_count",
+        return_value=1,
+    )
+    @patch("opencontractserver.pipeline.parsers.docling_parser_rest.requests.post")
+    @patch("opencontractserver.pipeline.base.chunked_parser.default_storage.open")
+    def test_parse_document_busy_service_is_transient(
+        self, mock_open, mock_post, _mock_page_count
+    ):
+        """408/429 mean the service is busy, so the error is retryable."""
+        mock_file = MagicMock()
+        mock_file.read.return_value = b"mock pdf content"
+        mock_open.return_value.__enter__.return_value = mock_file
+
+        for status in (408, 429):
+            with self.subTest(status=status):
+                mock_response = MagicMock()
+                mock_response.status_code = status
+                mock_response.text = "Too Many Requests"
+                error = RequestException("busy")
+                error.response = mock_response
+                mock_post.side_effect = error
+
+                with self.assertRaises(DocumentParsingError) as ctx:
+                    self.parser.parse_document(user_id=self.user.id, doc_id=self.doc.id)
+
+                self.assertTrue(ctx.exception.is_transient)
+
 
 class TestDoclingParserTimeoutDefault(TestCase):
     """The parser timeout default must agree with the shared constant.

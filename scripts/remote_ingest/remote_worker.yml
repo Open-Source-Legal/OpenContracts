@@ -42,17 +42,23 @@ services:
   # The exact Docling microservice image the server uses — identical
   # tokenisation, so PAWLs token indices match an in-cluster parse.
   docling-parser:
-    image: jscrudato/docsling-local
+    extends:
+      file: ../../compose/compose.images.yml
+      service: docling-parser
     restart: unless-stopped
 
   # Optional parser services: start only those selected in the local mapping.
   docxodus-parser:
-    image: ghcr.io/open-source-legal/docxodus-service:1.2.0-docxodus12.4.1
+    extends:
+      file: ../../compose/compose.images.yml
+      service: docxodus-parser
     profiles: [docxodus]
     restart: unless-stopped
 
   warp-ingest:
-    image: ghcr.io/open-source-legal/warp-ingest:1.0.0
+    extends:
+      file: ../../compose/compose.images.yml
+      service: warp-ingest
     profiles: [warp-ingest]
     restart: unless-stopped
     environment:
@@ -61,7 +67,9 @@ services:
   # The exact vector-embedder image the server uses — identical 384-dim
   # embeddings over identical inputs.
   vector-embedder:
-    image: ghcr.io/jsv4/vectorembeddermicroservice:latest
+    extends:
+      file: ../../compose/compose.images.yml
+      service: vector-embedder
     restart: unless-stopped
     environment:
       PORT: 8000

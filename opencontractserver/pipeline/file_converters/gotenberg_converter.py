@@ -19,7 +19,10 @@ from opencontractserver.constants.document_processing import (
     DEFAULT_GOTENBERG_SERVICE_URL,
     GOTENBERG_CONVERTER_REQUEST_TIMEOUT_SECONDS,
 )
-from opencontractserver.pipeline.base.exceptions import FileConversionError
+from opencontractserver.pipeline.base.exceptions import (
+    FileConversionError,
+    is_transient_http_status,
+)
 from opencontractserver.pipeline.base.file_converter import BaseFileConverter
 from opencontractserver.pipeline.base.settings_schema import (
     PipelineSetting,
@@ -287,16 +290,16 @@ class GotenbergFileConverter(BaseFileConverter):
             logger.error(msg)
             raise FileConversionError(msg, is_transient=True)
         except RequestException as e:
-            # 4xx = the file itself is unconvertible (permanent); 5xx =
-            # service-side trouble that may clear on retry (transient).
+            # 4xx = the file itself is unconvertible (permanent), except
+            # 408/429 (service busy); 5xx = service-side trouble that may
+            # clear on retry (transient).
             is_transient = True
             status_code = None
             response_text = ""
             if e.response is not None:
                 status_code = e.response.status_code
                 response_text = e.response.text[:500]
-                if 400 <= status_code < 500:
-                    is_transient = False
+                is_transient = is_transient_http_status(status_code)
 
             msg = f"Gotenberg conversion of '{filename}' failed: {e}"
             if status_code:

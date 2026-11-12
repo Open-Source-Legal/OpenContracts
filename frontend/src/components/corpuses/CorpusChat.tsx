@@ -615,6 +615,7 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
 
   const {
     isConnected: wsReady,
+    lastError: wsTransportError,
     send: wsSend,
     reconnect: wsReconnect,
   } = useWebSocketAuth({
@@ -628,6 +629,12 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
     onAuthInvalid: () =>
       setWsError("Authentication failed. Please log in again."),
   });
+
+  const chatError =
+    wsError ||
+    (wsEnabled && !wsReady && wsTransportError
+      ? "Unable to connect to chat. Retrying automatically."
+      : null);
 
   // Track if this is the initial mount - skip forceNewChat effect on mount
   // since isNewChat is already initialized from forceNewChat prop
@@ -1494,7 +1501,7 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
                   $disabled={isProcessing}
                 >
                   <AnimatePresence>
-                    {wsError ? (
+                    {chatError ? (
                       <ErrorMessage key="error">
                         <motion.div
                           initial={{ opacity: 0, scale: 0.9 }}
@@ -1502,11 +1509,14 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
                           exit={{ opacity: 0, scale: 0.9 }}
                           transition={{ type: "spring", damping: 20 }}
                         >
-                          {wsError}
+                          {chatError}
                           <Button
                             size="sm"
                             variant="danger"
-                            onClick={() => window.location.reload()}
+                            onClick={() => {
+                              setWsError(null);
+                              wsReconnect();
+                            }}
                             style={{
                               marginLeft: "0.75rem",
                             }}
