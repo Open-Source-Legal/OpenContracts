@@ -3,10 +3,18 @@ argon2-cffi==25.1.0  # https://github.com/hynek/argon2_cffi
 hiredis==3.4.2  # https://github.com/redis/hiredis-py
 redis==8.1.0  # https://github.com/redis/redis-py
 celery==5.6.3  # pyup: < 6.0  # https://github.com/celery/celery
+kombu==5.6.2  # https://github.com/celery/kombu
+# ^ Celery only declares kombu>=5.6.0, so without this pin each image build
+# installs whichever Kombu release is newest that day. Kombu 5.7.0's Redis
+# transport binds expiring queues through Lua scripts that call TIME. A Redis
+# user that isn't allowed that command rejects the script and the worker exits
+# during startup, while the web process keeps running. Raise this pin, and the
+# matching ignore in .github/dependabot.yml, only after starting a worker
+# against Redis with the permissions it has in deployment.
 flower==2.2.0  # https://github.com/mher/flower
 django-celery-beat==2.9.0  # https://github.com/celery/django-celery-beat
 pyjwt==2.15.1  # https://github.com/jpadilla/pyjwt
-cryptography==50.0.1  # https://github.com/pyca/cryptography
+cryptography==50.0.2  # https://github.com/pyca/cryptography
 pydantic==2.*
 typing-extensions==4.*  # https://github.com/python/typing_extensions
 requests>=2.34.2,<3  # https://requests.readthedocs.io/en/latest/
@@ -81,7 +89,7 @@ django-guardian
 # GraphQL
 # ------------------------------------------------------------------------------
 strawberry-graphql==0.339.1  # code-first GraphQL; replaced graphene-django (schema parity pinned by config/graphql/schema.graphql)
-graphql-core>=3.3,<3.4  # strawberry>=0.328 requires 3.3; config/graphql/automation.py::_check uses its collect_fields/collect_subfields/FragmentDetails API, so a minor bump needs that re-checked
+graphql-core>=3.3.2,<3.4  # strawberry>=0.328 requires 3.3; config/graphql/automation.py::_check uses its collect_fields/collect_subfields/FragmentDetails API, so a minor bump needs that re-checked
 
 # Telemetry
 # ------------------------------------------------------------------------------
@@ -104,7 +112,7 @@ jsonschema>=4.26.0,<5  # https://github.com/python-jsonschema/jsonschema - MCP t
 twisted>=26.10.0 # not directly required, pinned by Snyk to avoid a vulnerability
 ipython>=9.17.1 # not directly required, pinned by Snyk to avoid a vulnerability
 setuptools>=84.0.0 # not directly required, pinned by Snyk to avoid a vulnerability
-sqlparse>=0.6.0 # not directly required, pinned by Snyk to avoid a vulnerability
+sqlparse>=0.6.1 # not directly required, pinned by Snyk to avoid a vulnerability
 tornado>=6.6 # not directly required, pinned by Snyk to avoid a vulnerability
 urllib3>=2.8.0 # not directly required, pinned by Snyk to avoid a vulnerability
 zipp>=4.1.2 # not directly required, pinned by Snyk to avoid a vulnerability
