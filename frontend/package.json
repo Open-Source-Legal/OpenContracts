@@ -172,7 +172,7 @@
     "jsdom": "^26.1.0",
     "nyc": "^18.0.0",
     "playwright": "^1.52.0",
-    "prettier": "^2.7.1",
+    "prettier": "^3.9.10",
     "vite-plugin-istanbul": "^9.0.1",
     "vitest": "^5.0.5"
   },
