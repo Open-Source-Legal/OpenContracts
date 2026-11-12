@@ -93,7 +93,7 @@ graphql-core>=3.3.2,<3.4  # strawberry>=0.328 requires 3.3; config/graphql/autom
 
 # Telemetry
 # ------------------------------------------------------------------------------
-posthog==7.75.6  # https://github.com/posthog/posthog-python
+posthog==7.86.4  # https://github.com/posthog/posthog-python
 
 # Model Context Protocol
 # ------------------------------------------------------------------------------
