@@ -1524,10 +1524,10 @@
   resolved "https://registry.yarnpkg.com/@testing-library/user-event/-/user-event-14.6.8.tgz#9433b5008d8aff4cdf60c177f5789ce32062b763"
   integrity sha512-vgSSqnANMnkcYR/vUNDbwS7aM3OErRLNUG8vCVVlj4oc6cKffUrccX7UAS5AmJQQNZTSibi9z5GvvRZ0aYgUCQ==
 
-"@tiptap/core@^3.10.4", "@tiptap/core@^3.30.5":
-  version "3.30.5"
-  resolved "https://registry.yarnpkg.com/@tiptap/core/-/core-3.30.5.tgz#9929ae10a5e0892fb1a38a197ae8208cdd3801ea"
-  integrity sha512-3O7N0FyKIfuLV+xrdWyDM3V5eUY/q2CgLjhhMwOAbM1Pu7VPp9VP+TpEYOdH8aRyB+h1vj5hX5A747D8ZrPfHA==
+"@tiptap/core@^3.10.4", "@tiptap/core@^3.33.0":
+  version "3.33.0"
+  resolved "https://registry.yarnpkg.com/@tiptap/core/-/core-3.33.0.tgz#aa8852a3abe08d031ba743c4581fe0d1929e9da0"
+  integrity sha512-sZjBCwK9+h0kbc/CZvkepX6RTJ2jOfeWY1aId9O3YnG0CAiOs/4DbqFmpcmv5BQAGPA6gC96gqdafa/9Dpg0tw==
 
 "@tiptap/extension-blockquote@^3.10.4":
   version "3.10.4"

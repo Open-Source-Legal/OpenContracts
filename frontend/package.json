@@ -23,7 +23,7 @@
     "@testing-library/jest-dom": "^6.4.5",
     "@testing-library/react": "15.0.7",
     "@testing-library/user-event": "^14.6.8",
-    "@tiptap/core": "^3.30.5",
+    "@tiptap/core": "^3.33.0",
     "@tiptap/extension-mention": "^3.10.1",
     "@tiptap/extension-placeholder": "^3.32.2",
     "@tiptap/pm": "^3.32.0",
