@@ -45,7 +45,7 @@
     "@vitejs/plugin-react-swc": "^3.9.0",
     "axios": "^1.20.0",
     "d3": "^7.9.0",
-    "date-fns": "^4.1.0",
+    "date-fns": "^4.4.0",
     "docxodus": "12.4.1",
     "dompurify": "^3.4.17",
     "framer-motion": "6.*",
