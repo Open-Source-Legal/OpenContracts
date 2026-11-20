@@ -28,8 +28,9 @@ update both build and runtime stages.
 Accelerated service Python pins live next to their Dockerfiles in
 `requirements*.txt`. Install PyTorch separately using the index selected by
 `ACCEL`, before the embedder's other requirements. PyTorch updates stay within
-the 2.6 / torchvision 0.21 series; new series require coordinating the CUDA/ROCm
-indexes in both Dockerfiles and validating the supported accelerators.
+the 2.13 / torchvision 0.28 series (CUDA 12.6, ROCm 7.1 indexes); new series
+require coordinating the CUDA/ROCm indexes in both Dockerfiles and validating
+the supported accelerators.
 
 Update the frontend `docxodus` package and the Docxodus service image's
 `docxodus...` suffix together: their character offsets must agree. Automatic

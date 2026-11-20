@@ -26,8 +26,8 @@ ARG ACCEL=auto
 COPY embedder/requirements-torch.txt /opt/accel/requirements-torch.txt
 RUN set -eux; \
     case "${ACCEL}" in \
-      cuda)  IDX="https://download.pytorch.org/whl/cu124" ;; \
-      rocm)  IDX="https://download.pytorch.org/whl/rocm6.2.4" ;; \
+      cuda)  IDX="https://download.pytorch.org/whl/cu126" ;; \
+      rocm)  IDX="https://download.pytorch.org/whl/rocm7.1" ;; \
       xpu)   IDX="https://download.pytorch.org/whl/xpu" ;; \
       auto|cpu) IDX="https://download.pytorch.org/whl/cpu" ;; \
       *) echo "Unsupported ACCEL=${ACCEL}; expected auto, cpu, xpu, cuda, or rocm" >&2; exit 2 ;; \

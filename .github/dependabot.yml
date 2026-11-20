@@ -68,9 +68,9 @@ updates:
     # indexes in both Dockerfiles and validation on the supported accelerators.
     ignore:
       - dependency-name: "torch"
-        versions: [">=2.7"]
+        versions: [">=2.14"]
       - dependency-name: "torchvision"
-        versions: [">=0.22"]
+        versions: [">=0.29"]
       # optimum-intel (pinned commit in embedder/requirements.txt) caps
       # transformers below 5.16; lift together with that pin (issue #2488).
       - dependency-name: "transformers"
