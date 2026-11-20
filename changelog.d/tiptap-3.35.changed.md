@@ -1,0 +1,1 @@
+- **Frontend: all `@tiptap/*` packages aligned on 3.35.0** (`frontend/package.json`, `frontend/yarn.lock`): Dependabot bumped `@tiptap/extension-placeholder` alone, leaving it a version behind `@tiptap/extensions`/`core`. The whole family now moves together, and `.github/dependabot.yml` groups `@tiptap/*` so it stays that way.

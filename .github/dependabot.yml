@@ -98,3 +98,8 @@ updates:
         patterns:
           - "playwright"
           - "@playwright/*"
+      # @tiptap/* packages must share one version; a lone bump leaves
+      # mismatched peers (e.g. extension-placeholder vs @tiptap/extensions).
+      tiptap:
+        patterns:
+          - "@tiptap/*"
