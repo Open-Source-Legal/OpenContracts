@@ -4,7 +4,7 @@ numpy
 Pillow>=13.0.0
 python-decouple
 requests
-sentence-transformers[openvino]==6.2.0
+sentence-transformers[openvino]==6.3.0
 transformers==5.22.2
 # Temporary bridge to patched Transformers; replace with a stable release.
 # Tracking: https://github.com/Open-Source-Legal/OpenContracts/issues/2488
