@@ -47,7 +47,11 @@ const Eyebrow = styled.div`
   align-items: center;
   gap: 10px;
   margin-bottom: 24px;
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   font-size: 10px;
   letter-spacing: 0.6px;
   text-transform: uppercase;
@@ -89,7 +93,11 @@ const ButtonGroup = styled.div`
 `;
 
 const PrimaryButton = styled.button`
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   font-size: 13px;
   font-weight: 500;
   color: ${OS_LEGAL_COLORS.warmPaper};
@@ -106,7 +114,11 @@ const PrimaryButton = styled.button`
 `;
 
 const SecondaryLink = styled(Link)`
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   font-size: 13px;
   font-weight: 500;
   color: ${OS_LEGAL_COLORS.accent};
@@ -115,7 +127,9 @@ const SecondaryLink = styled(Link)`
   border-radius: 6px;
   padding: 10px 18px;
   text-decoration: none;
-  transition: border-color 0.15s ease, color 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease;
 
   &:hover {
     border-color: ${OS_LEGAL_COLORS.accent};

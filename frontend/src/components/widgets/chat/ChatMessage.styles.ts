@@ -44,8 +44,8 @@ export const MessageContainer = styled(motion.div)<{
     props.$isSelected
       ? chatSourceBlueAlpha(0.05)
       : props.$isAssistant
-      ? "rgba(247, 249, 252, 0.3)"
-      : "rgba(247, 248, 249, 0.15)"};
+        ? "rgba(247, 249, 252, 0.3)"
+        : "rgba(247, 248, 249, 0.15)"};
 
   ${(props) =>
     props.$isSelected &&
@@ -58,8 +58,8 @@ export const MessageContainer = styled(motion.div)<{
       props.$isSelected
         ? chatSourceBlueAlpha(0.08)
         : props.$isAssistant
-        ? "rgba(247, 249, 252, 0.4)"
-        : "rgba(247, 248, 249, 0.25)"};
+          ? "rgba(247, 249, 252, 0.4)"
+          : "rgba(247, 248, 249, 0.25)"};
   }
 
   /* Add responsive padding */

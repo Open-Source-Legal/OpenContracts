@@ -43,7 +43,9 @@ const IconButton = styled.button`
   color: ${OS_LEGAL_COLORS.accent};
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: transform 0.12s ease, background 0.16s ease;
+  transition:
+    transform 0.12s ease,
+    background 0.16s ease;
 
   /* Extend the tap target to a 44px minimum (WCAG 2.5.5 / Apple HIG) without
      growing the 34px visual pill. */

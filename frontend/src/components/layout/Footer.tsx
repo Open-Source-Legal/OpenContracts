@@ -18,7 +18,11 @@ const Lockup = styled.div<{ $small?: boolean }>`
 `;
 
 const LockupHandle = styled.span<{ $small?: boolean }>`
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   font-size: ${(props) => (props.$small ? "10px" : "12px")};
   font-weight: 400;
   letter-spacing: 0.8px;

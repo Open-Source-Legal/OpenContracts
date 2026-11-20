@@ -29,7 +29,7 @@ const ValidationErrors = styled.div`
  * Props for the ObjectCRUDModal component.
  */
 export interface ObjectCRUDModalProps<
-  T extends Record<string, any> = Record<string, any>
+  T extends Record<string, any> = Record<string, any>,
 > extends CRUDProps {
   open: boolean;
   oldInstance: Record<string, any>;

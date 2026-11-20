@@ -299,7 +299,11 @@ const UserInfo = styled.div`
 `;
 
 const Username = styled.span`
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   font-weight: 600;
   color: ${OS_LEGAL_COLORS.textPrimary};
   font-size: 15px;
@@ -539,7 +543,11 @@ const ConfirmButton = styled.button<{ $variant: "cancel" | "delete" }>`
 `;
 
 const MessageContent = styled.div<{ $isDeleted?: boolean }>`
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   color: ${OS_LEGAL_COLORS.textTertiary};
   line-height: 1.7;
   font-size: 16px;
@@ -608,7 +616,11 @@ const FooterButton = styled.button`
   border: none;
   color: ${OS_LEGAL_COLORS.textMuted};
   cursor: pointer;
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   font-size: 0.8125rem;
   font-weight: 500;
   padding: 0.375rem 0.625rem;

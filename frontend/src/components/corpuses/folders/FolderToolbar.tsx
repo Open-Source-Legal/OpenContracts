@@ -763,15 +763,15 @@ export const FolderToolbar: React.FC<FolderToolbarProps> = ({
                 isLoading
                   ? "Loading documents..."
                   : allSelected
-                  ? "Deselect all"
-                  : "Select all"
+                    ? "Deselect all"
+                    : "Select all"
               }
               aria-label={
                 isLoading
                   ? "Loading documents"
                   : allSelected
-                  ? "Deselect all"
-                  : "Select all"
+                    ? "Deselect all"
+                    : "Select all"
               }
             >
               {allSelected ? <CheckSquare /> : <Square />}

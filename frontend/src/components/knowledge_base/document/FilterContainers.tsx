@@ -60,7 +60,10 @@ export const IconButton = styled(motion.button)<{ $isActive?: boolean }>`
   justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
-  transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease;
 
   &:hover {
     background: ${(props) =>
@@ -104,12 +107,16 @@ export const ExpandingInput = styled(motion.div)`
     color: ${OS_LEGAL_COLORS.textPrimary};
     background: ${OS_LEGAL_COLORS.surfaceHover};
     box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.06);
-    transition: background 0.18s ease, box-shadow 0.18s ease;
+    transition:
+      background 0.18s ease,
+      box-shadow 0.18s ease;
 
     &:focus {
       outline: none;
       background: white;
-      box-shadow: inset 0 0 0 1px ${OS_LEGAL_COLORS.accent}, ${FOCUS_RING};
+      box-shadow:
+        inset 0 0 0 1px ${OS_LEGAL_COLORS.accent},
+        ${FOCUS_RING};
     }
 
     &::placeholder {
@@ -146,7 +153,9 @@ export const DatePickerExpanded = styled(motion.div)`
     &:focus {
       outline: none;
       background: white;
-      box-shadow: inset 0 0 0 1px ${OS_LEGAL_COLORS.accent}, ${FOCUS_RING};
+      box-shadow:
+        inset 0 0 0 1px ${OS_LEGAL_COLORS.accent},
+        ${FOCUS_RING};
     }
   }
 

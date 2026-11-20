@@ -131,8 +131,9 @@ describe("AnalysisHooks - Pure Architecture Tests", () => {
   // Helper to create properly typed wrapper for renderHook
   const createWrapper =
     (mocks: any[] = []) =>
-    ({ children }: { children: ReactNode }) =>
-      <TestWrapper mocks={mocks}>{children}</TestWrapper>;
+    ({ children }: { children: ReactNode }) => (
+      <TestWrapper mocks={mocks}>{children}</TestWrapper>
+    );
 
   beforeEach(() => {
     // Clear reactive variables before each test

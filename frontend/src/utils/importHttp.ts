@@ -58,8 +58,7 @@ export interface ImportDocumentRestFailure {
 }
 
 export type ImportDocumentRestResult =
-  | ImportDocumentRestSuccess
-  | ImportDocumentRestFailure;
+  ImportDocumentRestSuccess | ImportDocumentRestFailure;
 
 export interface ImportZipRestInput {
   file: File;
@@ -124,8 +123,7 @@ export interface ImportCorpusExportRestFailure {
 }
 
 export type ImportCorpusExportRestResult =
-  | ImportCorpusExportRestSuccess
-  | ImportCorpusExportRestFailure;
+  ImportCorpusExportRestSuccess | ImportCorpusExportRestFailure;
 
 function appendIfDefined(
   fd: FormData,
@@ -167,10 +165,7 @@ async function parseErrorMessage(response: Response): Promise<string> {
 // builders regardless of which transport was used.
 
 type ChunkedKind =
-  | "document"
-  | "documents_zip"
-  | "zip_to_corpus"
-  | "corpus_export";
+  "document" | "documents_zip" | "zip_to_corpus" | "corpus_export";
 
 interface ChunkedTransportResult {
   ok: boolean;

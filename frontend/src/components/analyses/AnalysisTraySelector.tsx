@@ -244,8 +244,8 @@ const AnalysisTitle = styled.div<{ $selected?: boolean; $compact?: boolean }>`
     .id {
       font-size: 0.75rem;
       color: ${OS_LEGAL_COLORS.textMuted};
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-        monospace;
+      font-family:
+        ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       display: ${(props) => (props.$compact ? "none" : "block")};
     }
   }

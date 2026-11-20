@@ -295,7 +295,7 @@ export const DesktopDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
                 <DocumentBottomBarRight>
                   <EnhancedLabelSelector
                     sidebarWidth="0px"
-                    activeSpanLabel={canEdit ? activeSpanLabel ?? null : null}
+                    activeSpanLabel={canEdit ? (activeSpanLabel ?? null) : null}
                     setActiveLabel={canEdit ? setActiveSpanLabel : () => {}}
                     showRightPanel={showRightPanel}
                     panelOffset={0} // no-op in inline mode; parent bar owns the offset

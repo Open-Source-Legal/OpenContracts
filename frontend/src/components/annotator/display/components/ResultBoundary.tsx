@@ -65,8 +65,8 @@ export const ResultBoundary = ({
   const opacity = hidden
     ? 0
     : selected
-    ? BOUNDARY_OPACITY_SELECTED
-    : BOUNDARY_OPACITY_UNSELECTED;
+      ? BOUNDARY_OPACITY_SELECTED
+      : BOUNDARY_OPACITY_UNSELECTED;
 
   const boxShadow =
     showBoundingBox && !hidden

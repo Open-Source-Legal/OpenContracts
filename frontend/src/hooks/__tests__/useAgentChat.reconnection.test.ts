@@ -81,9 +81,8 @@ describe("useAgentChat WebSocket Reconnection Logic", () => {
      */
 
     it("should build WebSocket URL with all context parameters and no token", async () => {
-      const { getUnifiedAgentWebSocket } = await import(
-        "../../components/chat/get_websockets"
-      );
+      const { getUnifiedAgentWebSocket } =
+        await import("../../components/chat/get_websockets");
 
       const url = getUnifiedAgentWebSocket({
         corpusId: "corpus-123",
@@ -103,9 +102,8 @@ describe("useAgentChat WebSocket Reconnection Logic", () => {
     });
 
     it("should handle missing optional parameters", async () => {
-      const { getUnifiedAgentWebSocket } = await import(
-        "../../components/chat/get_websockets"
-      );
+      const { getUnifiedAgentWebSocket } =
+        await import("../../components/chat/get_websockets");
 
       const url = getUnifiedAgentWebSocket({ corpusId: "corpus-only" });
 
@@ -136,9 +134,8 @@ describe("useAgentChat WebSocket Reconnection Logic", () => {
     });
 
     it("should properly encode URL parameters", async () => {
-      const { getUnifiedAgentWebSocket } = await import(
-        "../../components/chat/get_websockets"
-      );
+      const { getUnifiedAgentWebSocket } =
+        await import("../../components/chat/get_websockets");
 
       const url = getUnifiedAgentWebSocket({
         corpusId: "corpus with spaces",

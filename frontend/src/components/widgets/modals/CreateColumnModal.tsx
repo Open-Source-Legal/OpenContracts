@@ -60,7 +60,8 @@ const ModalOverlay = styled.div`
 const ModalContainer = styled(motion.div)`
   background: white;
   border-radius: 16px;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1),
+  box-shadow:
+    0 20px 25px -5px rgba(0, 0, 0, 0.1),
     0 10px 10px -5px rgba(0, 0, 0, 0.04);
   width: 100%;
   max-width: 900px;

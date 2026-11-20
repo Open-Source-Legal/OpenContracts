@@ -105,7 +105,7 @@ const buildCorpus = (): CorpusType =>
   ({
     id: "C1",
     title: "Test Corpus",
-  } as unknown as CorpusType);
+  }) as unknown as CorpusType;
 
 const baseStats = {
   totalDocs: 0,

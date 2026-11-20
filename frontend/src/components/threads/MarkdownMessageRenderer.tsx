@@ -116,31 +116,31 @@ const MentionLink = styled.a<{ $type: string; $navigable?: boolean }>`
         props.$type === "user"
           ? "linear-gradient(135deg, #06b6d425 0%, #10b98125 100%)"
           : props.$type === "corpus"
-          ? "linear-gradient(135deg, #667eea25 0%, #764ba225 100%)"
-          : props.$type === "document"
-          ? "linear-gradient(135deg, #f093fb25 0%, #f5576c25 100%)"
-          : props.$type === "annotation"
-          ? "linear-gradient(135deg, #43e97b25 0%, #38f9d725 100%)"
-          : props.$type === "source"
-          ? "linear-gradient(135deg, #0ea5e925 0%, #06b6d425 100%)"
-          : props.$type === "agent"
-          ? "linear-gradient(135deg, #8b5cf625 0%, #6366f125 100%)"
-          : "linear-gradient(135deg, #e0e0e025 0%, #c0c0c025 100%)"
+            ? "linear-gradient(135deg, #667eea25 0%, #764ba225 100%)"
+            : props.$type === "document"
+              ? "linear-gradient(135deg, #f093fb25 0%, #f5576c25 100%)"
+              : props.$type === "annotation"
+                ? "linear-gradient(135deg, #43e97b25 0%, #38f9d725 100%)"
+                : props.$type === "source"
+                  ? "linear-gradient(135deg, #0ea5e925 0%, #06b6d425 100%)"
+                  : props.$type === "agent"
+                    ? "linear-gradient(135deg, #8b5cf625 0%, #6366f125 100%)"
+                    : "linear-gradient(135deg, #e0e0e025 0%, #c0c0c025 100%)"
       };
       border-color: ${
         props.$type === "user"
           ? "#10b981"
           : props.$type === "corpus"
-          ? color.P6
-          : props.$type === "document"
-          ? "#f5576c80"
-          : props.$type === "annotation"
-          ? "#38f9d7"
-          : props.$type === "source"
-          ? "#0ea5e9"
-          : props.$type === "agent"
-          ? "#8b5cf6"
-          : color.N6
+            ? color.P6
+            : props.$type === "document"
+              ? "#f5576c80"
+              : props.$type === "annotation"
+                ? "#38f9d7"
+                : props.$type === "source"
+                  ? "#0ea5e9"
+                  : props.$type === "agent"
+                    ? "#8b5cf6"
+                    : color.N6
       };
       transform: translateY(-1px);
       box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
@@ -339,8 +339,8 @@ export function MarkdownMessageRenderer({
                 typeof children === "string"
                   ? children
                   : Array.isArray(children)
-                  ? children.join("")
-                  : String(children);
+                    ? children.join("")
+                    : String(children);
 
               // Look up rich metadata from mentionedResources (Issue #689)
               const resource = href ? resourceByUrl.get(href) : undefined;

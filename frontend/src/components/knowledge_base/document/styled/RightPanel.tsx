@@ -52,7 +52,9 @@ export const SlidingPanel = styled(motion.div)<SlidingPanelProps>`
   /* Enhanced background and effects */
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(12px);
-  box-shadow: -4px 0 25px rgba(0, 0, 0, 0.05), -1px 0 2px rgba(0, 0, 0, 0.02);
+  box-shadow:
+    -4px 0 25px rgba(0, 0, 0, 0.05),
+    -1px 0 2px rgba(0, 0, 0, 0.02);
   border-left: 1px solid rgba(226, 232, 240, 0.3);
 
   display: flex;

@@ -58,7 +58,9 @@ const FloatingContainer = styled(motion.div)<{
 
   background: white;
   border-radius: ${(props) => (props.$isExpanded ? "16px" : "28px")};
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.04);
   border: 1px solid ${OS_LEGAL_COLORS.border};
   overflow: hidden;
   z-index: 1000;

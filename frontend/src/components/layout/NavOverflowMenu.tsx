@@ -47,7 +47,9 @@ const TriggerButton = styled.button<{ $open: boolean }>`
     props.$open ? whiteSurfaceAlpha(0.12) : "transparent"};
   color: ${whiteSurfaceAlpha(0.9)};
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
 
   &:hover {
     background: ${whiteSurfaceAlpha(0.1)};
@@ -72,7 +74,8 @@ const Menu = styled.ul`
   background: ${OS_LEGAL_COLORS.surface};
   border: 1px solid ${OS_LEGAL_COLORS.border};
   border-radius: 10px;
-  box-shadow: 0 10px 30px -12px rgba(15, 23, 42, 0.25),
+  box-shadow:
+    0 10px 30px -12px rgba(15, 23, 42, 0.25),
     0 4px 12px -6px rgba(15, 23, 42, 0.1);
 `;
 
@@ -95,7 +98,9 @@ const itemStyles = css`
   text-align: left;
   text-decoration: none;
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
 
   &:hover {
     background: ${OS_LEGAL_COLORS.surfaceHover};

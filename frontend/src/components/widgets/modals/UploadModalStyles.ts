@@ -136,14 +136,14 @@ export const Step = styled.div<{ $active?: boolean; $completed?: boolean }>`
           color: white;
         `
       : $completed
-      ? css`
-          background: var(--oc-success-bg);
-          color: var(--oc-success);
-        `
-      : css`
-          background: var(--oc-bg-subtle);
-          color: var(--oc-fg-tertiary);
-        `}
+        ? css`
+            background: var(--oc-success-bg);
+            color: var(--oc-success);
+          `
+        : css`
+            background: var(--oc-bg-subtle);
+            color: var(--oc-fg-tertiary);
+          `}
 `;
 
 export const StepConnector = styled.div<{ $completed?: boolean }>`

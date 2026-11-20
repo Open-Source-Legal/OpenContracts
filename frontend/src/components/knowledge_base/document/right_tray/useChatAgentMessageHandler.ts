@@ -81,7 +81,9 @@ export function useChatAgentMessageHandler({
       // ``updateMessageApprovalStatus`` and the chat row's
       // ``approvalStatus`` field, both of which only model the two-state
       // shape.
-      const asApprovalDecision = (v: unknown): "approved" | "rejected" | null =>
+      const asApprovalDecision = (
+        v: unknown
+      ): "approved" | "rejected" | null =>
         v === "approved" || v === "rejected" ? v : null;
 
       try {

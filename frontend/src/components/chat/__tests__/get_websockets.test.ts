@@ -173,9 +173,8 @@ describe("get_websockets — getWebSocketUrl wrapper (document utils)", () => {
 
   it("delegates to getUnifiedAgentWebSocket without ever including a token", async () => {
     vi.resetModules();
-    const { getWebSocketUrl } = await import(
-      "../../knowledge_base/document/utils"
-    );
+    const { getWebSocketUrl } =
+      await import("../../knowledge_base/document/utils");
     const url = getWebSocketUrl("doc-1", "conv-1", "corpus-1");
     expect(url).toContain("document_id=doc-1");
     expect(url).toContain("conversation_id=conv-1");
@@ -185,9 +184,8 @@ describe("get_websockets — getWebSocketUrl wrapper (document utils)", () => {
 
   it("works with only required documentId", async () => {
     vi.resetModules();
-    const { getWebSocketUrl } = await import(
-      "../../knowledge_base/document/utils"
-    );
+    const { getWebSocketUrl } =
+      await import("../../knowledge_base/document/utils");
     const url = getWebSocketUrl("doc-only");
     expect(url).toContain("document_id=doc-only");
     expect(url).not.toContain("conversation_id");

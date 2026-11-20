@@ -73,7 +73,7 @@ const buildCorpus = (overrides: Partial<CorpusType> = {}): CorpusType =>
     },
     __typename: "CorpusType",
     ...overrides,
-  } as unknown as CorpusType);
+  }) as unknown as CorpusType;
 
 test.describe("CorpusQueryView - direct mount", () => {
   test.use({ viewport: { width: 1200, height: 800 } });

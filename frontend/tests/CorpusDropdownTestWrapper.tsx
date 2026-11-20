@@ -76,9 +76,9 @@ export const CorpusDropdownTestWrapper: React.FC<WrapperProps> = ({
 }) => {
   const [selectedCorpus, setSelectedCorpus] = useState<CorpusType | null>(
     initialValue
-      ? (corpusNodes.find(
+      ? ((corpusNodes.find(
           (c) => c.id === initialValue
-        ) as unknown as CorpusType) ?? null
+        ) as unknown as CorpusType) ?? null)
       : null
   );
 

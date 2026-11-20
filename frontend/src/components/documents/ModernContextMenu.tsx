@@ -23,7 +23,9 @@ const MenuContainer = styled.div<{ x: number; y: number }>`
   max-width: calc(100vw - 16px);
   background: white;
   border-radius: 8px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.15),
+    0 0 0 1px rgba(0, 0, 0, 0.05);
   padding: 4px;
   animation: ${slideIn} 0.15s ease-out;
   overflow: hidden;
@@ -50,8 +52,8 @@ const MenuItem = styled.button<{ variant?: "danger" | "primary" }>`
     props.variant === "danger"
       ? OS_LEGAL_COLORS.danger
       : props.variant === "primary"
-      ? OS_LEGAL_COLORS.primaryBlue
-      : OS_LEGAL_COLORS.textPrimary};
+        ? OS_LEGAL_COLORS.primaryBlue
+        : OS_LEGAL_COLORS.textPrimary};
   font-weight: 500;
   text-align: left;
 
@@ -60,8 +62,8 @@ const MenuItem = styled.button<{ variant?: "danger" | "primary" }>`
       props.variant === "danger"
         ? OS_LEGAL_COLORS.dangerSurfaceHover
         : props.variant === "primary"
-        ? OS_LEGAL_COLORS.blueSurface
-        : OS_LEGAL_COLORS.surfaceHover};
+          ? OS_LEGAL_COLORS.blueSurface
+          : OS_LEGAL_COLORS.surfaceHover};
   }
 
   &:active {

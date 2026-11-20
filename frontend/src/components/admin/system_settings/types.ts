@@ -29,10 +29,7 @@ export type StageType = "parsers" | "thumbnailers";
  * `PipelineMappingKey` filetype assignment.
  */
 export type LibraryStageType =
-  | StageType
-  | "embedders"
-  | "llmProviders"
-  | "fileConverters";
+  StageType | "embedders" | "llmProviders" | "fileConverters";
 
 /** Type for pipeline settings keys that hold MIME-type mappings */
 export type PipelineMappingKey = "preferredParsers" | "preferredThumbnailers";

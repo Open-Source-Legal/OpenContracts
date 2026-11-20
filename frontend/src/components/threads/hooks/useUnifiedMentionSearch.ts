@@ -373,8 +373,8 @@ export function useUnifiedMentionSearch(
             edge.node.scope === "GLOBAL"
               ? "Global Agent"
               : edge.node.corpus
-              ? `Corpus: ${edge.node.corpus.title}`
-              : "Corpus Agent",
+                ? `Corpus: ${edge.node.corpus.title}`
+                : "Corpus Agent",
           agent: {
             id: edge.node.id,
             name: edge.node.name,

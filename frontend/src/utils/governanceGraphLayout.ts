@@ -237,8 +237,8 @@ export function computeGovernanceLayout(
       (clusterCount <= 3
         ? FILINGS_BAND_Y
         : i % 2 === 0
-        ? FILINGS_BAND_Y - 0.07
-        : FILINGS_BAND_Y + 0.07),
+          ? FILINGS_BAND_Y - 0.07
+          : FILINGS_BAND_Y + 0.07),
   }));
 
   // ---- The law shelf -------------------------------------------------------
@@ -344,8 +344,9 @@ export function computeGovernanceLayout(
       d3
         .forceX<GovSimNode>((n) =>
           isLawKind(n.kind)
-            ? n.fx ?? VIEW_WIDTH / 2
-            : (n as GovSimNode & { anchorX?: number }).anchorX ?? VIEW_WIDTH / 2
+            ? (n.fx ?? VIEW_WIDTH / 2)
+            : ((n as GovSimNode & { anchorX?: number }).anchorX ??
+              VIEW_WIDTH / 2)
         )
         // Dense swarms hold their anchor loosely so charge can relax the
         // pack into a wide organic constellation instead of a packed disc.
@@ -357,8 +358,8 @@ export function computeGovernanceLayout(
         .forceY<GovSimNode>((n) =>
           isLawKind(n.kind)
             ? shelfY
-            : (n as GovSimNode & { anchorY?: number }).anchorY ??
-              VIEW_HEIGHT * FILINGS_BAND_Y
+            : ((n as GovSimNode & { anchorY?: number }).anchorY ??
+              VIEW_HEIGHT * FILINGS_BAND_Y)
         )
         .strength((n) => (isLawKind(n.kind) ? 0.9 : dense ? 0.1 : 0.18))
     )

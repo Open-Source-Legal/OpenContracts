@@ -16,7 +16,9 @@ const CardContainer = styled.div<{ $compact?: boolean }>`
   border-radius: 12px;
   padding: ${(props) => (props.$compact ? "2rem" : "3rem")};
   text-align: center;
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  box-shadow:
+    0 1px 3px 0 rgba(0, 0, 0, 0.1),
+    0 1px 2px 0 rgba(0, 0, 0, 0.06);
   transition: all 0.2s ease;
   border: 1px solid ${OS_LEGAL_COLORS.border};
   position: relative;
@@ -29,7 +31,8 @@ const CardContainer = styled.div<{ $compact?: boolean }>`
 
   &:hover {
     transform: translateY(-4px);
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1),
+    box-shadow:
+      0 20px 25px -5px rgba(0, 0, 0, 0.1),
       0 10px 10px -5px rgba(0, 0, 0, 0.04);
     border-color: ${OS_LEGAL_COLORS.borderHover};
   }

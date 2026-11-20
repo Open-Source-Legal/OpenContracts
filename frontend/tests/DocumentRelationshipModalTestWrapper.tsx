@@ -15,7 +15,7 @@ export const TEST_CORPUS_ID = "corpus-1";
 
 // Resolve corpus id for mock + prop: undefined → TEST_CORPUS_ID, null → "" (triggers No-Corpus error), string → as-is.
 const resolveCorpusId = (override: string | null | undefined) =>
-  override === undefined ? TEST_CORPUS_ID : override ?? "";
+  override === undefined ? TEST_CORPUS_ID : (override ?? "");
 
 // Mock corpus for corpus state
 const mockCorpusWithLabelset = {

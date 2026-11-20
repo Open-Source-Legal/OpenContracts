@@ -462,10 +462,10 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
               `${fetchedCellCount} of ${totalCellCount} total cells loaded. ` +
               "View the full extract in the Extracts panel."
             : rowsTruncated
-            ? `Showing ${visibleRows.length} of ${totalRowCount} documents. ` +
-              "View the full extract in the Extracts panel."
-            : `Showing ${fetchedCellCount} of ${totalCellCount} cells. ` +
-              "View the full extract in the Extracts panel."}
+              ? `Showing ${visibleRows.length} of ${totalRowCount} documents. ` +
+                "View the full extract in the Extracts panel."
+              : `Showing ${fetchedCellCount} of ${totalCellCount} cells. ` +
+                "View the full extract in the Extracts panel."}
         </OverflowFooter>
       )}
     </EmbedWrapper>

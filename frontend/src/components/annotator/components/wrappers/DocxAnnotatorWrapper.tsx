@@ -200,8 +200,8 @@ const DocxAnnotatorWrapper: React.FC<DocxAnnotatorWrapperProps> = ({
           textBlockSpan
             ? TEXT_BLOCK_DEEPLINK_ID
             : selectedMessageId && selectedSourceIndex !== null
-            ? `${selectedMessageId}.${selectedSourceIndex}`
-            : undefined
+              ? `${selectedMessageId}.${selectedSourceIndex}`
+              : undefined
         }
         getSpan={getSpan}
         visibleLabels={spanLabelsToView ?? []}

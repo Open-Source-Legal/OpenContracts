@@ -26,7 +26,7 @@ brotli>=1.2.1  # decoder for httpx Content-Encoding: br responses (e.g. OpenAI A
 django==5.2.17  # https://www.djangoproject.com/
 django-environ==0.14.0  # https://github.com/joke2k/django-environ
 django-redis==7.0.0  # https://github.com/jazzband/django-redis
-django-filter==26.1  # https://github.com/carltongibson/django-filter
+django-filter==26.2  # https://github.com/carltongibson/django-filter
 django-storages[boto3,google]==1.14.6  # https://github.com/jschneier/django-storages
 whitenoise==6.12.0
 django-tree-queries[admin]==0.27.0  # https://pypi.org/project/django-tree-queries/0.21.0/
@@ -111,7 +111,7 @@ jsonschema>=4.26.0,<5  # https://github.com/python-jsonschema/jsonschema - MCP t
 # ------------------------------------------------------------------------------
 twisted>=26.10.0 # not directly required, pinned by Snyk to avoid a vulnerability
 ipython>=9.18.1 # not directly required, pinned by Snyk to avoid a vulnerability
-setuptools>=84.0.0 # not directly required, pinned by Snyk to avoid a vulnerability
+setuptools>=84.2.1 # not directly required, pinned by Snyk to avoid a vulnerability
 sqlparse>=0.6.1 # not directly required, pinned by Snyk to avoid a vulnerability
 tornado>=6.6 # not directly required, pinned by Snyk to avoid a vulnerability
 urllib3>=2.8.0 # not directly required, pinned by Snyk to avoid a vulnerability

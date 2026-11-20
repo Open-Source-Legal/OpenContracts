@@ -73,7 +73,8 @@ const BoundarySpan = styled.span.attrs<{
   ${(props) =>
     props.$approved &&
     css`
-      box-shadow: 0 0 12px 3px
+      box-shadow:
+        0 0 12px 3px
           rgba(${APPROVED_RGB.r}, ${APPROVED_RGB.g}, ${APPROVED_RGB.b}, 0.18),
         0 0 4px 1px
           rgba(${APPROVED_RGB.r}, ${APPROVED_RGB.g}, ${APPROVED_RGB.b}, 0.12) !important;
@@ -83,7 +84,8 @@ const BoundarySpan = styled.span.attrs<{
   ${(props) =>
     props.$rejected &&
     css`
-      box-shadow: 0 0 12px 3px
+      box-shadow:
+        0 0 12px 3px
           rgba(${REJECTED_RGB.r}, ${REJECTED_RGB.g}, ${REJECTED_RGB.b}, 0.18),
         0 0 4px 1px
           rgba(${REJECTED_RGB.r}, ${REJECTED_RGB.g}, ${REJECTED_RGB.b}, 0.12) !important;
@@ -137,8 +139,8 @@ export const SelectionBoundary: React.FC<SelectionBoundaryProps> = ({
   const opacity = hidden
     ? 0
     : selected
-    ? BOUNDARY_OPACITY_SELECTED
-    : BOUNDARY_OPACITY_UNSELECTED;
+      ? BOUNDARY_OPACITY_SELECTED
+      : BOUNDARY_OPACITY_UNSELECTED;
   const backgroundColor = `rgba(${r}, ${g}, ${b}, ${opacity})`;
 
   const boxShadow =

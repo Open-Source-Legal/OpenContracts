@@ -1562,8 +1562,8 @@ export const Corpuses = () => {
                 ? "280px"
                 : "0"
               : sidebarExpanded
-              ? "280px"
-              : "80px",
+                ? "280px"
+                : "80px",
           }}
           transition={{ duration: 0.3, ease: "easeInOut" }}
           onMouseEnter={() => !use_mobile_layout && setSidebarExpanded(true)}

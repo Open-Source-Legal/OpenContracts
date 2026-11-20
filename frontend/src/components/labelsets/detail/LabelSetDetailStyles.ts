@@ -17,7 +17,11 @@ export const PageContainer = styled.div`
   flex-direction: column;
   height: calc(100vh - 60px);
   background: ${OS_LEGAL_COLORS.background};
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
 `;
 
 export const PageLayout = styled.div`

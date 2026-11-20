@@ -65,7 +65,9 @@ const SendButton = styled.button`
   cursor: pointer;
   box-shadow: 0 2px 6px rgba(15, 118, 110, 0.32);
   -webkit-tap-highlight-color: transparent;
-  transition: transform 0.12s ease, background 0.16s ease;
+  transition:
+    transform 0.12s ease,
+    background 0.16s ease;
 
   &:active {
     transform: scale(0.9);
@@ -86,7 +88,9 @@ const HistoryButton = styled.button`
   justify-content: center;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: background 0.16s ease, color 0.16s ease;
+  transition:
+    background 0.16s ease,
+    color 0.16s ease;
 
   &:hover {
     background: ${OS_LEGAL_COLORS.surfaceLight};
