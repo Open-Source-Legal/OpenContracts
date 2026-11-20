@@ -444,7 +444,9 @@ export function useDocumentLoader({
         pdfUrlPromise
           .then((pdfUrl) => {
             if (cancelled) return Promise.reject(new DocumentLoadCancelled());
-            const loadingTask: PDFDocumentLoadingTask = getDocument(pdfUrl);
+            const loadingTask: PDFDocumentLoadingTask = getDocument({
+              url: pdfUrl,
+            });
             loadingTask.onProgress = (p: { loaded: number; total: number }) => {
               if (cancelled) return;
               setProgress(Math.round((p.loaded / p.total) * 100));
