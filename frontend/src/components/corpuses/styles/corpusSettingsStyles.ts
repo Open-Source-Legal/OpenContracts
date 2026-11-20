@@ -356,7 +356,9 @@ export const StyledInput = styled.input<{ disabled?: boolean }>`
   color: ${OS_LEGAL_COLORS.textPrimary};
   cursor: ${(props) => (props.disabled ? "not-allowed" : "text")};
   opacity: ${(props) => (props.disabled ? 0.7 : 1)};
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
   outline: none;
 
   &:focus {
@@ -429,7 +431,9 @@ export const ActionCard = styled.div`
   border-radius: ${OS_LEGAL_SPACING.borderRadiusButton};
   padding: 1.25rem;
   margin-bottom: 1rem;
-  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  transition:
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
 
   &:hover {
     box-shadow: ${OS_LEGAL_SHADOWS.cardHover};
@@ -461,14 +465,14 @@ export const TriggerBadge = styled.span<{
     props.type === "add"
       ? OS_LEGAL_COLORS.successLight
       : props.type === "chat"
-      ? OS_LEGAL_COLORS.infoSurface
-      : OS_LEGAL_COLORS.accentLight};
+        ? OS_LEGAL_COLORS.infoSurface
+        : OS_LEGAL_COLORS.accentLight};
   color: ${(props) =>
     props.type === "add"
       ? OS_LEGAL_COLORS.success
       : props.type === "chat"
-      ? OS_LEGAL_COLORS.infoText
-      : OS_LEGAL_COLORS.accent};
+        ? OS_LEGAL_COLORS.infoText
+        : OS_LEGAL_COLORS.accent};
 `;
 
 /** Status badge for active/disabled */

@@ -4,8 +4,12 @@ import { unstable_batchedUpdates } from "react-dom";
 import { Button, Modal, ModalBody, ModalFooter } from "@os-legal/ui";
 import { ErrorMessage } from "../../widgets/feedback";
 import { useFeatureAvailability } from "../../../hooks/useFeatureAvailability";
-import { GlobalWorkerOptions } from "pdfjs-dist";
-import workerSrc from "pdfjs-dist/build/pdf.worker.mjs?url";
+// pdfjs-dist 6's default build needs very recent JS built-ins
+// (e.g. Map.prototype.getOrInsertComputed); the legacy build bundles the
+// polyfills. The API and worker must come from the same build, so every
+// pdf.js import in the app uses the legacy entry points.
+import { GlobalWorkerOptions } from "pdfjs-dist/legacy/build/pdf.mjs";
+import workerSrc from "pdfjs-dist/legacy/build/pdf.worker.mjs?url";
 import { useUISettings } from "../../annotator/hooks/useUISettings";
 import useWindowDimensions from "../../hooks/WindowDimensionHook";
 import { ViewState } from "../../types";
@@ -549,10 +553,10 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
   };
 
   const notes = corpusId
-    ? corpusData?.document?.allNotes ?? []
-    : documentOnlyData?.document?.allNotes ?? [];
+    ? (corpusData?.document?.allNotes ?? [])
+    : (documentOnlyData?.document?.allNotes ?? []);
   const docRelationships = corpusId
-    ? corpusData?.document?.allDocRelationships ?? []
+    ? (corpusData?.document?.allDocRelationships ?? [])
     : [];
 
   // Auto-minimize logic

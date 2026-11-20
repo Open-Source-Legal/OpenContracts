@@ -11,8 +11,7 @@ export const SelectionContainer = styled.div<{
   color: string;
   showBoundingBox: boolean;
   selectionRef:
-    | React.MutableRefObject<Record<string, HTMLElement | null>>
-    | undefined;
+    React.MutableRefObject<Record<string, HTMLElement | null>> | undefined;
 }>`
   position: absolute;
   border-radius: ${ANNOTATION_BOUNDARY_RADIUS};

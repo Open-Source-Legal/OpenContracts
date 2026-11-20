@@ -60,7 +60,9 @@ export const BrandLink = styled(Link)`
   border-radius: 8px;
   text-decoration: none;
   color: ${OS_LEGAL_COLORS.textSecondary};
-  transition: color 0.18s ease, background 0.18s ease;
+  transition:
+    color 0.18s ease,
+    background 0.18s ease;
 
   &:hover {
     color: ${OS_LEGAL_COLORS.textPrimary};
@@ -158,7 +160,10 @@ export const MetadataRow = styled.div`
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+    transition:
+      background 0.18s ease,
+      color 0.18s ease,
+      box-shadow 0.18s ease;
 
     &:hover {
       background: ${OS_LEGAL_COLORS.surfaceLight};

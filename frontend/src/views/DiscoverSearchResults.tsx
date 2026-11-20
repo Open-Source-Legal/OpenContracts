@@ -121,7 +121,9 @@ const ResultCard = styled.button`
   border-radius: 12px;
   padding: 1rem 1.25rem;
   cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease,
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
     transform 0.15s ease;
   display: flex;
   flex-direction: column;

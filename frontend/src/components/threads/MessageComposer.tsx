@@ -42,7 +42,8 @@ const Toolbar = styled.div`
   overflow: hidden;
   padding: 0 0.5rem;
   border-bottom: none;
-  transition: max-height ${CORPUS_TRANSITIONS.normal},
+  transition:
+    max-height ${CORPUS_TRANSITIONS.normal},
     padding ${CORPUS_TRANSITIONS.normal},
     border-bottom ${CORPUS_TRANSITIONS.normal};
 
@@ -193,7 +194,8 @@ const Footer = styled.div`
   padding: 0.375rem 0.5rem;
   border-top: 1px solid ${CORPUS_COLORS.slate[100]};
   background: transparent;
-  transition: padding ${CORPUS_TRANSITIONS.normal},
+  transition:
+    padding ${CORPUS_TRANSITIONS.normal},
     background ${CORPUS_TRANSITIONS.normal};
 `;
 
@@ -216,7 +218,9 @@ const ComposerContainer = styled.div`
 
   &:focus-within {
     border-color: ${CORPUS_COLORS.teal[500]};
-    box-shadow: 0 0 0 3px ${CORPUS_COLORS.teal[50]}, ${CORPUS_SHADOWS.md};
+    box-shadow:
+      0 0 0 3px ${CORPUS_COLORS.teal[50]},
+      ${CORPUS_SHADOWS.md};
 
     ${Toolbar} {
       max-height: 3rem;
@@ -512,10 +516,10 @@ export function MessageComposer({
                           agent.scope === "GLOBAL"
                             ? `/agents/${encodeURIComponent(agent.slug)}`
                             : agent.corpus
-                            ? `/c/${agent.corpus.id}/${encodeURIComponent(
-                                agent.corpus.title
-                              )}/agents/${encodeURIComponent(agent.slug)}`
-                            : `/agents/${encodeURIComponent(agent.slug)}`;
+                              ? `/c/${agent.corpus.id}/${encodeURIComponent(
+                                  agent.corpus.title
+                                )}/agents/${encodeURIComponent(agent.slug)}`
+                              : `/agents/${encodeURIComponent(agent.slug)}`;
                         return {
                           label: agentLabel,
                           href: agentHref,
@@ -807,6 +811,11 @@ export function MessageComposer({
           {isOverLimit && " (too long)"}
         </CharacterCount>
         <SendButton
+          // Keep focus where it is on mouse press. Moving focus onto the
+          // button expands the collapsed composer (:focus-within), shifting
+          // the button out from under the pointer before mouseup and
+          // swallowing the click. Keyboard activation is unaffected.
+          onMouseDown={(e) => e.preventDefault()}
           onClick={handleSubmit}
           disabled={disabled || isEmpty || isOverLimit}
           title="Send (Cmd+Enter)"

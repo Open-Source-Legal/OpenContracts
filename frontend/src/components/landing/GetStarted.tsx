@@ -40,7 +40,11 @@ const Container = styled.div`
 `;
 
 const Title = styled.h3`
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   font-size: 16px;
   font-weight: 500;
   color: ${OS_LEGAL_COLORS.textPrimary};
@@ -101,7 +105,11 @@ const ActionItem = styled.button`
 `;
 
 const ActionLabel = styled.span`
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   font-size: 14px;
   font-weight: 400;
   color: ${OS_LEGAL_COLORS.accent};

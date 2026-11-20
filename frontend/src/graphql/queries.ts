@@ -3863,10 +3863,7 @@ export const GET_EXTRACT_GRID_EMBED = gql`
 // ----- Extract iteration comparison ---------------------------------------
 
 export type ExtractDiffStatus =
-  | "UNCHANGED"
-  | "CHANGED"
-  | "ONLY_IN_A"
-  | "ONLY_IN_B";
+  "UNCHANGED" | "CHANGED" | "ONLY_IN_A" | "ONLY_IN_B";
 
 export interface ExtractCellDiff {
   rowKey: string;

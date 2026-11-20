@@ -65,7 +65,11 @@ import { CiteMark } from "../brand/CiteMark";
 // sans block adds "Segoe UI" before the system fallback to match the
 // Windows rendering target the original dialog targeted.
 const sansFont = css`
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
     sans-serif;
 `;
 
@@ -211,7 +215,11 @@ const Eyebrow = styled.span`
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.6px;
@@ -429,7 +437,11 @@ const DisclaimerBlock = styled.aside`
 const DisclaimerLabel = styled.span`
   display: block;
   margin-bottom: 0.375rem;
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.6px;

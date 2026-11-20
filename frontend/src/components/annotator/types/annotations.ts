@@ -139,9 +139,7 @@ export class ServerTokenAnnotation {
     public readonly rawText: string,
     public readonly structural: boolean,
     json:
-      | MultipageAnnotationJson
-      | CompactAnnotationJson
-      | Record<string, unknown>,
+      MultipageAnnotationJson | CompactAnnotationJson | Record<string, unknown>,
     public readonly myPermissions: PermissionTypes[],
     public readonly approved: boolean,
     public readonly rejected: boolean,
@@ -284,8 +282,7 @@ export class DocTypeAnnotation {
 export class PdfAnnotations {
   constructor(
     public readonly annotations: (
-      | ServerTokenAnnotation
-      | ServerSpanAnnotation
+      ServerTokenAnnotation | ServerSpanAnnotation
     )[],
     public readonly relations: RelationGroup[],
     public readonly docTypes: DocTypeAnnotation[],

@@ -216,7 +216,9 @@ const AnnotatedSpan = styled.span<{
   cursor: text;
   user-select: text;
   white-space: pre-wrap;
-  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    box-shadow 0.15s ease;
 
   ${(props) =>
     props.$hasAnnotation &&
@@ -667,10 +669,10 @@ const TxtAnnotator: React.FC<TxtAnnotatorProps> = ({
               selectedAnnotations.includes(ann.id)
             )
           : selectedAnnotations.length > 0
-          ? hoveredSpan.annotations.filter((ann) =>
-              selectedAnnotations.includes(ann.id)
-            )
-          : hoveredSpan.annotations;
+            ? hoveredSpan.annotations.filter((ann) =>
+                selectedAnnotations.includes(ann.id)
+              )
+            : hoveredSpan.annotations;
 
       // Possibly filter out structural if not shown, unless it's selected
       const finalAnnotations = annToRender.filter(
@@ -1050,10 +1052,10 @@ const TxtAnnotator: React.FC<TxtAnnotatorProps> = ({
                   selectedAnnotations.includes(ann.id)
                 )
               : selectedAnnotations.length > 0
-              ? spanAnnotations.filter((ann) =>
-                  selectedAnnotations.includes(ann.id)
-                )
-              : spanAnnotations;
+                ? spanAnnotations.filter((ann) =>
+                    selectedAnnotations.includes(ann.id)
+                  )
+                : spanAnnotations;
 
           const finalAnnotations = usedAnn.filter(
             (ann) =>

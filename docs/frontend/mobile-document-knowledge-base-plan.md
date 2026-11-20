@@ -24,7 +24,7 @@ Each phase ends green and shippable. Commit after every task.
 **Conventions:**
 - Mobile breakpoint: `width < 768` from `useWindowDimensions()` (already used in `DocumentKnowledgeBase.tsx`).
 - Colors: `OS_LEGAL_COLORS` from `frontend/src/assets/configurations/osLegalStyles`.
-- Run frontend commands from `frontend/`. Use `yarn run prettier --write` (project pins prettier 2.8.8 — never `npx prettier`).
+- Run frontend commands from `frontend/`. Use `yarn run prettier --write`.
 - Component tests: `yarn test:ct --reporter=list` (the `--reporter=list` flag is mandatory or the run hangs).
 
 ---

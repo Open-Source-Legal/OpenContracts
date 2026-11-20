@@ -267,7 +267,8 @@ const NodeContent = styled.div`
 `;
 
 const NodeTitle = styled.div`
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 1.1875rem;
   font-weight: 500;
   color: ${OS_LEGAL_COLORS.textPrimary};

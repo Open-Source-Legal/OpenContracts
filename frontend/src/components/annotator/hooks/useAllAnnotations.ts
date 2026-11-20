@@ -7,8 +7,7 @@ import {
 
 /** Returns the global, duplicate-free annotation array. */
 export function useAllAnnotations(): (
-  | ServerTokenAnnotation
-  | ServerSpanAnnotation
+  ServerTokenAnnotation | ServerSpanAnnotation
 )[] {
   return useAtomValue(allAnnotationsAtom);
 }

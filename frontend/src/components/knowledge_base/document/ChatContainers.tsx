@@ -124,7 +124,8 @@ export const ChatInputWrapper = styled.div`
   &:focus-within {
     border-color: #667eea;
     background: white;
-    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.15),
+    box-shadow:
+      0 0 0 2px rgba(102, 126, 234, 0.15),
       0 4px 12px rgba(0, 0, 0, 0.06);
   }
 `;
@@ -417,7 +418,8 @@ export const ConversationCard = styled(motion.div)`
   padding: 1.125rem 1.25rem;
   cursor: pointer;
   box-shadow: ${SHADOW.subtle};
-  transition: box-shadow 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+  transition:
+    box-shadow 0.22s cubic-bezier(0.4, 0, 0.2, 1),
     transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   overflow: hidden;
@@ -519,7 +521,9 @@ export const MessageCount = styled(motion.div)<{ $count: number }>`
   font-weight: 600;
   letter-spacing: 0;
   line-height: 1;
-  transition: background 0.22s ease, box-shadow 0.22s ease;
+  transition:
+    background 0.22s ease,
+    box-shadow 0.22s ease;
 
   &::after {
     /* Zero state shows just "0" — a "0 new" suffix reads oddly. */
@@ -559,14 +563,17 @@ export const NewChatFloatingButton = styled(motion.button)`
   );
   color: white;
   border: none;
-  box-shadow: 0 4px 12px ${accentAlpha(0.32)}, 0 12px 28px ${accentAlpha(0.2)},
+  box-shadow:
+    0 4px 12px ${accentAlpha(0.32)},
+    0 12px 28px ${accentAlpha(0.2)},
     inset 0 1px 0 rgba(255, 255, 255, 0.18);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 5;
-  transition: box-shadow 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+  transition:
+    box-shadow 0.22s cubic-bezier(0.4, 0, 0.2, 1),
     transform 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 
   svg {
@@ -577,13 +584,16 @@ export const NewChatFloatingButton = styled(motion.button)`
 
   &:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 18px ${accentAlpha(0.36)},
-      0 16px 36px ${accentAlpha(0.24)}, inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    box-shadow:
+      0 8px 18px ${accentAlpha(0.36)},
+      0 16px 36px ${accentAlpha(0.24)},
+      inset 0 1px 0 rgba(255, 255, 255, 0.2);
   }
 
   &:active {
     transform: translateY(0) scale(0.96);
-    box-shadow: 0 2px 8px ${accentAlpha(0.3)},
+    box-shadow:
+      0 2px 8px ${accentAlpha(0.3)},
       inset 0 1px 0 rgba(255, 255, 255, 0.12);
   }
 `;
@@ -634,7 +644,8 @@ export const ChatEmptyStateIcon = styled.div`
   align-items: center;
   justify-content: center;
   margin-bottom: 0.5rem;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04),
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
     inset 0 0 0 1px rgba(255, 255, 255, 0.6);
 
   svg {

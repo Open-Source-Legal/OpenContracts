@@ -68,9 +68,9 @@ updates:
     # indexes in both Dockerfiles and validation on the supported accelerators.
     ignore:
       - dependency-name: "torch"
-        versions: [">=2.7"]
+        versions: [">=2.14"]
       - dependency-name: "torchvision"
-        versions: [">=0.22"]
+        versions: [">=0.29"]
       # optimum-intel (pinned commit in embedder/requirements.txt) caps
       # transformers below 5.16; lift together with that pin (issue #2488).
       - dependency-name: "transformers"
@@ -89,3 +89,12 @@ updates:
           - "version-update:semver-major"
           - "version-update:semver-minor"
           - "version-update:semver-patch"
+    # playwright, @playwright/test and @playwright/experimental-ct-react must
+    # share one version (the CT babel bundle breaks on skew), and the
+    # experimental CT packages publish later than playwright itself. Grouping
+    # keeps them in a single PR instead of bumping playwright alone.
+    groups:
+      playwright:
+        patterns:
+          - "playwright"
+          - "@playwright/*"

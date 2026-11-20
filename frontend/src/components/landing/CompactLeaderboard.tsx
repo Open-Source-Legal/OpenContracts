@@ -75,16 +75,16 @@ const RankChip = styled.div<{ $rank: number }>`
     color: #8B4513;
   `
       : props.$rank === 2
-      ? `
+        ? `
     background: linear-gradient(135deg, #C0C0C0 0%, #A0A0A0 100%);
     color: #4A4A4A;
   `
-      : props.$rank === 3
-      ? `
+        : props.$rank === 3
+          ? `
     background: linear-gradient(135deg, #CD7F32 0%, #B8860B 100%);
     color: white;
   `
-      : `
+          : `
     background: ${color.N3};
     color: ${color.N7};
   `}

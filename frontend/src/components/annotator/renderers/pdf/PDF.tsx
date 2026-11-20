@@ -70,8 +70,7 @@ export class PDFPageRenderer {
     this.canvas.height = viewport.height;
     this.canvas.width = viewport.width;
 
-    const canvasContext = this.canvas.getContext("2d");
-    if (canvasContext === null) {
+    if (this.canvas.getContext("2d") === null) {
       throw new Error("No canvas context");
     }
 
@@ -80,7 +79,10 @@ export class PDFPageRenderer {
       return Promise.reject(new Error("Rendering cancelled"));
     }
 
-    this.currentRenderTask = this.page.render({ canvasContext, viewport });
+    this.currentRenderTask = this.page.render({
+      canvas: this.canvas,
+      viewport,
+    });
 
     // Wrap the promise to handle cancellation
     return this.currentRenderTask.promise.then(

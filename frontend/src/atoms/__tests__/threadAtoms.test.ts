@@ -92,9 +92,8 @@ describe("threadAtoms — persistence hydration", () => {
 
   it("threadContextSidebarExpandedAtom rehydrates from localStorage", async () => {
     localStorage.setItem("threadContextSidebarExpanded", JSON.stringify(false));
-    const { threadContextSidebarExpandedAtom: freshAtom } = await import(
-      "../threadAtoms"
-    );
+    const { threadContextSidebarExpandedAtom: freshAtom } =
+      await import("../threadAtoms");
     const store = createStore();
     // atomWithStorage lazy-hydrates on subscribe (getOnInit defaults to false),
     // so subscribing forces a read from localStorage.

@@ -485,7 +485,9 @@ export const EnhancedChatInput = styled(ChatInput)`
   padding: 0.5rem 0.875rem;
   font-size: 0.9375rem;
   line-height: 1.4;
-  transition: border-color 0.15s ease, background 0.15s ease,
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
     box-shadow 0.15s ease;
   flex: 1;
   min-height: 40px;

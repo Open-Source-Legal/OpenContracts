@@ -2,7 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@apollo/client";
 import { unstable_batchedUpdates } from "react-dom";
 import { toast } from "react-toastify";
-import { getDocument, PDFDocumentLoadingTask } from "pdfjs-dist";
+import {
+  getDocument,
+  PDFDocumentLoadingTask,
+} from "pdfjs-dist/legacy/build/pdf.mjs";
 import {
   PDFDocumentProxy,
   PDFPageProxy,
@@ -444,7 +447,9 @@ export function useDocumentLoader({
         pdfUrlPromise
           .then((pdfUrl) => {
             if (cancelled) return Promise.reject(new DocumentLoadCancelled());
-            const loadingTask: PDFDocumentLoadingTask = getDocument(pdfUrl);
+            const loadingTask: PDFDocumentLoadingTask = getDocument({
+              url: pdfUrl,
+            });
             loadingTask.onProgress = (p: { loaded: number; total: number }) => {
               if (cancelled) return;
               setProgress(Math.round((p.loaded / p.total) * 100));

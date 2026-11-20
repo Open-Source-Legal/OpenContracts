@@ -126,7 +126,9 @@ const ToggleButton = styled.button<{ $open: boolean }>`
     props.$open ? whiteSurfaceAlpha(0.08) : "transparent"};
   color: ${OS_LEGAL_COLORS.surface};
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
 
   &:hover {
     background: ${whiteSurfaceAlpha(0.1)};
@@ -172,7 +174,8 @@ const Sheet = styled(motion.div)`
   background: ${OS_LEGAL_COLORS.surface};
   border: 1px solid ${OS_LEGAL_COLORS.border};
   border-radius: 16px;
-  box-shadow: 0 20px 50px -12px rgba(${DARK_BASE_RGB}, 0.28),
+  box-shadow:
+    0 20px 50px -12px rgba(${DARK_BASE_RGB}, 0.28),
     0 6px 18px -8px rgba(${DARK_BASE_RGB}, 0.12);
   overflow: hidden;
   font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySans};
@@ -230,7 +233,9 @@ const NavItemButton = styled.button<{ $active?: boolean; $danger?: boolean }>`
   text-align: left;
   border-radius: 10px;
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
 
   &::before {
     content: "";
@@ -294,7 +299,9 @@ const overflowLinkStyles = css`
   text-decoration: none;
   border-radius: 10px;
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
 
   &:hover {
     background: ${OS_LEGAL_COLORS.surfaceHover};
@@ -351,7 +358,9 @@ const SignInButton = styled.button`
   font-weight: 600;
   letter-spacing: 0.01em;
   cursor: pointer;
-  transition: background 0.12s ease, box-shadow 0.12s ease;
+  transition:
+    background 0.12s ease,
+    box-shadow 0.12s ease;
   box-shadow: 0 1px 2px ${accentAlpha(0.15)};
 
   &:hover {

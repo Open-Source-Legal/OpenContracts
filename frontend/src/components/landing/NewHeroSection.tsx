@@ -84,7 +84,11 @@ const SecondLine = styled.span`
 `;
 
 const HeroSubtitle = styled.p`
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   font-size: 14px;
   line-height: 1.6;
   color: ${OS_LEGAL_COLORS.textSecondary};

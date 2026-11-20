@@ -338,8 +338,8 @@ export const BadgeCriteriaConfig: React.FC<BadgeCriteriaConfigProps> = ({
                       fieldValues[field.name] === true
                         ? "true"
                         : fieldValues[field.name] === false
-                        ? "false"
-                        : null
+                          ? "false"
+                          : null
                     }
                     onChange={(value) =>
                       handleFieldChange(field.name, value === "true")

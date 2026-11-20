@@ -50,7 +50,11 @@ const Pill = styled.div<{ $vertical: boolean }>`
   border: 1px solid ${OS_LEGAL_COLORS.border};
   border-radius: 999px;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
 `;
 
 const ArrowButton = styled.button<{
@@ -80,21 +84,23 @@ const ArrowButton = styled.button<{
   border-radius: 999px;
   cursor: ${({ $disabled }) => ($disabled ? "not-allowed" : "pointer")};
   opacity: ${({ $disabled }) => ($disabled ? 0.5 : 1)};
-  transition: background 0.12s, color 0.12s;
+  transition:
+    background 0.12s,
+    color 0.12s;
 
   &:hover {
     background: ${({ $disabled, $variant }) =>
       $disabled
         ? "transparent"
         : $variant === "up"
-        ? "rgba(16, 185, 129, 0.18)"
-        : "rgba(239, 68, 68, 0.18)"};
+          ? "rgba(16, 185, 129, 0.18)"
+          : "rgba(239, 68, 68, 0.18)"};
     color: ${({ $disabled, $variant }) =>
       $disabled
         ? OS_LEGAL_COLORS.textSecondary
         : $variant === "up"
-        ? "rgb(5, 150, 105)"
-        : "rgb(220, 38, 38)"};
+          ? "rgb(5, 150, 105)"
+          : "rgb(220, 38, 38)"};
   }
 `;
 
@@ -109,8 +115,8 @@ const Score = styled.span<{ $score: number; $vertical: boolean }>`
     $score > 0
       ? "rgb(5, 150, 105)"
       : $score < 0
-      ? "rgb(220, 38, 38)"
-      : OS_LEGAL_COLORS.textSecondary};
+        ? "rgb(220, 38, 38)"
+        : OS_LEGAL_COLORS.textSecondary};
   user-select: none;
 `;
 
@@ -189,7 +195,7 @@ export const CorpusVoteWidget = React.memo(function CorpusVoteWidget({
   >(undefined);
 
   const effectiveVote: "UPVOTE" | "DOWNVOTE" | null =
-    optimisticVote === undefined ? myVote ?? null : optimisticVote;
+    optimisticVote === undefined ? (myVote ?? null) : optimisticVote;
 
   // Optimistic score: start from the canonical server score, then undo
   // the user's prior vote (if any) and apply their new one.  Clamps to

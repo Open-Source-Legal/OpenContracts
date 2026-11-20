@@ -103,7 +103,9 @@ const RefRow = styled.button<{ $clickable: boolean }>`
   border: 1px solid ${OS_LEGAL_COLORS.border};
   border-radius: 10px;
   cursor: ${(p) => (p.$clickable ? "pointer" : "default")};
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
 
   ${(p) =>
     p.$clickable &&
@@ -188,8 +190,8 @@ const StatusChip = styled.span<{
     p.$variant === "linked"
       ? `color: ${OS_LEGAL_COLORS.accent}; background: ${OS_LEGAL_COLORS.accentSurface};`
       : p.$variant === "provisional"
-      ? `color: ${OS_LEGAL_COLORS.provisionalText}; background: ${OS_LEGAL_COLORS.provisionalSurface};`
-      : `color: ${OS_LEGAL_COLORS.awaitingText}; background: ${OS_LEGAL_COLORS.awaitingSurface};`}
+        ? `color: ${OS_LEGAL_COLORS.provisionalText}; background: ${OS_LEGAL_COLORS.provisionalSurface};`
+        : `color: ${OS_LEGAL_COLORS.awaitingText}; background: ${OS_LEGAL_COLORS.awaitingSurface};`}
 `;
 
 // Compact linked/awaiting breakdown for the "Cites" section header.
