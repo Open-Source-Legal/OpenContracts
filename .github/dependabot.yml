@@ -51,6 +51,10 @@ updates:
       # beside the pin in requirements/base.txt before lifting this.
       - dependency-name: "kombu"
         versions: [">=5.7"]
+      # Celery 5.7 requires kombu>=5.7, so it cannot be adopted while the
+      # kombu pin above stands. Lift both together.
+      - dependency-name: "celery"
+        versions: [">=5.7"]
 
   # Requirements installed inside the accelerated service images.
   - package-ecosystem: "pip"
