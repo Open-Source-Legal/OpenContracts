@@ -68,9 +68,9 @@ updates:
     # indexes in both Dockerfiles and validation on the supported accelerators.
     ignore:
       - dependency-name: "torch"
-        versions: [">=2.7"]
+        versions: [">=2.14"]
       - dependency-name: "torchvision"
-        versions: [">=0.22"]
+        versions: [">=0.29"]
 
   # Packages installed by yarn in the frontend Docker build.
   - package-ecosystem: "npm"
