@@ -5,7 +5,10 @@ Pillow>=13.0.0
 python-decouple
 requests
 sentence-transformers[openvino]==6.3.0
-transformers==5.22.2
+# Newest release the pinned optimum-intel build accepts (it declares
+# transformers<5.16; upstream main still does). Newer releases make the
+# image fail to resolve, so Dependabot is told to skip >=5.16 here.
+transformers==5.15.1
 # Temporary bridge to patched Transformers; replace with a stable release.
 # Tracking: https://github.com/Open-Source-Legal/OpenContracts/issues/2488
 optimum-intel[openvino] @ git+https://github.com/huggingface/optimum-intel.git@2092b03709e72a73ec097c7ef61da620cced6963

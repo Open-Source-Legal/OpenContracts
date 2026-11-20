@@ -807,6 +807,11 @@ export function MessageComposer({
           {isOverLimit && " (too long)"}
         </CharacterCount>
         <SendButton
+          // Keep focus where it is on mouse press. Moving focus onto the
+          // button expands the collapsed composer (:focus-within), shifting
+          // the button out from under the pointer before mouseup and
+          // swallowing the click. Keyboard activation is unaffected.
+          onMouseDown={(e) => e.preventDefault()}
           onClick={handleSubmit}
           disabled={disabled || isEmpty || isOverLimit}
           title="Send (Cmd+Enter)"
