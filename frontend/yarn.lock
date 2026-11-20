@@ -5772,10 +5772,10 @@ react-transition-group@^4.3.0:
     loose-envify "^1.4.0"
     prop-types "^15.6.2"
 
-react-virtualized-auto-sizer@^1.0.26:
-  version "1.0.26"
-  resolved "https://registry.yarnpkg.com/react-virtualized-auto-sizer/-/react-virtualized-auto-sizer-1.0.26.tgz#e9470ef6a778dc4f1d5fd76305fa2d8b610c357a"
-  integrity sha512-CblNyiNVw2o+hsa5/49NH2ogGxZ+t+3aweRvNSq7TVjDIlwk7ir4lencEg5HxHeSzwNarSkNkiu0qJSOXtxm5A==
+react-virtualized-auto-sizer@^2.0.4:
+  version "2.0.4"
+  resolved "https://registry.yarnpkg.com/react-virtualized-auto-sizer/-/react-virtualized-auto-sizer-2.0.4.tgz#cd7e4f98121a4e367ba978fa1f919d442157b805"
+  integrity sha512-OgkJ2qCvm7ahHpkiHwHyRz9n1nSLr+U1Tz1xewtXF++KKwLt5X7tcuQA8dmsL2RPpEhB3Uz8jtSNSZ86Mx/lEQ==
 
 react-window@*, react-window@^2.5.3:
   version "2.5.3"
