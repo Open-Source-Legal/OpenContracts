@@ -1,0 +1,1 @@
+- **Dependabot: hold `celery` below 5.7** (`.github/dependabot.yml`): Celery 5.7 requires `kombu>=5.7`, which `requirements/base.txt` deliberately pins away from (Kombu 5.7's Redis transport needs the `TIME` command and exits workers under restricted Redis ACLs). The celery ignore lifts together with the kombu one.
