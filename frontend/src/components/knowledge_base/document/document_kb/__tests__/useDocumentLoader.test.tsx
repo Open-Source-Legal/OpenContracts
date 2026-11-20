@@ -56,7 +56,7 @@ vi.mock("../../../../annotator/api/cachedRest", () => ({
   getPawlsLayer: (...args: unknown[]) => getPawlsLayerMock(...args),
 }));
 
-vi.mock("pdfjs-dist", () => ({
+vi.mock("pdfjs-dist/legacy/build/pdf.mjs", () => ({
   // The text branch never reaches getDocument, so a stub that throws if
   // called is enough to surface accidental PDF-path coverage.
   getDocument: () => {

@@ -24,8 +24,7 @@ const makePage = (
     // verify that NativeLinkLayer actually forwards the prop into
     // ``getViewport({ scale })``.
     getViewport: vi.fn(({ scale = 1 }: { scale?: number } = {}) => ({
-      convertToViewportRectangle: (rect: number[]) =>
-        rect.map((value) => value * scale),
+      convertToViewportPoint: (x: number, y: number) => [x * scale, y * scale],
     })),
   } as unknown as PDFPageProxy;
 };

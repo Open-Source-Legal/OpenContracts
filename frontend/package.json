@@ -60,7 +60,7 @@
     "lodash": "^4.18.1",
     "lodash.uniqueid": "^4.0.1",
     "lucide-react": "^0.438.0",
-    "pdfjs-dist": "^4.7.0",
+    "pdfjs-dist": "^6.5.438",
     "polished": "^4.3.1",
     "posthog-js": "^1.312.0",
     "react": "18",
@@ -155,8 +155,8 @@
     "uuid": "^11.1.1"
   },
   "devDependencies": {
-    "@playwright/experimental-ct-react": "^1.52.0",
-    "@playwright/test": "^1.52.0",
+    "@playwright/experimental-ct-react": "1.62.1",
+    "@playwright/test": "1.62.1",
     "@types/d3": "^7.4.3",
     "@types/dompurify": "^3.2.0",
     "@types/json-schema": "^7.0.15",
@@ -171,7 +171,7 @@
     "husky": "^8.0.1",
     "jsdom": "^26.1.0",
     "nyc": "^18.0.0",
-    "playwright": "^1.52.0",
+    "playwright": "1.62.1",
     "prettier": "^3.9.10",
     "vite-plugin-istanbul": "^9.0.1",
     "vitest": "^5.0.5"

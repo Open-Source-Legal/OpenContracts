@@ -10,8 +10,8 @@ import {
 } from "@playwright/experimental-ct-react/hooks";
 import { Provider as JotaiProvider, createStore } from "jotai";
 import { MotionConfig } from "framer-motion";
-import workerSrc from "pdfjs-dist/build/pdf.worker?worker&url";
-import * as pdfjs from "pdfjs-dist";
+import workerSrc from "pdfjs-dist/legacy/build/pdf.worker.mjs?worker&url";
+import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import { ApolloClient, InMemoryCache, ApolloProvider } from "@apollo/client";
 import { ThemeProvider } from "../src/theme/ThemeProvider";
 import { allStyles } from "@os-legal/ui";

@@ -97,7 +97,10 @@ export const NativeLinkLayer: FC<NativeLinkLayerProps> = ({ page, scale }) => {
     if (rawLinks.length === 0) return [];
     const viewport = page.getViewport({ scale });
     return rawLinks.map(({ id, url, rect }) => {
-      const [x1, y1, x2, y2] = viewport.convertToViewportRectangle(rect);
+      // pdfjs-dist 5+ dropped ``convertToViewportRectangle``; converting the
+      // two opposite corners is exactly what it did.
+      const [x1, y1] = viewport.convertToViewportPoint(rect[0], rect[1]);
+      const [x2, y2] = viewport.convertToViewportPoint(rect[2], rect[3]);
       return {
         id,
         url,
