@@ -89,3 +89,12 @@ updates:
           - "version-update:semver-major"
           - "version-update:semver-minor"
           - "version-update:semver-patch"
+    # playwright, @playwright/test and @playwright/experimental-ct-react must
+    # share one version (the CT babel bundle breaks on skew), and the
+    # experimental CT packages publish later than playwright itself. Grouping
+    # keeps them in a single PR instead of bumping playwright alone.
+    groups:
+      playwright:
+        patterns:
+          - "playwright"
+          - "@playwright/*"

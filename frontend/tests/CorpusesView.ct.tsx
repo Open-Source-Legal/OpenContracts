@@ -228,6 +228,19 @@ test("sidebar expands and tab navigation works", async ({ mount, page }) => {
   const sidebar = page.locator('[data-testid="navigation-sidebar"]');
   await expect(sidebar).toBeVisible();
 
+  // The sidebar expands on hover, and newer Chromium treats the default
+  // pointer position (top-left, over the sidebar) as hovering it at mount.
+  // Park the pointer over the main content and let the sidebar settle
+  // collapsed before measuring.
+  await page.mouse.move(800, 400);
+  await expect
+    .poll(
+      async () =>
+        await sidebar.evaluate((el) => el.getBoundingClientRect().width),
+      { timeout: 3000 }
+    )
+    .toBeLessThan(100);
+
   // Get initial width
   let widthNow = await sidebar.evaluate(
     (el) => el.getBoundingClientRect().width
