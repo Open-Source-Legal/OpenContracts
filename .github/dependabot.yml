@@ -89,6 +89,13 @@ updates:
           - "version-update:semver-major"
           - "version-update:semver-minor"
           - "version-update:semver-patch"
+      # @playwright/experimental-ct-react publishes later than playwright (CT
+      # latest was 1.62.1 while playwright was 1.65.x) and all three must
+      # match exactly. Lift these once the CT package reaches the same series.
+      - dependency-name: "playwright"
+        versions: [">=1.63"]
+      - dependency-name: "@playwright/test"
+        versions: [">=1.63"]
     # playwright, @playwright/test and @playwright/experimental-ct-react must
     # share one version (the CT babel bundle breaks on skew), and the
     # experimental CT packages publish later than playwright itself. Grouping
