@@ -156,7 +156,7 @@
   },
   "devDependencies": {
     "@playwright/experimental-ct-react": "1.62.1",
-    "@playwright/test": "1.62.1",
+    "@playwright/test": "1.65.1",
     "@types/d3": "^7.4.3",
     "@types/dompurify": "^3.2.0",
     "@types/json-schema": "^7.0.15",
@@ -171,7 +171,7 @@
     "husky": "^8.0.1",
     "jsdom": "^26.1.0",
     "nyc": "^18.0.0",
-    "playwright": "1.62.1",
+    "playwright": "1.65.1",
     "prettier": "^3.9.10",
     "vite-plugin-istanbul": "^9.0.1",
     "vitest": "^5.0.5"
