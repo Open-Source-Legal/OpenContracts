@@ -12,7 +12,7 @@ import { Spinner, Button } from "@os-legal/ui";
 import { CheckCircle, Link as LinkIcon, CheckSquare, X } from "lucide-react";
 import { toast } from "react-toastify";
 import { List, useListCallbackRef } from "react-window";
-import AutoSizer from "react-virtualized-auto-sizer";
+import { AutoSizer } from "react-virtualized-auto-sizer";
 import {
   UnifiedContentItem,
   ContentFilters,
@@ -793,31 +793,35 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
 
       <FeedViewport data-testid="feed-viewport">
         <div style={{ width: "100%", height: "100%" }}>
-          <AutoSizer>
-            {({ height, width }: { height: number; width: number }) => (
-              <div
-                style={{
-                  width: `${width}px`,
-                  height: `${height}px`,
-                  position: "relative",
-                }}
-              >
-                <List<Record<string, never>>
-                  listRef={setListRef}
-                  defaultHeight={height}
-                  rowCount={virtualItems.length}
-                  rowHeight={rowHeight}
-                  rowComponent={RowComponent}
-                  rowProps={{}}
-                  overscanCount={5}
+          {/* v2 reports undefined width/height until the first measurement;
+              render nothing until then, as v1 did. */}
+          <AutoSizer
+            renderProp={({ height, width }) =>
+              height === undefined || width === undefined ? null : (
+                <div
                   style={{
-                    width: "100%",
-                    height: "100%",
+                    width: `${width}px`,
+                    height: `${height}px`,
+                    position: "relative",
                   }}
-                />
-              </div>
-            )}
-          </AutoSizer>
+                >
+                  <List<Record<string, never>>
+                    listRef={setListRef}
+                    defaultHeight={height}
+                    rowCount={virtualItems.length}
+                    rowHeight={rowHeight}
+                    rowComponent={RowComponent}
+                    rowProps={{}}
+                    overscanCount={5}
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                    }}
+                  />
+                </div>
+              )
+            }
+          />
         </div>
       </FeedViewport>
 

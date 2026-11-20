@@ -1,0 +1,1 @@
+- **Frontend: react-virtualized-auto-sizer 1.0 → 2.0** (`frontend/package.json`, `UnifiedContentFeed.tsx`): v2 drops the default export and function-as-children; the feed now uses the named `AutoSizer` with `renderProp` and renders nothing until the first measurement, since v2 reports `undefined` width/height on the initial render.
