@@ -92,7 +92,7 @@
     "typescript": "^5.5.0",
     "unified": "^11.0.5",
     "use-debounce": "^10.1.1",
-    "uuid": "^14.0.0",
+    "uuid": "^14.0.3",
     "vite": "^8.3.5",
     "vite-plugin-svgr": "^4.3.0",
     "vite-tsconfig-paths": "^6.1.1",
