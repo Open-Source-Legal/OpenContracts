@@ -96,7 +96,7 @@
     "vite": "^8.3.5",
     "vite-plugin-svgr": "^4.3.0",
     "vite-tsconfig-paths": "^6.1.1",
-    "web-vitals": "^2.1.2"
+    "web-vitals": "^6.2.3"
   },
   "scripts": {
     "start": "node scripts/env.js && vite",
