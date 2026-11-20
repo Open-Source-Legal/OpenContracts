@@ -5652,14 +5652,14 @@ react-markdown@^10.1.0:
     "@types/use-sync-external-store" "^0.0.6"
     use-sync-external-store "^1.4.0"
 
-react-router-dom@^7.18.2:
-  version "7.18.2"
-  resolved "https://registry.yarnpkg.com/react-router-dom/-/react-router-dom-7.18.2.tgz#00bf1d0ce8bf17a6d831949aacda72a6120e4926"
-  integrity sha512-AIKJ/jgGlFb3EbfCXk5Gzshiwt+l3mqbCrNjmEWMMjqQxNJ3svBa6bgzFyCC2Sw3RA0VWF1kg3uQf2OFhxb8hw==
+react-router-dom@^7.18.5:
+  version "7.18.5"
+  resolved "https://registry.yarnpkg.com/react-router-dom/-/react-router-dom-7.18.5.tgz#25e19a13396de166785c1199227a64bcd6815a8d"
+  integrity sha512-9HcfDMU6JJ/fp6gJZYGwNE6RknVGS4kBjH1HkNw959mCJi70TVwdipQWv2FEol9uGpi+SZTFtVpJPtEQfayeOw==
   dependencies:
-    react-router "7.18.2"
+    react-router "7.18.5"
 
-react-router@7.18.2, react-router@^7.18.2:
+react-router@7.18.5, react-router@^7.18.2:
   version "7.18.2"
   resolved "https://registry.yarnpkg.com/react-router/-/react-router-7.18.2.tgz#a76c46ce9e5edacd4f51289d5a71f71305db9152"
   integrity sha512-aUVMjFm3GAPTTZL7oYr5E7ETiqfQCHRLH+B+5afnICvf0r7kkK4eR6SMuwbSTJw/7t+12khT/Kahij49fqOCIg==
