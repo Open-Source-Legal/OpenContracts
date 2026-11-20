@@ -1,0 +1,1 @@
+- **Dependabot: hold `playwright` / `@playwright/test` below 1.63** (`.github/dependabot.yml`): even grouped, Dependabot bumped those two to 1.65.1 while `@playwright/experimental-ct-react` (latest 1.62.1) cannot follow, recreating the version skew that breaks every component spec. Lift the ignore when the CT package reaches the same series.
