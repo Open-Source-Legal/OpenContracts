@@ -70,7 +70,7 @@
     "react-dropzone": "^20.1.4",
     "react-helmet-async": "^2.0.5",
     "react-intersection-observer": "^11.0.1",
-    "react-json-tree": "^0.19.0",
+    "react-json-tree": "^0.20.0",
     "react-json-view": "^1.21.3",
     "react-leaflet": "^4.2.1",
     "react-markdown": "^10.1.0",
