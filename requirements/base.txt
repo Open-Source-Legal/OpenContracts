@@ -2,7 +2,7 @@ Pillow>=12.3.0  # https://github.com/python-pillow/Pillow
 argon2-cffi==25.1.0  # https://github.com/hynek/argon2_cffi
 hiredis==3.4.2  # https://github.com/redis/hiredis-py
 redis==8.1.0  # https://github.com/redis/redis-py
-celery==5.6.3  # pyup: < 6.0  # https://github.com/celery/celery
+celery==5.7.0  # pyup: < 6.0  # https://github.com/celery/celery
 kombu==5.6.2  # https://github.com/celery/kombu
 # ^ Celery only declares kombu>=5.6.0, so without this pin each image build
 # installs whichever Kombu release is newest that day. Kombu 5.7.0's Redis
