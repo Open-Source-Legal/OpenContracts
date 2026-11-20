@@ -26,7 +26,7 @@
     "@tiptap/core": "^3.33.1",
     "@tiptap/extension-link": "^3.33.1",
     "@tiptap/extension-mention": "^3.33.1",
-    "@tiptap/extension-placeholder": "^3.33.1",
+    "@tiptap/extension-placeholder": "^3.34.0",
     "@tiptap/pm": "^3.33.1",
     "@tiptap/react": "^3.33.1",
     "@tiptap/starter-kit": "^3.33.1",
