@@ -1,4 +1,4 @@
-Pillow>=12.3.0  # https://github.com/python-pillow/Pillow
+Pillow>=13.0.0  # https://github.com/python-pillow/Pillow
 argon2-cffi==25.1.0  # https://github.com/hynek/argon2_cffi
 hiredis==3.4.2  # https://github.com/redis/hiredis-py
 redis==8.1.0  # https://github.com/redis/redis-py
@@ -116,4 +116,4 @@ sqlparse>=0.6.1 # not directly required, pinned by Snyk to avoid a vulnerability
 tornado>=6.6.1 # not directly required, pinned by Snyk to avoid a vulnerability
 urllib3>=2.8.0 # not directly required, pinned by Snyk to avoid a vulnerability
 zipp>=4.1.2 # not directly required, pinned by Snyk to avoid a vulnerability
-pillow>=10.3.0 # not directly required, pinned by Snyk to avoid a vulnerability
+pillow>=13.0.0 # not directly required, pinned by Snyk to avoid a vulnerability
