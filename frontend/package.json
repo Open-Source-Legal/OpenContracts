@@ -76,7 +76,7 @@
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.18.2",
     "react-select": "^5.10.2",
-    "react-syntax-highlighter": "^16.1.0",
+    "react-syntax-highlighter": "^16.1.2",
     "react-toastify": "^11.2.0",
     "react-virtualized-auto-sizer": "^2.0.4",
     "react-window": "^2.5.3",
