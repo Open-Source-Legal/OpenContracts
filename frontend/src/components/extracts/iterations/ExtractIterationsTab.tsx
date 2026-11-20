@@ -63,7 +63,9 @@ const Row = styled.div<{ $selected: boolean }>`
     ${({ $selected }) =>
       $selected ? OS_LEGAL_COLORS.primaryBlue : OS_LEGAL_COLORS.border};
   border-radius: 10px;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
   cursor: pointer;
 
   &:hover {

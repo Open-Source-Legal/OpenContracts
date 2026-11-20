@@ -152,7 +152,9 @@ const NumberInput = styled.input`
   background: white;
   border: 1px solid ${OS_LEGAL_COLORS.border};
   border-radius: 6px;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
   box-sizing: border-box;
 
   &::placeholder {
@@ -371,16 +373,16 @@ export const EnrichmentRunner: React.FC<EnrichmentRunnerProps> = ({
                 alwaysOn
                   ? true
                   : value === "DOCUMENT"
-                  ? refTypeDocument
-                  : refTypeSection
+                    ? refTypeDocument
+                    : refTypeSection
               }
               disabled={alwaysOn}
               onChange={
                 alwaysOn
                   ? undefined
                   : value === "DOCUMENT"
-                  ? (e) => setRefTypeDocument(e.target.checked)
-                  : (e) => setRefTypeSection(e.target.checked)
+                    ? (e) => setRefTypeDocument(e.target.checked)
+                    : (e) => setRefTypeSection(e.target.checked)
               }
             />
             {label}

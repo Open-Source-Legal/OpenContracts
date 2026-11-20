@@ -150,8 +150,8 @@ export const DocxAnnotatorTestWrapper: React.FC<WrapperProps> = ({
       ? [sampleAnnotation1, sampleAnnotation2, structuralAnn]
       : [sampleAnnotation1, sampleAnnotation2]
     : withStructuralAnnotation
-    ? [structuralAnn]
-    : [];
+      ? [structuralAnn]
+      : [];
 
   if (loading) {
     return <div>Loading test DOCX...</div>;

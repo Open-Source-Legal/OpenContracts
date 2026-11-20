@@ -98,7 +98,7 @@ export const AgentConfigurationSelect: React.FC<
     // Single-select, so react-select emits SingleValue; the union comes from
     // the shared Select wrapper being typed for both modes.
     const option = Array.isArray(next)
-      ? (next as readonly SelectOption[])[0] ?? null
+      ? ((next as readonly SelectOption[])[0] ?? null)
       : (next as SelectOption | null);
     onChange(option ? { id: option.value, name: option.label } : null);
   };

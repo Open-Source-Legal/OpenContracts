@@ -243,8 +243,8 @@ export const SelectDocumentsModal = ({
                           filtered_to_labelset_id
                             ? filtered_to_labelset_id
                             : filtered_to_corpus?.labelSet?.id
-                            ? filtered_to_corpus.labelSet.id
-                            : undefined
+                              ? filtered_to_corpus.labelSet.id
+                              : undefined
                         }
                       />
                     ) : (

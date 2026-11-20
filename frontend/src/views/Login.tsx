@@ -49,7 +49,11 @@ const WordmarkSlot = styled.div`
 `;
 
 const Subtitle = styled.p`
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   font-size: 0.875rem;
   color: #64748b;
   margin-bottom: 2rem;
@@ -71,7 +75,11 @@ const Input = styled.input`
   border: 1px solid #e2e8f0;
   border-radius: 6px;
   font-size: 1rem;
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   &:focus {
     outline: none;
     border-color: ${OS_LEGAL_COLORS.accent};
@@ -92,7 +100,11 @@ const LoginButton = styled.button`
   border: none;
   border-radius: 6px;
   padding: 0.75rem;
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   font-size: 0.9375rem;
   font-weight: 500;
   cursor: pointer;

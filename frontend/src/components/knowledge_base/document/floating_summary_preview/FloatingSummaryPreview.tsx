@@ -71,7 +71,9 @@ const BaseButton = styled(motion.button)`
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08), 0 2px 16px rgba(0, 0, 0, 0.04),
+  box-shadow:
+    0 10px 40px rgba(0, 0, 0, 0.08),
+    0 2px 16px rgba(0, 0, 0, 0.04),
     inset 0 1px 2px rgba(255, 255, 255, 0.6);
   position: relative;
   overflow: visible;
@@ -112,8 +114,10 @@ const BaseButton = styled(motion.button)`
 
   &:hover {
     transform: translateY(-3px) scale(1.02);
-    box-shadow: 0 20px 60px rgba(59, 130, 246, 0.2),
-      0 4px 24px rgba(0, 0, 0, 0.06), inset 0 1px 3px rgba(255, 255, 255, 0.8);
+    box-shadow:
+      0 20px 60px rgba(59, 130, 246, 0.2),
+      0 4px 24px rgba(0, 0, 0, 0.06),
+      inset 0 1px 3px rgba(255, 255, 255, 0.8);
     border-color: rgba(147, 197, 253, 0.5);
   }
 
@@ -127,13 +131,17 @@ const CollapsedButton = styled(BaseButton)`
 `;
 
 const BackButton = styled(BaseButton)`
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15),
-    0 0 8px 4px rgba(59, 130, 246, 0.35), 0 8px 24px rgba(59, 130, 246, 0.25),
+  box-shadow:
+    0 0 0 2px rgba(59, 130, 246, 0.15),
+    0 0 8px 4px rgba(59, 130, 246, 0.35),
+    0 8px 24px rgba(59, 130, 246, 0.25),
     inset 0 1px 2px rgba(255, 255, 255, 0.6);
 
   &:hover {
-    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2),
-      0 0 12px 6px rgba(59, 130, 246, 0.5), 0 12px 30px rgba(59, 130, 246, 0.3),
+    box-shadow:
+      0 0 0 2px rgba(59, 130, 246, 0.2),
+      0 0 12px 6px rgba(59, 130, 246, 0.5),
+      0 12px 30px rgba(59, 130, 246, 0.3),
       inset 0 1px 3px rgba(255, 255, 255, 0.8);
   }
 `;
@@ -177,7 +185,9 @@ const VersionBadge = styled(motion.div)`
   border-radius: 12px;
   font-size: 12px;
   font-weight: 700;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4), 0 2px 4px rgba(0, 0, 0, 0.15),
+  box-shadow:
+    0 4px 12px rgba(59, 130, 246, 0.4),
+    0 2px 4px rgba(0, 0, 0, 0.15),
     0 0 0 1px rgba(255, 255, 255, 0.2);
   min-width: 24px;
   text-align: center;
@@ -216,7 +226,9 @@ const ExpandedContainer = styled(motion.div)<{ $isPiP?: boolean }>`
   backdrop-filter: blur(20px) saturate(180%);
   border-radius: 24px;
   border: 1px solid rgba(255, 255, 255, 0.5);
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.12), 0 12px 24px rgba(0, 0, 0, 0.06),
+  box-shadow:
+    0 24px 48px rgba(0, 0, 0, 0.12),
+    0 12px 24px rgba(0, 0, 0, 0.06),
     inset 0 1px 2px rgba(255, 255, 255, 0.8);
   padding: ${(props) => (props.$isPiP ? "1.5rem" : "1.25rem 1rem 0.75rem")};
   width: ${(props) => (props.$isPiP ? "clamp(400px, 30vw, 500px)" : "420px")};
@@ -332,7 +344,8 @@ const ActionButton = styled(motion.button)`
   gap: 0.5rem;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   backdrop-filter: blur(10px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04),
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.04),
     inset 0 1px 2px rgba(255, 255, 255, 0.6);
   white-space: nowrap;
   position: relative;
@@ -363,7 +376,8 @@ const ActionButton = styled(motion.button)`
     color: ${OS_LEGAL_COLORS.primaryBlue};
     border-color: rgba(147, 197, 253, 0.3);
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1),
+    box-shadow:
+      0 4px 12px rgba(59, 130, 246, 0.1),
       inset 0 1px 3px rgba(255, 255, 255, 0.8);
 
     &::before {
@@ -443,7 +457,8 @@ const ViewFullButton = styled(ActionButton)`
     );
     border-color: transparent;
     color: white;
-    box-shadow: 0 6px 20px rgba(59, 130, 246, 0.3),
+    box-shadow:
+      0 6px 20px rgba(59, 130, 246, 0.3),
       inset 0 1px 3px rgba(255, 255, 255, 0.2);
 
     svg {

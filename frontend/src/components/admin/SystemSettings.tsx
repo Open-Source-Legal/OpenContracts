@@ -985,8 +985,7 @@ export const SystemSettings: React.FC = () => {
         currentSettings={
           (
             settings?.componentSettings as
-              | Record<string, Record<string, unknown>>
-              | undefined
+              Record<string, Record<string, unknown>> | undefined
           )?.[WEB_SEARCH_TOOL_KEY]
         }
         onSecretsChanged={refetchSettings}

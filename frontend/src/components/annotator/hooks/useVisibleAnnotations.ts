@@ -18,8 +18,7 @@ import {
  * future components) can rely on a single source of truth.
  */
 export function useVisibleAnnotations(): (
-  | ServerTokenAnnotation
-  | ServerSpanAnnotation
+  ServerTokenAnnotation | ServerSpanAnnotation
 )[] {
   /* ---------------- raw data ---------------------------------------- */
   const allAnnotations = useAllAnnotations();

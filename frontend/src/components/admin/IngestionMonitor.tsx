@@ -357,7 +357,9 @@ const TabButton = styled.button<{ $active: boolean }>`
   color: ${({ $active }) =>
     $active ? OS_LEGAL_COLORS.textPrimary : OS_LEGAL_COLORS.textSecondary};
   cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
 
   &:hover {
     color: ${OS_LEGAL_COLORS.textPrimary};

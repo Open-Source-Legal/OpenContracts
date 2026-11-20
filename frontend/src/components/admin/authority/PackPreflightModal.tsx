@@ -545,8 +545,8 @@ export const PackPreflightModal: React.FC<PackPreflightModalProps> = ({
           {!pack?.canInstall
             ? "Nothing to install"
             : publish
-            ? "Install and publish"
-            : "Install privately"}
+              ? "Install and publish"
+              : "Install privately"}
         </Button>
       </ModalFooter>
     </Modal>

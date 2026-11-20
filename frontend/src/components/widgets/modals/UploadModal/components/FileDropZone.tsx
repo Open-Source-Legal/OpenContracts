@@ -251,8 +251,8 @@ export const FileDropZone: React.FC<FileDropZoneProps> = ({
               ? "Drop your ZIP file here..."
               : "Drop your files here..."
             : mode === "bulk"
-            ? "Click to select a ZIP file"
-            : `Drag & drop ${acceptedLabels} files here`}
+              ? "Click to select a ZIP file"
+              : `Drag & drop ${acceptedLabels} files here`}
         </div>
         <div className="secondary-text">
           {mode === "bulk"

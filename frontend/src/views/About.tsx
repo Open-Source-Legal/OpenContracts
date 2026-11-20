@@ -36,7 +36,11 @@ const Eyebrow = styled.div`
   align-items: center;
   gap: 10px;
   margin-bottom: 36px;
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   font-size: 10px;
   letter-spacing: 0.6px;
   text-transform: uppercase;
@@ -114,7 +118,11 @@ const FooterLinks = styled.div`
   margin-top: 80px;
   padding-top: 28px;
   border-top: 1px solid ${OS_LEGAL_COLORS.border};
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   font-size: 13px;
   color: ${OS_LEGAL_COLORS.textSecondary};
   display: flex;

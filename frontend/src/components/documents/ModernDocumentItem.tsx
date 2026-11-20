@@ -185,12 +185,12 @@ export const ModernDocumentItem: React.FC<ModernDocumentItemProps> = ({
         opacity: isDragging ? 0.5 : 1,
       }
     : isDocumentDragOver
-    ? {
-        outline: `2px dashed ${OS_LEGAL_COLORS.primaryBlue}`,
-        outlineOffset: "2px",
-        background: OS_LEGAL_COLORS.blueSurface,
-      }
-    : undefined;
+      ? {
+          outline: `2px dashed ${OS_LEGAL_COLORS.primaryBlue}`,
+          outlineOffset: "2px",
+          background: OS_LEGAL_COLORS.blueSurface,
+        }
+      : undefined;
 
   const {
     id,

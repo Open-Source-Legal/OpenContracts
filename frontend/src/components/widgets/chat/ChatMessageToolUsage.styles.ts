@@ -74,7 +74,8 @@ export const ToolPopover = styled(motion.div)`
   backdrop-filter: blur(16px);
   border: 1px solid ${primaryBlueAlpha(0.15)};
   border-radius: 0.75rem;
-  box-shadow: 0 8px 32px ${blackAlpha(0.12)},
+  box-shadow:
+    0 8px 32px ${blackAlpha(0.12)},
     0 2px 8px ${primaryBlueAlpha(0.08)};
   overflow: hidden;
 

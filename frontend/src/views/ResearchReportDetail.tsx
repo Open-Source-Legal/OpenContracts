@@ -301,7 +301,9 @@ const FootnoteItem = styled.li`
   border-radius: 6px;
   padding: 2px 6px;
   margin: 0 -6px;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
 
   &:hover {
     background: ${OS_LEGAL_COLORS.surfaceLight};

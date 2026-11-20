@@ -798,11 +798,11 @@ const DocxAnnotator: React.FC<DocxAnnotatorProps> = ({
       }
       /* Label tag on first span of annotation */
       .${CSS_CLASS_PREFIX}single[data-label-id="${CSS.escape(
-          labelId
-        )}"]::before,
+        labelId
+      )}"]::before,
       .${CSS_CLASS_PREFIX}start[data-label-id="${CSS.escape(
-          labelId
-        )}"]::before {
+        labelId
+      )}"]::before {
         content: attr(data-label);
         position: absolute;
         top: -1.4em;
@@ -890,8 +890,8 @@ const DocxAnnotator: React.FC<DocxAnnotatorProps> = ({
         {!wasmReady
           ? "Initializing DOCX renderer..."
           : converting
-          ? "Converting document..."
-          : "Projecting annotations..."}
+            ? "Converting document..."
+            : "Projecting annotations..."}
       </div>
     );
   }

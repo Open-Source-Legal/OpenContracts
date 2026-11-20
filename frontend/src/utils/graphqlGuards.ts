@@ -90,7 +90,7 @@ export function guardGraphQLQuery<TVariables extends Record<string, any>>({
  */
 export function createSafeQueryExecutor<
   TData,
-  TVariables extends Record<string, any>
+  TVariables extends Record<string, any>,
 >(
   queryFn: (options: {
     variables: TVariables;

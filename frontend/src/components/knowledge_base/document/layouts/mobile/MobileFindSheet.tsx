@@ -89,7 +89,9 @@ const StepButton = styled.button`
   color: ${OS_LEGAL_COLORS.textSecondary};
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: transform 0.12s ease, box-shadow 0.16s ease;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.16s ease;
 
   &:active:not(:disabled) {
     transform: scale(0.92);
@@ -139,7 +141,9 @@ const ResultRow = styled.button<{ $selected: boolean }>`
   cursor: pointer;
   font: inherit;
   -webkit-tap-highlight-color: transparent;
-  transition: transform 0.12s ease, background 0.16s ease;
+  transition:
+    transform 0.12s ease,
+    background 0.16s ease;
 
   &:active {
     transform: scale(0.99);
@@ -291,8 +295,8 @@ export const MobileFindSheet: React.FC<MobileFindSheetProps> = ({
         {searchText.trim() === ""
           ? "Type to search the document text."
           : matchCount === 0
-          ? "No matches."
-          : `${selectedTextSearchMatchIndex + 1} of ${matchCount} matches`}
+            ? "No matches."
+            : `${selectedTextSearchMatchIndex + 1} of ${matchCount} matches`}
       </Status>
       {matchCount > 0 && (
         <ResultsList data-testid="mobile-find-results">

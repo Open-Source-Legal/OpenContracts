@@ -1446,14 +1446,14 @@ export function attachWebSocketCapture(page: Page): WebSocketCapture {
       const text =
         typeof data.payload === "string"
           ? data.payload
-          : data.payload?.toString?.("utf-8") ?? "";
+          : (data.payload?.toString?.("utf-8") ?? "");
       captured.framesReceived.push(tryParseJson(text));
     });
     ws.on("framesent", (data) => {
       const text =
         typeof data.payload === "string"
           ? data.payload
-          : data.payload?.toString?.("utf-8") ?? "";
+          : (data.payload?.toString?.("utf-8") ?? "");
       captured.framesSent.push(tryParseJson(text));
     });
     ws.on("close", () => {

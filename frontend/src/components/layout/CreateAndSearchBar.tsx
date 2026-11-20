@@ -190,15 +190,19 @@ const StyledButton = styled(
   background-position: 0% 0%;
 
   /* Subtle border */
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1),
-    0 2px 4px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.1);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.1),
+    0 2px 4px rgba(0, 0, 0, 0.05),
+    0 1px 2px rgba(0, 0, 0, 0.1);
 
   /* Hover state */
   &:hover {
     transform: translateY(-1px) scale(1.02);
     background-position: 100% 100%;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2),
-      0 4px 8px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.1);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.2),
+      0 4px 8px rgba(0, 0, 0, 0.1),
+      0 2px 4px rgba(0, 0, 0, 0.1);
 
     svg,
     i.icon {
@@ -210,7 +214,8 @@ const StyledButton = styled(
   /* Active state */
   &:active {
     transform: translateY(1px) scale(0.98);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1),
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.1),
       0 1px 2px rgba(0, 0, 0, 0.1);
     background-position: 50% 50%;
   }
@@ -218,14 +223,17 @@ const StyledButton = styled(
   /* Focus state */
   &:focus {
     outline: none;
-    box-shadow: 0 0 0 2px #4285f4, 0 0 0 4px rgba(66, 133, 244, 0.2);
+    box-shadow:
+      0 0 0 2px #4285f4,
+      0 0 0 4px rgba(66, 133, 244, 0.2);
   }
 
   /* Special styling for the add button */
   &[aria-label="Add"] {
     background: #4285f4;
     color: white;
-    box-shadow: 0 2px 4px rgba(66, 133, 244, 0.2),
+    box-shadow:
+      0 2px 4px rgba(66, 133, 244, 0.2),
       0 4px 8px rgba(66, 133, 244, 0.1);
 
     svg,
@@ -235,7 +243,8 @@ const StyledButton = styled(
 
     &:hover {
       background: #5c9aff;
-      box-shadow: 0 4px 8px rgba(66, 133, 244, 0.3),
+      box-shadow:
+        0 4px 8px rgba(66, 133, 244, 0.3),
         0 8px 16px rgba(66, 133, 244, 0.2);
     }
 
@@ -327,8 +336,10 @@ const FilterPopoverContent = styled.div`
   /* Subtle border and shadow for depth */
   border: 1px solid rgba(0, 0, 0, 0.06);
   border-radius: 16px;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.08),
-    0 2px 4px -1px rgba(0, 0, 0, 0.04), 0 20px 25px -5px rgba(0, 0, 0, 0.1),
+  box-shadow:
+    0 4px 6px -1px rgba(0, 0, 0, 0.08),
+    0 2px 4px -1px rgba(0, 0, 0, 0.04),
+    0 20px 25px -5px rgba(0, 0, 0, 0.1),
     inset 0 1px 0 0 rgba(255, 255, 255, 0.5);
 
   /* Allow dropdowns to overflow the container */

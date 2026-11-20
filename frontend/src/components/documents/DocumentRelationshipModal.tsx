@@ -579,7 +579,7 @@ export const DocumentRelationshipModal: React.FC<
             corpusId,
             annotationLabelId:
               mode === "RELATIONSHIP"
-                ? selectedLabelId ?? undefined
+                ? (selectedLabelId ?? undefined)
                 : undefined,
             data:
               mode === "NOTES" && notesContent

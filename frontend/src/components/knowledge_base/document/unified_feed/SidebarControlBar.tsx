@@ -115,7 +115,9 @@ const MultiSelectDropdown = styled.div<{ $isOpen: boolean }>`
       ? `inset 0 0 0 1px ${OS_LEGAL_COLORS.accent}, ${FOCUS_RING}, ${SHADOW.subtle}`
       : `inset 0 0 0 1px rgba(15, 23, 42, 0.06)`};
   cursor: pointer;
-  transition: background 0.18s ease, box-shadow 0.18s ease;
+  transition:
+    background 0.18s ease,
+    box-shadow 0.18s ease;
 
   &:hover {
     background: white;
@@ -204,7 +206,9 @@ const SortTriggerSurface = styled.div<{ $isOpen: boolean }>`
       ? `inset 0 0 0 1px ${OS_LEGAL_COLORS.accent}, ${FOCUS_RING}, ${SHADOW.subtle}`
       : `inset 0 0 0 1px rgba(15, 23, 42, 0.06)`};
   cursor: pointer;
-  transition: background 0.18s ease, box-shadow 0.18s ease;
+  transition:
+    background 0.18s ease,
+    box-shadow 0.18s ease;
 
   &:hover {
     background: white;
@@ -234,7 +238,9 @@ const DropdownMenuItem = styled.div<{ $isSelected?: boolean }>`
   justify-content: space-between;
   padding: 0.75rem 1rem;
   cursor: pointer;
-  transition: background 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    background 0.15s ease,
+    box-shadow 0.15s ease;
   background: ${(props) =>
     props.$isSelected ? OS_LEGAL_COLORS.accentSurface : "transparent"};
   box-shadow: inset 3px 0 0
@@ -287,12 +293,17 @@ const QuickActionButton = styled.button`
   cursor: pointer;
   padding: 0.5rem 0.875rem;
   border-radius: 9px;
-  transition: background 0.18s ease, box-shadow 0.18s ease, color 0.18s ease,
+  transition:
+    background 0.18s ease,
+    box-shadow 0.18s ease,
+    color 0.18s ease,
     transform 0.12s ease;
 
   &:hover {
     background: white;
-    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.12), ${SHADOW.subtle};
+    box-shadow:
+      inset 0 0 0 1px rgba(15, 23, 42, 0.12),
+      ${SHADOW.subtle};
     color: ${OS_LEGAL_COLORS.textTertiary};
   }
 
@@ -330,7 +341,9 @@ const StyledSearchInput = styled.input`
   font-size: 0.9rem;
   color: ${OS_LEGAL_COLORS.textPrimary};
   background: white;
-  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.07), ${SHADOW.subtle};
+  box-shadow:
+    inset 0 0 0 1px rgba(15, 23, 42, 0.07),
+    ${SHADOW.subtle};
   transition: box-shadow 0.18s ease;
   min-height: 44px;
 
@@ -339,12 +352,16 @@ const StyledSearchInput = styled.input`
   }
 
   &:hover {
-    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.12), ${SHADOW.subtle};
+    box-shadow:
+      inset 0 0 0 1px rgba(15, 23, 42, 0.12),
+      ${SHADOW.subtle};
   }
 
   &:focus {
     outline: none;
-    box-shadow: inset 0 0 0 1px ${OS_LEGAL_COLORS.accent}, ${FOCUS_RING},
+    box-shadow:
+      inset 0 0 0 1px ${OS_LEGAL_COLORS.accent},
+      ${FOCUS_RING},
       ${SHADOW.raised};
   }
 `;
@@ -415,7 +432,10 @@ const CompactToggle = styled.button<{ $isOpen: boolean; $isActive: boolean }>`
     props.$isOpen || props.$isActive
       ? `inset 0 0 0 1px ${OS_LEGAL_COLORS.accentMedium}`
       : `inset 0 0 0 1px rgba(15, 23, 42, 0.06)`};
-  transition: background 0.18s ease, box-shadow 0.18s ease, color 0.18s ease;
+  transition:
+    background 0.18s ease,
+    box-shadow 0.18s ease,
+    color 0.18s ease;
 
   &:hover {
     background: ${(props) =>

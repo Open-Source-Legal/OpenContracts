@@ -151,8 +151,8 @@ export const AddToCorpusModal: React.FC<AddToCorpusModalProps> = ({
   const documentIds = isSingleDocument
     ? [documentId]
     : selectedDocumentIds.length
-    ? selectedDocumentIds
-    : documents.map((d) => d.id);
+      ? selectedDocumentIds
+      : documents.map((d) => d.id);
 
   const selectedDocs = documents.filter((d) => documentIds.includes(d.id));
 

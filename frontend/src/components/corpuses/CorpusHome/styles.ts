@@ -449,7 +449,8 @@ export const PillToggleLabel = styled.span<{ $active: boolean }>`
   letter-spacing: 0.02em;
   white-space: nowrap;
   z-index: 1;
-  transition: color ${CORPUS_TRANSITIONS.fast},
+  transition:
+    color ${CORPUS_TRANSITIONS.fast},
     background ${CORPUS_TRANSITIONS.fast};
   color: ${(props) =>
     props.$active ? CORPUS_COLORS.white : CORPUS_COLORS.slate[500]};
@@ -564,7 +565,8 @@ export const DetailsPage = styled.div`
   margin: 0 auto;
   background: ${CORPUS_COLORS.white};
   border-radius: ${CORPUS_RADII.lg};
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05),
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.05),
     0 0 0 1px ${CORPUS_COLORS.slate[200]};
   overflow: hidden; /* Contain children */
 

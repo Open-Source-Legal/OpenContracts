@@ -55,10 +55,7 @@ export interface CacheResetOptions {
  * Entity types that can trigger targeted cache invalidation
  */
 export type InvalidatableEntity =
-  | "document"
-  | "corpus"
-  | "annotation"
-  | "thread";
+  "document" | "corpus" | "annotation" | "thread";
 
 /**
  * Options for targeted cache invalidation

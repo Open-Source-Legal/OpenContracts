@@ -100,7 +100,9 @@ export const ResizeHandleControl = styled(motion.button)`
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 10;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.08),
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.05),
+    0 1px 2px rgba(0, 0, 0, 0.08),
     inset 0 1px 2px rgba(255, 255, 255, 0.9);
 
   /* Start hidden */
@@ -139,8 +141,10 @@ export const ResizeHandleControl = styled(motion.button)`
       rgba(255, 255, 255, 1),
       rgba(249, 250, 251, 0.95)
     );
-    box-shadow: 0 4px 12px rgba(66, 153, 225, 0.15),
-      0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 3px rgba(255, 255, 255, 1);
+    box-shadow:
+      0 4px 12px rgba(66, 153, 225, 0.15),
+      0 1px 3px rgba(0, 0, 0, 0.08),
+      inset 0 1px 3px rgba(255, 255, 255, 1);
 
     &::before {
       opacity: 1;
@@ -192,7 +196,9 @@ export const WidthControlMenu = styled(motion.div)`
   backdrop-filter: blur(16px);
   border-radius: 12px;
   padding: 0.5rem;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(226, 232, 240, 0.3);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.08),
+    0 0 0 1px rgba(226, 232, 240, 0.3);
   z-index: 2003;
   overflow: hidden;
   min-width: 180px;

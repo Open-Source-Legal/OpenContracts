@@ -69,13 +69,13 @@ const corpusFixture = (id = "Q29ycHVzVHlwZTox"): CorpusType =>
   ({
     id,
     title: "Test corpus",
-  } as unknown as CorpusType);
+  }) as unknown as CorpusType;
 
 const documentFixture = (id = "RG9jdW1lbnRUeXBlOjE="): DocumentType =>
   ({
     id,
     title: "Test document",
-  } as unknown as DocumentType);
+  }) as unknown as DocumentType;
 
 /** Reset every reactive var the component reads so each test starts clean. */
 const resetVars = () => {

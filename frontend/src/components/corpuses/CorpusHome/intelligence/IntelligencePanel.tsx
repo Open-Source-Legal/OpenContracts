@@ -162,7 +162,9 @@ const Entry = styled.li<{ $i: number }>`
   border-bottom: 1px solid ${OS_LEGAL_COLORS.border};
   cursor: pointer;
   border-radius: 8px;
-  transition: background 0.16s ease, box-shadow 0.16s ease;
+  transition:
+    background 0.16s ease,
+    box-shadow 0.16s ease;
   animation: ${fadeUp} 0.5s ease both;
   animation-delay: ${(p) => 0.04 * p.$i + 0.05}s;
 
@@ -261,7 +263,9 @@ const OpenCue = styled.span`
   color: ${OS_LEGAL_COLORS.primaryBlue};
   opacity: 0;
   transform: translate(-3px, 2px);
-  transition: opacity 0.16s ease, transform 0.16s ease;
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
   padding-top: 0.15rem;
 
   svg {

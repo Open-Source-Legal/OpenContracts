@@ -344,8 +344,8 @@ export const FileItemIcon = styled.div<{
     $status === "success"
       ? "var(--oc-success)"
       : $status === "failed"
-      ? "var(--oc-error)"
-      : "var(--oc-fg-tertiary)"};
+        ? "var(--oc-error)"
+        : "var(--oc-fg-tertiary)"};
 
   svg {
     width: 18px;
@@ -467,14 +467,14 @@ export const StepChip = styled.div<{
           color: white;
         `
       : $completed
-      ? css`
-          background: var(--oc-success-bg);
-          color: var(--oc-success);
-        `
-      : css`
-          background: var(--oc-bg-subtle);
-          color: var(--oc-fg-tertiary);
-        `}
+        ? css`
+            background: var(--oc-success-bg);
+            color: var(--oc-success);
+          `
+        : css`
+            background: var(--oc-bg-subtle);
+            color: var(--oc-fg-tertiary);
+          `}
 `;
 
 export const StepConnector = styled.div<{ $completed?: boolean }>`

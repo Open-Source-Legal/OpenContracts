@@ -106,15 +106,15 @@ const RootFolderItem = styled.div<{ $isSelected: boolean; $isOver?: boolean }>`
     props.$isSelected
       ? OS_LEGAL_COLORS.selectedBg
       : props.$isOver
-      ? OS_LEGAL_COLORS.dropTargetBg
-      : "transparent"};
+        ? OS_LEGAL_COLORS.dropTargetBg
+        : "transparent"};
   border: 1px solid
     ${(props) =>
       props.$isSelected
         ? OS_LEGAL_COLORS.selectedBorder
         : props.$isOver
-        ? OS_LEGAL_COLORS.dropTargetBorder
-        : "transparent"};
+          ? OS_LEGAL_COLORS.dropTargetBorder
+          : "transparent"};
   transition: all 0.15s ease;
 
   &:hover {

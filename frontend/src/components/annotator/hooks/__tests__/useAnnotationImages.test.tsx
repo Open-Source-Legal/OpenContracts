@@ -21,9 +21,8 @@ function nextRelayId(): { relay: string; numeric: number } {
 }
 
 vi.mock("@apollo/client", async () => {
-  const actual = await vi.importActual<typeof import("@apollo/client")>(
-    "@apollo/client"
-  );
+  const actual =
+    await vi.importActual<typeof import("@apollo/client")>("@apollo/client");
   return {
     ...actual,
     // Sidestep the reactive-var subscription — the hook only reads it.

@@ -19,4 +19,4 @@ export const buildRelationLabel = (
     labelType: LabelType.RelationshipLabel,
     __typename: "AnnotationLabelType",
     ...overrides,
-  } as AnnotationLabelType);
+  }) as AnnotationLabelType;

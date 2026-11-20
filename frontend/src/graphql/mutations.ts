@@ -1624,7 +1624,7 @@ export interface NewAnnotationOutputType {
             node: {
               id: string;
             };
-          }
+          },
         ];
       };
     };
@@ -1870,7 +1870,7 @@ export interface NewRelationshipOutputType {
             node: {
               id: string;
             };
-          }
+          },
         ];
       };
       targetAnnotations: {
@@ -1879,7 +1879,7 @@ export interface NewRelationshipOutputType {
             node: {
               id: string;
             };
-          }
+          },
         ];
       };
     };

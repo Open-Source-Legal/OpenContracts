@@ -472,15 +472,15 @@ const VersionItem = styled(motion.button)<VersionItemProps>`
       props.$isActive
         ? OS_LEGAL_COLORS.primaryBlue
         : props.$isViewing
-        ? "#a78bfa"
-        : OS_LEGAL_COLORS.border};
+          ? "#a78bfa"
+          : OS_LEGAL_COLORS.border};
   border-radius: 8px;
   background: ${(props) =>
     props.$isActive
       ? OS_LEGAL_COLORS.blueSurface
       : props.$isViewing
-      ? OS_LEGAL_COLORS.surfaceLight
-      : "white"};
+        ? OS_LEGAL_COLORS.surfaceLight
+        : "white"};
   text-align: left;
   cursor: pointer;
   margin-bottom: 0.5rem;
@@ -506,8 +506,8 @@ const VersionItem = styled(motion.button)<VersionItemProps>`
         props.$isActive
           ? OS_LEGAL_COLORS.primaryBlue
           : props.$isViewing
-          ? "#7c3aed"
-          : OS_LEGAL_COLORS.textPrimary};
+            ? "#7c3aed"
+            : OS_LEGAL_COLORS.textPrimary};
       display: flex;
       align-items: center;
       gap: 0.375rem;
@@ -522,8 +522,8 @@ const VersionItem = styled(motion.button)<VersionItemProps>`
         props.$isActive
           ? OS_LEGAL_COLORS.primaryBlue
           : props.$isViewing
-          ? "#a78bfa"
-          : OS_LEGAL_COLORS.border};
+            ? "#a78bfa"
+            : OS_LEGAL_COLORS.border};
       color: ${(props) =>
         props.$isActive || props.$isViewing
           ? "white"
