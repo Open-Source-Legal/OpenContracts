@@ -2,7 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@apollo/client";
 import { unstable_batchedUpdates } from "react-dom";
 import { toast } from "react-toastify";
-import { getDocument, PDFDocumentLoadingTask } from "pdfjs-dist";
+import {
+  getDocument,
+  PDFDocumentLoadingTask,
+} from "pdfjs-dist/legacy/build/pdf.mjs";
 import {
   PDFDocumentProxy,
   PDFPageProxy,
