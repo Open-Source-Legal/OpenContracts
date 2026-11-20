@@ -549,10 +549,10 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
   };
 
   const notes = corpusId
-    ? corpusData?.document?.allNotes ?? []
-    : documentOnlyData?.document?.allNotes ?? [];
+    ? (corpusData?.document?.allNotes ?? [])
+    : (documentOnlyData?.document?.allNotes ?? []);
   const docRelationships = corpusId
-    ? corpusData?.document?.allDocRelationships ?? []
+    ? (corpusData?.document?.allDocRelationships ?? [])
     : [];
 
   // Auto-minimize logic

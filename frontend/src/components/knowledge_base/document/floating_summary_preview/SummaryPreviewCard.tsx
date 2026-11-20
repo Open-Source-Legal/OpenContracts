@@ -278,8 +278,8 @@ export const SummaryPreviewCard: React.FC<SummaryPreviewCardProps> = ({
         zIndex: isActive
           ? 100
           : isHovered
-          ? 50
-          : 30 - Math.abs(index - (activeIndex || 0)),
+            ? 50
+            : 30 - Math.abs(index - (activeIndex || 0)),
       }}
       data-testid={`summary-card-${version.version}`}
     >

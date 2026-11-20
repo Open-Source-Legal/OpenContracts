@@ -16,8 +16,10 @@ export interface SelectOption {
   content?: React.ReactNode;
 }
 
-interface SelectProps
-  extends Omit<ReactSelectProps<SelectOption, boolean>, "styles"> {
+interface SelectProps extends Omit<
+  ReactSelectProps<SelectOption, boolean>,
+  "styles"
+> {
   customStyles?: StylesConfig<SelectOption, boolean>;
 }
 
@@ -129,8 +131,8 @@ export const Select: React.FC<SelectProps> = ({ customStyles, ...props }) => {
       backgroundColor: state.isSelected
         ? OS_LEGAL_COLORS.primaryBlue
         : state.isFocused
-        ? "rgba(74, 144, 226, 0.1)"
-        : "white",
+          ? "rgba(74, 144, 226, 0.1)"
+          : "white",
       color: state.isSelected ? "white" : "rgba(0, 0, 0, 0.87)",
       cursor: "pointer",
       transition: "all 0.15s ease",
@@ -216,22 +218,25 @@ export const Select: React.FC<SelectProps> = ({ customStyles, ...props }) => {
 
   // Merge custom styles with defaults
   const mergedStyles: StylesConfig<SelectOption, boolean> = customStyles
-    ? Object.keys(defaultStyles).reduce((acc, key) => {
-        const styleKey = key as keyof StylesConfig<SelectOption, boolean>;
-        acc[styleKey] = (base: any, state: any) => {
-          const defaultStyle =
-            typeof defaultStyles[styleKey] === "function"
-              ? (defaultStyles[styleKey] as any)(base, state)
-              : base;
-          const customStyle =
-            customStyles[styleKey] &&
-            typeof customStyles[styleKey] === "function"
-              ? (customStyles[styleKey] as any)(base, state)
-              : {};
-          return { ...defaultStyle, ...customStyle };
-        };
-        return acc;
-      }, {} as StylesConfig<SelectOption, boolean>)
+    ? Object.keys(defaultStyles).reduce(
+        (acc, key) => {
+          const styleKey = key as keyof StylesConfig<SelectOption, boolean>;
+          acc[styleKey] = (base: any, state: any) => {
+            const defaultStyle =
+              typeof defaultStyles[styleKey] === "function"
+                ? (defaultStyles[styleKey] as any)(base, state)
+                : base;
+            const customStyle =
+              customStyles[styleKey] &&
+              typeof customStyles[styleKey] === "function"
+                ? (customStyles[styleKey] as any)(base, state)
+                : {};
+            return { ...defaultStyle, ...customStyle };
+          };
+          return acc;
+        },
+        {} as StylesConfig<SelectOption, boolean>
+      )
     : defaultStyles;
 
   return (

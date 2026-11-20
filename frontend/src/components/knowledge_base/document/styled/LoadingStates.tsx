@@ -55,7 +55,8 @@ const fadeIn = keyframes`
 
 export const PlaceholderItem = styled(PlaceholderBase)<{ delay: number }>`
   opacity: 0;
-  animation: ${shimmerAnimation} 2.5s infinite ease-in-out,
+  animation:
+    ${shimmerAnimation} 2.5s infinite ease-in-out,
     ${fadeIn} 0.5s forwards;
   animation-delay: ${(props) => props.delay}s;
 `;
@@ -72,7 +73,8 @@ export const SummaryPlaceholder = styled.div`
     height: 24px;
     margin-bottom: 1.25rem;
     opacity: 0;
-    animation: ${shimmerAnimation} 2.5s infinite ease-in-out,
+    animation:
+      ${shimmerAnimation} 2.5s infinite ease-in-out,
       fadeIn 0.5s forwards;
 
     &:nth-child(1) {

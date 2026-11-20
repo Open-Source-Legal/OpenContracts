@@ -6,7 +6,9 @@ export const PostItNote = styled(motion.button)<{ $readOnly?: boolean }>`
   background: #fff7b1;
   padding: 1.25rem;
   border-radius: 2px;
-  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.05), 0 10px 15px -8px rgba(0, 0, 0, 0.1);
+  box-shadow:
+    0 1px 1px rgba(0, 0, 0, 0.05),
+    0 10px 15px -8px rgba(0, 0, 0, 0.1);
   position: relative;
   border: none;
   width: 100%;
@@ -98,7 +100,8 @@ export const PostItNote = styled(motion.button)<{ $readOnly?: boolean }>`
   }
   &:hover {
     transform: translateY(-2px);
-    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.05),
+    box-shadow:
+      0 1px 1px rgba(0, 0, 0, 0.05),
       0 15px 25px -12px rgba(0, 0, 0, 0.15);
   }
 `;

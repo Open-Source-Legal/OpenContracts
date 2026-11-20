@@ -1617,11 +1617,7 @@ export interface FeedbackType extends Node {
 export type ConversationTypeEnum = "CHAT" | "THREAD";
 export type AgentTypeEnum = "DOCUMENT_AGENT" | "CORPUS_AGENT";
 export type MessageStateChoices =
-  | "IN_PROGRESS"
-  | "COMPLETED"
-  | "CANCELLED"
-  | "ERROR"
-  | "AWAITING_APPROVAL";
+  "IN_PROGRESS" | "COMPLETED" | "CANCELLED" | "ERROR" | "AWAITING_APPROVAL";
 export type VoteType = "UPVOTE" | "DOWNVOTE";
 
 /**

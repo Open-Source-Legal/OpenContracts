@@ -29,7 +29,7 @@ export const makeAnalyzer = (
     manifest: null,
     inputSchema: null,
     ...overrides,
-  } as AnalyzerType);
+  }) as AnalyzerType;
 
 export const SAMPLE_CORPUS: CorpusType = {
   __typename: "CorpusType",

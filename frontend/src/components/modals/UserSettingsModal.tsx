@@ -72,7 +72,9 @@ const MarkdownTextarea = styled.textarea`
   /* WCAG 2.4.7 Focus Visible — combine border-color with a 2px box-shadow
    * focus ring so the indicator survives high-contrast / forced-colors mode
    * where a single border-color shift can be invisible. */
-  transition: border-color 120ms ease, box-shadow 120ms ease;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
 
   &:focus,
   &:focus-visible {

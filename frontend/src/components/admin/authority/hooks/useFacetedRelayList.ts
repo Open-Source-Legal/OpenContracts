@@ -35,7 +35,7 @@ interface UseFacetedRelayListResult<TNode> {
 
 export function useFacetedRelayList<
   TNode,
-  TVars extends { after?: string | null }
+  TVars extends { after?: string | null },
 >({
   query,
   variables,

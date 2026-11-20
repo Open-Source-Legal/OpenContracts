@@ -44,8 +44,8 @@ export const TokenSpan = styled.span.attrs<
       opacity: props.hidden
         ? 0.0
         : props.highOpacity
-        ? TOKEN_OPACITY_HIGH
-        : TOKEN_OPACITY_LOW,
+          ? TOKEN_OPACITY_HIGH
+          : TOKEN_OPACITY_LOW,
       boxShadow:
         props.isSelected && !props.hidden
           ? `0 0 ${TOKEN_SHADOW_BLUR}px ${TOKEN_SHADOW_SPREAD}px ${bg}`
@@ -58,8 +58,7 @@ export const TokenSpan = styled.span.attrs<
   transition: opacity 0.3s ease-in-out;
 `;
 
-interface SelectionTokenSpanProps
-  extends React.HTMLAttributes<HTMLSpanElement> {
+interface SelectionTokenSpanProps extends React.HTMLAttributes<HTMLSpanElement> {
   top: number;
   bottom: number;
   left: number;
@@ -92,8 +91,8 @@ export const SelectionTokenSpan = styled.span.attrs<SelectionTokenSpanThemeProps
         opacity: props.hidden
           ? 0.0
           : props.highOpacity
-          ? TOKEN_OPACITY_HIGH
-          : TOKEN_OPACITY_LOW,
+            ? TOKEN_OPACITY_HIGH
+            : TOKEN_OPACITY_LOW,
         left: `${props.left - TOKEN_EXPANSION_PX}px`,
         top: `${props.top - TOKEN_EXPANSION_PX}px`,
         width: `${props.right - props.left + TOKEN_EXPANSION_PX * 2}px`,

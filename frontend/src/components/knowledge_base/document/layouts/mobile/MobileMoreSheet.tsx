@@ -96,7 +96,9 @@ const Row = styled.button`
   text-align: left;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: transform 0.12s ease, box-shadow 0.16s ease;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.16s ease;
 
   &:active {
     transform: scale(0.985);
@@ -159,7 +161,9 @@ const BackButton = styled.button`
   font-weight: 600;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: transform 0.12s ease, background 0.16s ease;
+  transition:
+    transform 0.12s ease,
+    background 0.16s ease;
 
   &:active {
     transform: scale(0.95);

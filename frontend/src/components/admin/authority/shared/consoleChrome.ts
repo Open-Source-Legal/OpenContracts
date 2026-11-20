@@ -110,7 +110,9 @@ export const TabButton = styled.button<{ $active: boolean }>`
     ${(p) => (p.$active ? OS_LEGAL_COLORS.border : "transparent")};
   border-radius: 8px;
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
 
   &:hover {
     background: ${OS_LEGAL_COLORS.surfaceLight};
@@ -279,7 +281,9 @@ export const IconButton = styled.button<{ $danger?: boolean }>`
   cursor: pointer;
   color: ${(p) =>
     p.$danger ? OS_LEGAL_COLORS.dangerText : OS_LEGAL_COLORS.textSecondary};
-  transition: background 0.12s ease, border-color 0.12s ease;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease;
 
   &:hover {
     background: ${OS_LEGAL_COLORS.surfaceLight};

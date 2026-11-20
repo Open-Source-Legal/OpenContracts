@@ -57,13 +57,7 @@ export interface QueryParams {
   homeView?: "about" | "toc" | null; // corpus home view selection
   tocExpanded?: boolean; // true to expand all TOC nodes
   view?:
-    | "landing"
-    | "details"
-    | "discussions"
-    | "article"
-    | "map"
-    | "graph"
-    | null; // corpus detail view selection
+    "landing" | "details" | "discussions" | "article" | "map" | "graph" | null; // corpus detail view selection
   mode?: "power" | null; // corpus power user mode
   version?: number | null; // Document version number (null = current version)
   showStructural?: boolean;
@@ -389,8 +383,7 @@ export function getDocumentUrl(
     | (Pick<DocumentType, "slug"> &
         Partial<Pick<DocumentType, "id">> & {
           creator?:
-            | (Pick<UserType, "slug"> & Partial<Pick<UserType, "id">>)
-            | null;
+            (Pick<UserType, "slug"> & Partial<Pick<UserType, "id">>) | null;
         })
     | null
     | undefined,
@@ -398,8 +391,7 @@ export function getDocumentUrl(
     | (Pick<CorpusType, "slug"> &
         Partial<Pick<CorpusType, "id">> & {
           creator?:
-            | (Pick<UserType, "slug"> & Partial<Pick<UserType, "id">>)
-            | null;
+            (Pick<UserType, "slug"> & Partial<Pick<UserType, "id">>) | null;
         })
     | null,
   queryParams?: QueryParams
@@ -879,13 +871,7 @@ export function updateDetailViewParam(
   location: LocationLike,
   navigate: NavigateFn,
   view:
-    | "landing"
-    | "details"
-    | "discussions"
-    | "article"
-    | "map"
-    | "graph"
-    | null
+    "landing" | "details" | "discussions" | "article" | "map" | "graph" | null
 ) {
   const searchParams = new URLSearchParams(location.search);
   if (view && view !== "landing") {
@@ -1062,8 +1048,8 @@ export function navigateToRelationshipDocument(
     creator: document.creator?.slug
       ? { id: "", slug: document.creator.slug }
       : corpus.creator?.slug
-      ? { id: "", slug: corpus.creator.slug }
-      : undefined,
+        ? { id: "", slug: corpus.creator.slug }
+        : undefined,
   };
 
   const corpusForNav: Parameters<typeof navigateToDocument>[1] = {

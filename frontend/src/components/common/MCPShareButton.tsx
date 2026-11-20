@@ -45,7 +45,8 @@ const Popover = styled.div<{ $visible: boolean }>`
   visibility: ${(props) => (props.$visible ? "visible" : "hidden")};
   transform: ${(props) =>
     props.$visible ? "translateY(0) scale(1)" : "translateY(-8px) scale(0.95)"};
-  transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+  transition:
+    opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1),
     transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
     visibility 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 `;

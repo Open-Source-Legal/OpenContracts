@@ -100,8 +100,8 @@ const MenuItemStyled = styled.button<{
     props.$variant === "danger"
       ? OS_LEGAL_COLORS.danger
       : props.$variant === "primary"
-      ? OS_LEGAL_COLORS.accent
-      : "inherit"};
+        ? OS_LEGAL_COLORS.accent
+        : "inherit"};
   font-weight: ${(props) => (props.$variant === "primary" ? 500 : "inherit")};
 
   &:hover,

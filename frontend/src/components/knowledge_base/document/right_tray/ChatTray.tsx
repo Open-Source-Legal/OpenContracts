@@ -1051,10 +1051,10 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
                           0.85
                             ? OS_LEGAL_COLORS.danger
                             : contextStatus.used_tokens /
-                                contextStatus.context_window >
-                              0.6
-                            ? OS_LEGAL_COLORS.folderIcon
-                            : OS_LEGAL_COLORS.green,
+                                  contextStatus.context_window >
+                                0.6
+                              ? OS_LEGAL_COLORS.folderIcon
+                              : OS_LEGAL_COLORS.green,
                         transition: "width 0.3s ease, background 0.3s ease",
                       }}
                     />
@@ -1150,8 +1150,8 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
                       !wsReady
                         ? "Waiting for connection..."
                         : isAssistantResponding
-                        ? "Assistant is responding..."
-                        : "Type your message..."
+                          ? "Assistant is responding..."
+                          : "Type your message..."
                     }
                     disabled={!wsReady || isAssistantResponding}
                     onKeyDown={(

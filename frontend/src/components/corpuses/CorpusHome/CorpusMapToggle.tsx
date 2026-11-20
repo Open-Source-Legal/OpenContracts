@@ -33,8 +33,10 @@ const ToggleButton = styled.button<{ $hasPlaces: boolean }>`
   font-size: 0.75rem;
   font-weight: 500;
   cursor: pointer;
-  transition: border-color ${CORPUS_TRANSITIONS.fast},
-    background ${CORPUS_TRANSITIONS.fast}, color ${CORPUS_TRANSITIONS.fast};
+  transition:
+    border-color ${CORPUS_TRANSITIONS.fast},
+    background ${CORPUS_TRANSITIONS.fast},
+    color ${CORPUS_TRANSITIONS.fast};
 
   svg {
     width: ${CORPUS_FONT_SIZES.sm};

@@ -265,8 +265,8 @@ export function expandAnnotationJson(
       typeof pageData.t === "string"
         ? decodeTokenRanges(pageData.t)
         : Array.isArray(pageData.t)
-        ? (pageData.t as number[])
-        : [];
+          ? (pageData.t as number[])
+          : [];
     const tokensJsons: TokenId[] = indices.map((tokenIndex) => ({
       pageIndex: actualPageIdx,
       tokenIndex,
@@ -332,8 +332,8 @@ export function iterPageAnnotations(
         typeof pageData.t === "string"
           ? decodeTokenRanges(pageData.t)
           : Array.isArray(pageData.t)
-          ? (pageData.t as number[])
-          : [];
+            ? (pageData.t as number[])
+            : [];
 
       pages.push({ pageIndex: actualPageIdx, bounds, tokenIndices, rawText });
     }

@@ -64,15 +64,15 @@ const NodeContainer = styled.div<{
     props.$isSelected
       ? OS_LEGAL_COLORS.selectedBg
       : props.$isDropTarget
-      ? OS_LEGAL_COLORS.dropTargetBg
-      : "transparent"};
+        ? OS_LEGAL_COLORS.dropTargetBg
+        : "transparent"};
   border: 1px solid
     ${(props) =>
       props.$isSelected
         ? OS_LEGAL_COLORS.selectedBorder
         : props.$isDropTarget
-        ? OS_LEGAL_COLORS.dropTargetBorder
-        : "transparent"};
+          ? OS_LEGAL_COLORS.dropTargetBorder
+          : "transparent"};
 
   &:hover {
     background-color: ${(props) =>
@@ -98,7 +98,9 @@ const ChevronButton = styled.button<{ $isExpanded: boolean }>`
   border: none;
   cursor: pointer;
   color: ${OS_LEGAL_COLORS.textSecondary};
-  transition: transform 0.2s ease, color 0.15s ease;
+  transition:
+    transform 0.2s ease,
+    color 0.15s ease;
   transform: rotate(${(props) => (props.$isExpanded ? 90 : 0)}deg);
 
   &:hover {

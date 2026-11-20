@@ -108,9 +108,7 @@ const mockCorpus = {
   id: "corpus-1",
   title: "Test Corpus",
   myPermissions: ["read", "write", "create"],
-  labelSet: {
-    /* label configuration */
-  },
+  labelSet: {/* label configuration */},
 };
 ```
 

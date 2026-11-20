@@ -71,7 +71,8 @@ export const NavigationSidebar = styled(motion.div)<{ $isExpanded: boolean }>`
       -50%,
       ${(props) => (props.$isExpanded ? "0" : "100%")}
     );
-    transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+    transition:
+      transform 0.35s cubic-bezier(0.4, 0, 0.2, 1),
       height 0.35s cubic-bezier(0.4, 0, 0.2, 1);
     z-index: 200;
     background: linear-gradient(180deg, #ffffff 0%, #fafbfc 100%);
@@ -141,7 +142,9 @@ export const NavigationToggle = styled(motion.button)`
   justify-content: center;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.06);
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.04),
+    0 1px 2px rgba(0, 0, 0, 0.06);
   position: relative;
   overflow: hidden;
 
@@ -160,7 +163,9 @@ export const NavigationToggle = styled(motion.button)`
       transparent 70%
     );
     transform: translate(-50%, -50%);
-    transition: width 0.4s, height 0.4s;
+    transition:
+      width 0.4s,
+      height 0.4s;
   }
 
   &:hover {
@@ -172,7 +177,9 @@ export const NavigationToggle = styled(motion.button)`
     border-color: ${navBlueAlpha(0.3)};
     color: ${OS_LEGAL_COLORS.primaryBlue};
     transform: translateY(-1px);
-    box-shadow: 0 4px 6px ${navBlueAlpha(0.1)}, 0 2px 4px rgba(0, 0, 0, 0.06);
+    box-shadow:
+      0 4px 6px ${navBlueAlpha(0.1)},
+      0 2px 4px rgba(0, 0, 0, 0.06);
 
     &::before {
       width: 80px;
@@ -309,14 +316,14 @@ export const NavItemBadge = styled.span<{
     props.$isZero
       ? "transparent"
       : props.$isActive
-      ? CORPUS_COLORS.teal[700]
-      : CORPUS_COLORS.slate[200]};
+        ? CORPUS_COLORS.teal[700]
+        : CORPUS_COLORS.slate[200]};
   color: ${(props) =>
     props.$isZero
       ? CORPUS_COLORS.slate[400]
       : props.$isActive
-      ? CORPUS_COLORS.white
-      : CORPUS_COLORS.slate[600]};
+        ? CORPUS_COLORS.white
+        : CORPUS_COLORS.slate[600]};
   border: ${(props) =>
     props.$isZero ? `1px dashed ${CORPUS_COLORS.slate[300]}` : "none"};
   transition: all ${CORPUS_TRANSITIONS.normal};
@@ -324,8 +331,8 @@ export const NavItemBadge = styled.span<{
     props.$isZero
       ? "none"
       : props.$isActive
-      ? `0 2px 4px ${accentAlpha(0.25)}`
-      : CORPUS_SHADOWS.sm};
+        ? `0 2px 4px ${accentAlpha(0.25)}`
+        : CORPUS_SHADOWS.sm};
 `;
 
 export const NavigationItem = styled(motion.button)<{
@@ -463,7 +470,9 @@ export const NavigationItem = styled(motion.button)<{
     opacity: ${(props) => (props.$isExpanded ? "1" : "0")};
     width: ${(props) => (props.$isExpanded ? "auto" : "0")};
     overflow: hidden;
-    transition: opacity 0.3s ease, width 0.3s ease;
+    transition:
+      opacity 0.3s ease,
+      width 0.3s ease;
     z-index: 1;
   }
 
@@ -475,7 +484,9 @@ export const NavigationItem = styled(motion.button)<{
 
   /* Respect reduced motion preferences */
   @media (prefers-reduced-motion: reduce) {
-    transition: background-color 0.2s ease, color 0.2s ease;
+    transition:
+      background-color 0.2s ease,
+      color 0.2s ease;
 
     &:hover {
       transform: none;

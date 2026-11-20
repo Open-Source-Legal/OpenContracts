@@ -35,7 +35,9 @@ const TriggerButton = styled.button`
   color: #64748b;
   font-size: 0.75rem;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
 
   &:hover:not(:disabled) {
     background: rgba(100, 116, 139, 0.12);

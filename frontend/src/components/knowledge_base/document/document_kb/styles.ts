@@ -48,8 +48,12 @@ export const HeaderButton = styled.button<{
   letter-spacing: 0;
   line-height: 1;
   cursor: pointer;
-  transition: background 0.18s ease, border-color 0.18s ease,
-    box-shadow 0.18s ease, transform 0.12s ease, color 0.18s ease;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.12s ease,
+    color 0.18s ease;
   display: flex;
   align-items: center;
   gap: ${(props) => (props.$variant === "primary" ? "8px" : "0")};

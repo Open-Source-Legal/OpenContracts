@@ -46,7 +46,10 @@ const ControlsToggleButton = styled(motion.button)<{
   font-size: 0.875rem;
   font-weight: ${(props) => (props.$hasActiveFilters ? "600" : "500")};
   cursor: pointer;
-  transition: background 0.18s ease, box-shadow 0.18s ease, color 0.18s ease,
+  transition:
+    background 0.18s ease,
+    box-shadow 0.18s ease,
+    color 0.18s ease,
     transform 0.12s ease;
 
   svg {
@@ -89,7 +92,8 @@ const PopupContainer = styled(motion.div)`
   background: white;
   border-radius: 14px;
   /* Depth over borders: soft layered shadow, no hairline outline. */
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08),
+  box-shadow:
+    0 4px 12px rgba(15, 23, 42, 0.08),
     0 12px 32px rgba(15, 23, 42, 0.1);
   border: none;
   z-index: 100;
