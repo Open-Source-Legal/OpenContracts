@@ -599,8 +599,8 @@ export const Documents = () => {
                           filtered_to_labelset_id
                             ? filtered_to_labelset_id
                             : filtered_to_corpus?.labelSet?.id
-                            ? filtered_to_corpus.labelSet.id
-                            : undefined
+                              ? filtered_to_corpus.labelSet.id
+                              : undefined
                         }
                       />
                     ) : null}
@@ -803,15 +803,15 @@ export const Documents = () => {
                   activeStatusFilter !== STATUS_FILTERS.ALL
                     ? `No ${getSectionTitle().toLowerCase()}`
                     : hasAdvancedFilters
-                    ? "No documents match your filters"
-                    : "No documents yet"
+                      ? "No documents match your filters"
+                      : "No documents yet"
                 }
                 description={
                   activeStatusFilter !== STATUS_FILTERS.ALL
                     ? "Try selecting a different filter to see more documents."
                     : hasAdvancedFilters
-                    ? "Try adjusting your filters or clearing them to see more documents."
-                    : "Upload your first document to get started with document analysis, annotation, and AI-powered insights."
+                      ? "Try adjusting your filters or clearing them to see more documents."
+                      : "Upload your first document to get started with document analysis, annotation, and AI-powered insights."
                 }
                 size="lg"
                 action={

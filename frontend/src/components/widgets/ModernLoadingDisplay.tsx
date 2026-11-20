@@ -73,8 +73,8 @@ const Container = styled(motion.div)<{ $inline?: boolean; $size?: string }>`
         ? "1.5rem 1rem"
         : "2rem 1rem"
       : props.$size === "small"
-      ? "2rem"
-      : "3rem"};
+        ? "2rem"
+        : "3rem"};
 
   ${(props) =>
     props.$inline
@@ -132,7 +132,9 @@ const IconWrapper = styled(motion.div)<{ $size?: string }>`
   background: linear-gradient(145deg, ${color.white} 0%, #f0fdfa 100%);
   /* Squircle-like border radius for more organic feel */
   border-radius: ${(props) => (props.$size === "small" ? "20px" : "28px")};
-  box-shadow: 0 12px 40px ${accentAlpha(0.12)}, 0 4px 12px ${accentAlpha(0.06)},
+  box-shadow:
+    0 12px 40px ${accentAlpha(0.12)},
+    0 4px 12px ${accentAlpha(0.06)},
     inset 0 1px 0 rgba(255, 255, 255, 0.8);
   animation: ${float} 3.5s ease-in-out infinite;
   border: 1px solid ${accentAlpha(0.12)};

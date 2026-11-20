@@ -11,7 +11,9 @@ export const StyledTextArea = styled.textarea`
   font-family: inherit;
   resize: vertical;
   outline: none;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
 
   &:focus {
     border-color: ${OS_LEGAL_COLORS.primaryBlue};

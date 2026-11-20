@@ -107,8 +107,7 @@ export function useJobNotifications(options: UseJobNotificationsOptions = {}) {
         // Research toasts deep-link to the report; the slug arrives in the
         // notification payload (research_tasks._send_completion_notification).
         const reportSlug = jobNotification.data?.report_slug as
-          | string
-          | undefined;
+          string | undefined;
         const onClick =
           RESEARCH_NOTIFICATION_TYPES.includes(jobNotification.type) &&
           reportSlug

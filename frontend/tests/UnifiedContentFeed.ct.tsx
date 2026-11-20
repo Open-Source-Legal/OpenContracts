@@ -1054,9 +1054,8 @@ test.describe("UnifiedContentFeed - Sort & filter", () => {
     page,
   }) => {
     // ServerTokenAnnotation with structural=true
-    const { ServerTokenAnnotation } = await import(
-      "../src/components/annotator/types/annotations"
-    );
+    const { ServerTokenAnnotation } =
+      await import("../src/components/annotator/types/annotations");
     const structuralAnn = new ServerTokenAnnotation(
       0,
       {

@@ -360,12 +360,12 @@ export const DocumentVersionSelector: React.FC<
           isOpen
             ? undefined
             : isOutdated
-            ? `Viewing version ${displayVersion ?? "?"} of ${
-                sortedVersions.length
-              }. A newer version is available.`
-            : `Version ${displayVersion ?? "?"} of ${
-                sortedVersions.length
-              }. Click to switch versions.`
+              ? `Viewing version ${displayVersion ?? "?"} of ${
+                  sortedVersions.length
+                }. A newer version is available.`
+              : `Version ${displayVersion ?? "?"} of ${
+                  sortedVersions.length
+                }. Click to switch versions.`
         }
       >
         v{displayVersion ?? "?"}

@@ -147,15 +147,15 @@ export const VersionItem = styled(motion.button)<{
     props.$isActive
       ? OS_LEGAL_COLORS.blueSurface
       : props.$isCurrent
-      ? OS_LEGAL_COLORS.successSurface
-      : "white"};
+        ? OS_LEGAL_COLORS.successSurface
+        : "white"};
   border: 1px solid
     ${(props) =>
       props.$isActive
         ? OS_LEGAL_COLORS.primaryBlue
         : props.$isCurrent
-        ? OS_LEGAL_COLORS.greenMedium
-        : OS_LEGAL_COLORS.border};
+          ? OS_LEGAL_COLORS.greenMedium
+          : OS_LEGAL_COLORS.border};
   border-radius: 12px;
   text-align: left;
   cursor: pointer;
@@ -181,8 +181,8 @@ export const VersionItem = styled(motion.button)<{
         props.$isActive
           ? OS_LEGAL_COLORS.primaryBlue
           : props.$isCurrent
-          ? OS_LEGAL_COLORS.greenMedium
-          : OS_LEGAL_COLORS.textPrimary};
+            ? OS_LEGAL_COLORS.greenMedium
+            : OS_LEGAL_COLORS.textPrimary};
     }
 
     .version-badge {
@@ -194,8 +194,8 @@ export const VersionItem = styled(motion.button)<{
         props.$isActive
           ? OS_LEGAL_COLORS.primaryBlue
           : props.$isCurrent
-          ? OS_LEGAL_COLORS.greenMedium
-          : OS_LEGAL_COLORS.border};
+            ? OS_LEGAL_COLORS.greenMedium
+            : OS_LEGAL_COLORS.border};
       color: ${(props) =>
         props.$isActive || props.$isCurrent
           ? "white"

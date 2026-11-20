@@ -98,15 +98,15 @@ const EditableCell = styled.div.attrs<{
     props.isEditing
       ? OS_LEGAL_COLORS.infoSurface
       : props.hasError
-      ? OS_LEGAL_COLORS.dangerSurface
-      : "transparent"};
+        ? OS_LEGAL_COLORS.dangerSurface
+        : "transparent"};
   border: 1px solid
     ${(props) =>
       props.isEditing
         ? OS_LEGAL_COLORS.primaryBlue
         : props.hasError
-        ? OS_LEGAL_COLORS.danger
-        : "transparent"};
+          ? OS_LEGAL_COLORS.danger
+          : "transparent"};
 
   &:hover {
     background: ${(props) =>

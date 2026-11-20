@@ -319,9 +319,8 @@ describe("CacheManager", () => {
   describe("invalidateCorpusQueries", () => {
     it("should call invalidateEntityQueries with corpus type", async () => {
       // Act
-      const result = await cacheManager.invalidateCorpusQueries(
-        "corpus_create"
-      );
+      const result =
+        await cacheManager.invalidateCorpusQueries("corpus_create");
 
       // Assert
       expect(result.success).toBe(true);
@@ -513,9 +512,8 @@ describe("CacheManager Integration Scenarios", () => {
       // Expected: Corpus lists should be refreshed to show the new corpus
 
       // Act
-      const result = await cacheManager.invalidateCorpusQueries(
-        "corpus_create"
-      );
+      const result =
+        await cacheManager.invalidateCorpusQueries("corpus_create");
 
       // Assert
       expect(result.success).toBe(true);

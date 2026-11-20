@@ -18,7 +18,11 @@ import {
 export const PageContainer = styled.div`
   height: 100%;
   background: ${OS_LEGAL_COLORS.background};
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   overflow-y: auto;
   overflow-x: hidden;
 `;

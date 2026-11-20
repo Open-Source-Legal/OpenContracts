@@ -37,8 +37,8 @@ const TokenDiv = styled.div<{
     props.$hidden
       ? 0
       : props.$highOpacity
-      ? TOKEN_OPACITY_HIGH
-      : TOKEN_OPACITY_LOW};
+        ? TOKEN_OPACITY_HIGH
+        : TOKEN_OPACITY_LOW};
   pointer-events: none;
   border-radius: ${ANNOTATION_TOKEN_RADIUS};
   box-shadow: ${(props) =>

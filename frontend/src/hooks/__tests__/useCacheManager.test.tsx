@@ -287,9 +287,8 @@ describe("useCacheManager", () => {
       // Act
       let operationResult;
       await act(async () => {
-        operationResult = await result.current.invalidateCorpusQueries(
-          "corpus_delete"
-        );
+        operationResult =
+          await result.current.invalidateCorpusQueries("corpus_delete");
       });
 
       // Assert

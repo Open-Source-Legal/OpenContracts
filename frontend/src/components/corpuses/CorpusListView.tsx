@@ -62,7 +62,11 @@ import { CorpusVoteWidget } from "./CorpusVoteWidget";
 const PageContainer = styled.div`
   height: 100%;
   background: ${OS_LEGAL_COLORS.background};
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   overflow-y: auto;
   overflow-x: hidden;
 `;
@@ -274,7 +278,11 @@ const SortLabel = styled.label`
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
 `;
 
 const SortSelect = styled.select`
@@ -288,7 +296,11 @@ const SortSelect = styled.select`
   border-radius: 8px;
   padding: 6px 28px 6px 12px;
   font-size: 13px;
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   color: ${OS_LEGAL_COLORS.textPrimary};
   cursor: pointer;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748B' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
@@ -500,10 +512,10 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
       activeFilter === "my"
         ? "mine"
         : activeFilter === "shared"
-        ? "shared"
-        : activeFilter === "public"
-        ? "public"
-        : "all";
+          ? "shared"
+          : activeFilter === "public"
+            ? "public"
+            : "all";
     return {
       totalCorpuses: filterCounts[tabKey as keyof CorpusFilterCounts],
       totalDocuments: list.reduce((sum, c) => sum + (c.documentCount || 0), 0),

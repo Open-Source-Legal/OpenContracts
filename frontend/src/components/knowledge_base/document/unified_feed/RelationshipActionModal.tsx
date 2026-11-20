@@ -138,21 +138,21 @@ const AnnotationPill = styled.div<{
     props.$role === "source"
       ? OS_LEGAL_COLORS.blueBorder
       : props.$role === "target"
-      ? OS_LEGAL_COLORS.successSurface
-      : OS_LEGAL_COLORS.surfaceLight};
+        ? OS_LEGAL_COLORS.successSurface
+        : OS_LEGAL_COLORS.surfaceLight};
   border: 2px solid
     ${(props) =>
       props.$role === "source"
         ? OS_LEGAL_COLORS.primaryBlue
         : props.$role === "target"
-        ? OS_LEGAL_COLORS.green
-        : OS_LEGAL_COLORS.border};
+          ? OS_LEGAL_COLORS.green
+          : OS_LEGAL_COLORS.border};
   color: ${(props) =>
     props.$role === "source"
       ? OS_LEGAL_COLORS.blueDark
       : props.$role === "target"
-      ? OS_LEGAL_COLORS.successText
-      : OS_LEGAL_COLORS.textSecondary};
+        ? OS_LEGAL_COLORS.successText
+        : OS_LEGAL_COLORS.textSecondary};
 
   &:hover {
     transform: translateY(-1px);
@@ -719,8 +719,8 @@ export const RelationshipActionModal: React.FC<
                             const role = isSource
                               ? "source"
                               : isTarget
-                              ? "target"
-                              : "unassigned";
+                                ? "target"
+                                : "unassigned";
                             return (
                               <AnnotationPill
                                 key={annId}
@@ -763,8 +763,8 @@ export const RelationshipActionModal: React.FC<
                             const role = isSource
                               ? "source"
                               : isTarget
-                              ? "target"
-                              : "unassigned";
+                                ? "target"
+                                : "unassigned";
                             return (
                               <AnnotationPill
                                 key={annId}
@@ -840,8 +840,8 @@ export const RelationshipActionModal: React.FC<
           {isSubmitting
             ? "Submitting..."
             : mode === "add"
-            ? "Add to Relationship"
-            : "Create Relationship"}
+              ? "Add to Relationship"
+              : "Create Relationship"}
         </Button>
       </ModalFooter>
     </Modal>

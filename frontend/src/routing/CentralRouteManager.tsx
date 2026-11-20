@@ -1118,8 +1118,8 @@ export function CentralRouteManager() {
       labelsParam === "ALWAYS"
         ? "ALWAYS"
         : labelsParam === "HIDE"
-        ? "HIDE"
-        : "ON_HOVER";
+          ? "HIDE"
+          : "ON_HOVER";
 
     // Parse homeView param (only valid values are "about" or "toc", null otherwise)
     const newHomeView: CorpusHomeViewType | null =
@@ -1133,14 +1133,14 @@ export function CentralRouteManager() {
       detailViewParam === "details"
         ? "details"
         : detailViewParam === "discussions"
-        ? "discussions"
-        : detailViewParam === "article"
-        ? "article"
-        : detailViewParam === "map"
-        ? "map"
-        : detailViewParam === "graph"
-        ? "graph"
-        : "landing";
+          ? "discussions"
+          : detailViewParam === "article"
+            ? "article"
+            : detailViewParam === "map"
+              ? "map"
+              : detailViewParam === "graph"
+                ? "graph"
+                : "landing";
 
     // Collect all reactive var updates into a batch
     // This prevents cascading re-renders - all updates happen in one React tick

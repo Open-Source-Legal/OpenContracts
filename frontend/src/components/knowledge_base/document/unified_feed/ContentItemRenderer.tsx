@@ -195,8 +195,7 @@ export const ContentItemRenderer: React.FC<ContentItemRendererProps> = ({
   /* Render annotation */
   if (item.type === "annotation" && isAnnotation(item.data)) {
     const annotation = item.data as
-      | ServerSpanAnnotation
-      | ServerTokenAnnotation;
+      ServerSpanAnnotation | ServerTokenAnnotation;
 
     const handleSelect = (annotationId: string) => {
       if (selectedAnnotations.includes(annotationId)) {

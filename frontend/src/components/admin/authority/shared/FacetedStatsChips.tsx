@@ -45,7 +45,9 @@ const Chip = styled.button<{ $active: boolean; $tone: Tone }>`
   font-size: 0.78125rem;
   font-weight: 600;
   cursor: pointer;
-  transition: filter 0.12s ease, box-shadow 0.12s ease;
+  transition:
+    filter 0.12s ease,
+    box-shadow 0.12s ease;
   color: ${(p) => TONE_COLORS[p.$tone].fg};
   background: ${(p) => TONE_COLORS[p.$tone].bg};
   border: 1px solid

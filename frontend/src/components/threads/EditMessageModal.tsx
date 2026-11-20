@@ -198,8 +198,8 @@ const ActionButton = styled.button<{ $variant?: "primary" | "secondary" }>`
 
     &:hover:not(:disabled) {
       background: linear-gradient(135deg, ${CORPUS_COLORS.teal[500]} 0%, ${
-      CORPUS_COLORS.teal[600]
-    } 100%);
+        CORPUS_COLORS.teal[600]
+      } 100%);
       transform: translateY(-1px);
       box-shadow: 0 6px 16px ${accentAlpha(0.45)};
     }

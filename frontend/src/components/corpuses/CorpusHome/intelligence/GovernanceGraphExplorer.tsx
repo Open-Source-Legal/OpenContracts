@@ -103,8 +103,8 @@ const nodeGroup = (kind: string): NodeGroup =>
   kind === KINDS.STATUTE
     ? "statutes"
     : kind === KINDS.EXTERNAL
-    ? "wanted"
-    : "filings";
+      ? "wanted"
+      : "filings";
 
 const GROUP_LABEL: Record<NodeGroup, string> = {
   filings: "Filings & exhibits",
@@ -264,7 +264,9 @@ const SearchBox = styled.div`
     border: 1px solid ${OS_LEGAL_COLORS.border};
     border-radius: 9px;
     outline: none;
-    transition: border-color 0.15s ease, background 0.15s ease;
+    transition:
+      border-color 0.15s ease,
+      background 0.15s ease;
 
     &:focus {
       border-color: ${OS_LEGAL_COLORS.primaryBlue};
@@ -313,7 +315,10 @@ const FilterChip = styled.button<{ $active: boolean; $dot?: string }>`
   text-align: left;
   border-radius: 8px;
   cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease, opacity 0.12s ease;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    opacity 0.12s ease;
   border: 1px solid
     ${(p) => (p.$active ? OS_LEGAL_COLORS.borderHover : OS_LEGAL_COLORS.border)};
   background: ${(p) =>
@@ -421,7 +426,9 @@ const ZoomButton = styled.button`
   color: ${OS_LEGAL_COLORS.textSecondary};
   cursor: pointer;
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
-  transition: color 0.12s ease, border-color 0.12s ease;
+  transition:
+    color 0.12s ease,
+    border-color 0.12s ease;
 
   &:hover {
     color: ${OS_LEGAL_COLORS.primaryBlue};
@@ -776,7 +783,7 @@ export const GovernanceGraphExplorer: React.FC<
     return s;
   }, [search, simNodes, searchActive]);
 
-  const selectedNode = selectedId ? nodeById.get(selectedId) ?? null : null;
+  const selectedNode = selectedId ? (nodeById.get(selectedId) ?? null) : null;
 
   // ---- Opacity model ------------------------------------------------------
   const nodeAlpha = useCallback(
@@ -1061,8 +1068,8 @@ export const GovernanceGraphExplorer: React.FC<
                         g === "filings"
                           ? COLORS.CLUSTER_HUES[0]
                           : g === "statutes"
-                          ? COLORS.LAW_DEFAULT
-                          : undefined
+                            ? COLORS.LAW_DEFAULT
+                            : undefined
                       }
                       onClick={() => toggleGroup(g)}
                       data-testid={`${testId}-group-${g}`}
@@ -1267,12 +1274,12 @@ export const GovernanceGraphExplorer: React.FC<
                       const baseOpacity = isDoc
                         ? 0.3
                         : isExternal
-                        ? dense
-                          ? 0.25
-                          : 0.35
-                        : dense
-                        ? 0.3
-                        : 0.45;
+                          ? dense
+                            ? 0.25
+                            : 0.35
+                          : dense
+                            ? 0.3
+                            : 0.45;
                       const baseWidth = isDoc
                         ? 1.1
                         : Math.min(
@@ -1329,8 +1336,8 @@ export const GovernanceGraphExplorer: React.FC<
                               (isExternal
                                 ? 0.9
                                 : node.kind === KINDS.EXHIBIT
-                                ? 0.8
-                                : 0.95) * alpha
+                                  ? 0.8
+                                  : 0.95) * alpha
                             }
                             stroke={
                               isExternal
@@ -1382,8 +1389,8 @@ export const GovernanceGraphExplorer: React.FC<
                         ? node.labelRow === 1
                           ? -(r + 7)
                           : node.labelRow === 2
-                          ? r + 26
-                          : r + 14
+                            ? r + 26
+                            : r + 14
                         : r + 13;
                       const fill =
                         node.kind === KINDS.EXTERNAL
@@ -1522,8 +1529,8 @@ const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   const fill = nodeFill(node);
   const jurisdiction = formatJurisdiction(node.jurisdiction);
   const discovery = node.discoveryState
-    ? DISCOVERY_STATE_LABEL[node.discoveryState] ??
-      titleCase(node.discoveryState)
+    ? (DISCOVERY_STATE_LABEL[node.discoveryState] ??
+      titleCase(node.discoveryState))
     : null;
 
   // Neighbours, summed by weight and ranked — the node's place in the web.

@@ -25,10 +25,7 @@
  * Constrain JSON to this union so a typo in a variant fails at build.
  */
 export type CommunityStatKey =
-  | "totalUsers"
-  | "totalAnnotations"
-  | "totalThreads"
-  | "activeUsersThisWeek";
+  "totalUsers" | "totalAnnotations" | "totalThreads" | "activeUsersThisWeek";
 
 export interface HeroContent {
   /** Render the [•] icon mark before the first headline line. */

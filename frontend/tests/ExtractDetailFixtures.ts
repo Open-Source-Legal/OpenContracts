@@ -58,7 +58,7 @@ export const makeMockExtract = (
     myPermissions: ["read_extract", "update_extract", "remove_extract"],
     __typename: "ExtractType",
     ...overrides,
-  } as unknown as ExtractType);
+  }) as unknown as ExtractType;
 
 export const makeMockColumn = (
   overrides: Partial<ColumnType> = {}
@@ -75,7 +75,7 @@ export const makeMockColumn = (
     extractIsList: false,
     __typename: "ColumnType",
     ...overrides,
-  } as unknown as ColumnType);
+  }) as unknown as ColumnType;
 
 export const makeMockDocument = (
   overrides: Partial<DocumentType> = {}
@@ -88,7 +88,7 @@ export const makeMockDocument = (
     fileType: "pdf",
     __typename: "DocumentType",
     ...overrides,
-  } as unknown as DocumentType);
+  }) as unknown as DocumentType;
 
 export const makeMockCell = (
   overrides: Partial<DatacellType> = {}
@@ -112,7 +112,7 @@ export const makeMockCell = (
     rejectedBy: null,
     __typename: "DatacellType",
     ...overrides,
-  } as unknown as DatacellType);
+  }) as unknown as DatacellType;
 
 // ─── Mock builder ─────────────────────────────────────────────────────────
 

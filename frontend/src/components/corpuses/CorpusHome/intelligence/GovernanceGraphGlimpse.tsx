@@ -421,12 +421,12 @@ export const GovernanceGraphGlimpse: React.FC<GovernanceGraphGlimpseProps> = ({
               const baseOpacity = isDoc
                 ? 0.3
                 : isExternal
-                ? dense
-                  ? 0.25
-                  : 0.35
-                : dense
-                ? 0.3
-                : 0.45;
+                  ? dense
+                    ? 0.25
+                    : 0.35
+                  : dense
+                    ? 0.3
+                    : 0.45;
               const baseWidth = isDoc
                 ? 1.1
                 : Math.min(
@@ -470,8 +470,8 @@ export const GovernanceGraphGlimpse: React.FC<GovernanceGraphGlimpseProps> = ({
                     (isExternal
                       ? 0.9
                       : node.kind === KINDS.EXHIBIT
-                      ? 0.8
-                      : 0.95) * nodeEmphasis(node)
+                        ? 0.8
+                        : 0.95) * nodeEmphasis(node)
                   }
                   stroke={
                     isExternal
@@ -515,8 +515,8 @@ export const GovernanceGraphGlimpse: React.FC<GovernanceGraphGlimpseProps> = ({
                   ? node.labelRow === 1
                     ? -(r + 7)
                     : node.labelRow === 2
-                    ? r + 26
-                    : r + 14
+                      ? r + 26
+                      : r + 14
                   : r + 13;
                 const fill =
                   node.kind === KINDS.EXTERNAL
@@ -547,8 +547,8 @@ export const GovernanceGraphGlimpse: React.FC<GovernanceGraphGlimpseProps> = ({
                     {node.kind === KINDS.PRIMARY
                       ? shortFilingLabel(node)
                       : node.kind === KINDS.EXTERNAL
-                      ? ghostLabel(node)
-                      : shortLawLabel(node)}
+                        ? ghostLabel(node)
+                        : shortLawLabel(node)}
                   </text>
                 );
               })}

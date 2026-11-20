@@ -1,6 +1,10 @@
 export class RGB {
   // eslint-disable-next-line no-useless-constructor, no-empty-function
-  constructor(public r: number, public g: number, public b: number) {}
+  constructor(
+    public r: number,
+    public g: number,
+    public b: number
+  ) {}
 
   toString() {
     return `rgb(${this.r},${this.g},${this.b})`;

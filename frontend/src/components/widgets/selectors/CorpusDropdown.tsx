@@ -96,7 +96,7 @@ export const CorpusDropdown: React.FC<CorpusDropdownProps> = ({
 
   // Determine the value to display: controlled value first, then global state
   const displayValue =
-    value !== undefined ? value : global_selected_corpus?.id ?? null;
+    value !== undefined ? value : (global_selected_corpus?.id ?? null);
 
   if (error) {
     // Consider a more user-friendly error display, maybe a disabled dropdown with an error message

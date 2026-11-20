@@ -66,7 +66,9 @@ const CloseButton = styled.button`
   color: ${OS_LEGAL_COLORS.textSecondary};
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: transform 0.12s ease, background 0.16s ease;
+  transition:
+    transform 0.12s ease,
+    background 0.16s ease;
 
   &:active {
     transform: scale(0.9);

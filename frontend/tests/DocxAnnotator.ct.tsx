@@ -210,104 +210,104 @@ test("DocxAnnotator respects zoom level prop", async ({ mount, page }) => {
 // getBoundingClientRect returns zeros. The feature works in the live app.
 // TODO: Re-enable when PaginatedDocument supports headless rendering or
 // when we add an unpaginated test mode prop to DocxAnnotator.
-test.fixme(
-  "DocxAnnotator disambiguates repeated text by selecting correct occurrence",
-  async ({ mount, page }) => {
-    await setupDocxodusWasm(page);
-    await setupDocxFixture(page);
+test.fixme("DocxAnnotator disambiguates repeated text by selecting correct occurrence", async ({
+  mount,
+  page,
+}) => {
+  await setupDocxodusWasm(page);
+  await setupDocxFixture(page);
 
-    const component = await mount(<DocxAnnotatorEditableWrapper />);
+  const component = await mount(<DocxAnnotatorEditableWrapper />);
 
-    const annotator = page.getByTestId("docx-annotator");
-    await annotator.waitFor({ state: "visible", timeout: 45_000 });
+  const annotator = page.getByTestId("docx-annotator");
+  await annotator.waitFor({ state: "visible", timeout: 45_000 });
 
-    const content = annotator.locator(".docx-content");
-    await expect(content).toBeVisible();
+  const content = annotator.locator(".docx-content");
+  await expect(content).toBeVisible();
 
-    // sampleDocText has "This" at two positions:
-    //   First:  index 13 ("Hello World. This is...")
-    //   Second: index 57 ("This paragraph contains...")
-    // Offsets are pinned to docxodus@5.5.0 and the sampleDocText fixture
-    // defined in DocxAnnotatorTestWrapper.tsx. Update if either changes.
-    const FIRST_THIS_OFFSET = 13;
-    const SECOND_THIS_OFFSET = 57;
+  // sampleDocText has "This" at two positions:
+  //   First:  index 13 ("Hello World. This is...")
+  //   Second: index 57 ("This paragraph contains...")
+  // Offsets are pinned to docxodus@5.5.0 and the sampleDocText fixture
+  // defined in DocxAnnotatorTestWrapper.tsx. Update if either changes.
+  const FIRST_THIS_OFFSET = 13;
+  const SECOND_THIS_OFFSET = 57;
 
-    // Sanity check: verify sampleDocText actually has "This" at the pinned
-    // offsets. If a docxodus version bump changes text extraction, this gives
-    // a clear failure message rather than a cryptic offset mismatch later.
-    expect(
-      sampleDocText.substring(FIRST_THIS_OFFSET, FIRST_THIS_OFFSET + 4)
-    ).toBe("This");
-    expect(
-      sampleDocText.substring(SECOND_THIS_OFFSET, SECOND_THIS_OFFSET + 4)
-    ).toBe("This");
+  // Sanity check: verify sampleDocText actually has "This" at the pinned
+  // offsets. If a docxodus version bump changes text extraction, this gives
+  // a clear failure message rather than a cryptic offset mismatch later.
+  expect(
+    sampleDocText.substring(FIRST_THIS_OFFSET, FIRST_THIS_OFFSET + 4)
+  ).toBe("This");
+  expect(
+    sampleDocText.substring(SECOND_THIS_OFFSET, SECOND_THIS_OFFSET + 4)
+  ).toBe("This");
 
-    // Find the second occurrence of "This" in the rendered DOM and get its
-    // bounding rect so we can drag-select it with the mouse.
-    const coords = await page.evaluate(() => {
-      const el = document.querySelector(".docx-content");
-      if (!el) throw new Error("No .docx-content element");
+  // Find the second occurrence of "This" in the rendered DOM and get its
+  // bounding rect so we can drag-select it with the mouse.
+  const coords = await page.evaluate(() => {
+    const el = document.querySelector(".docx-content");
+    if (!el) throw new Error("No .docx-content element");
 
-      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-      let node: Node | null;
-      let occurrenceCount = 0;
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let node: Node | null;
+    let occurrenceCount = 0;
 
-      while ((node = walker.nextNode())) {
-        const text = node.textContent || "";
-        let searchStart = 0;
-        while (true) {
-          const idx = text.indexOf("This", searchStart);
-          if (idx === -1) break;
-          occurrenceCount++;
-          if (occurrenceCount === 2) {
-            const range = document.createRange();
-            range.setStart(node, idx);
-            range.setEnd(node, idx + 4);
-            const rect = range.getBoundingClientRect();
-            return {
-              x: rect.x,
-              y: rect.y,
-              right: rect.right,
-              height: rect.height,
-            };
-          }
-          searchStart = idx + 1;
+    while ((node = walker.nextNode())) {
+      const text = node.textContent || "";
+      let searchStart = 0;
+      while (true) {
+        const idx = text.indexOf("This", searchStart);
+        if (idx === -1) break;
+        occurrenceCount++;
+        if (occurrenceCount === 2) {
+          const range = document.createRange();
+          range.setStart(node, idx);
+          range.setEnd(node, idx + 4);
+          const rect = range.getBoundingClientRect();
+          return {
+            x: rect.x,
+            y: rect.y,
+            right: rect.right,
+            height: rect.height,
+          };
         }
+        searchStart = idx + 1;
       }
-      throw new Error(
-        `Only found ${occurrenceCount} occurrences of "This" in DOM`
-      );
-    });
-
-    // Drag-select the second "This" using mouse events
-    const midY = coords.y + coords.height / 2;
-    await page.mouse.move(coords.x, midY);
-    await page.mouse.down();
-    await page.mouse.move(coords.right, midY);
-    await page.mouse.up();
-
-    // The annotation creation menu should appear
-    const annotateButton = page.getByText("Annotate Selection");
-    await annotateButton.waitFor({ state: "visible", timeout: 5_000 });
-
-    // Click "Annotate Selection" to create the annotation
-    await annotateButton.click();
-
-    // The wrapper exposes the created annotation data in a hidden element
-    const lastAnnotation = page.getByTestId("last-annotation");
-    await lastAnnotation.waitFor({ state: "visible", timeout: 5_000 });
-
-    const start = parseInt(
-      (await lastAnnotation.getAttribute("data-start"))!,
-      10
+    }
+    throw new Error(
+      `Only found ${occurrenceCount} occurrences of "This" in DOM`
     );
-    const end = parseInt((await lastAnnotation.getAttribute("data-end"))!, 10);
+  });
 
-    // The annotation should be at the SECOND occurrence (index 57),
-    // NOT the first (index 13). This proves DOM-based disambiguation works.
-    expect(start).toBe(SECOND_THIS_OFFSET);
-    expect(end).toBe(SECOND_THIS_OFFSET + 4);
+  // Drag-select the second "This" using mouse events
+  const midY = coords.y + coords.height / 2;
+  await page.mouse.move(coords.x, midY);
+  await page.mouse.down();
+  await page.mouse.move(coords.right, midY);
+  await page.mouse.up();
 
-    await component.unmount();
-  }
-);
+  // The annotation creation menu should appear
+  const annotateButton = page.getByText("Annotate Selection");
+  await annotateButton.waitFor({ state: "visible", timeout: 5_000 });
+
+  // Click "Annotate Selection" to create the annotation
+  await annotateButton.click();
+
+  // The wrapper exposes the created annotation data in a hidden element
+  const lastAnnotation = page.getByTestId("last-annotation");
+  await lastAnnotation.waitFor({ state: "visible", timeout: 5_000 });
+
+  const start = parseInt(
+    (await lastAnnotation.getAttribute("data-start"))!,
+    10
+  );
+  const end = parseInt((await lastAnnotation.getAttribute("data-end"))!, 10);
+
+  // The annotation should be at the SECOND occurrence (index 57),
+  // NOT the first (index 13). This proves DOM-based disambiguation works.
+  expect(start).toBe(SECOND_THIS_OFFSET);
+  expect(end).toBe(SECOND_THIS_OFFSET + 4);
+
+  await component.unmount();
+});

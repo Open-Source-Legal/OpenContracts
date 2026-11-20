@@ -126,14 +126,14 @@ const TokenStatusBadge = styled.span<{
     $variant === "active"
       ? OS_LEGAL_COLORS.successLight
       : $variant === "revoked"
-      ? OS_LEGAL_COLORS.dangerLight
-      : OS_LEGAL_COLORS.surfaceHover};
+        ? OS_LEGAL_COLORS.dangerLight
+        : OS_LEGAL_COLORS.surfaceHover};
   color: ${({ $variant }) =>
     $variant === "active"
       ? OS_LEGAL_COLORS.success
       : $variant === "revoked"
-      ? OS_LEGAL_COLORS.danger
-      : OS_LEGAL_COLORS.textMuted};
+        ? OS_LEGAL_COLORS.danger
+        : OS_LEGAL_COLORS.textMuted};
 `;
 
 const MonoText = styled.span`
@@ -197,14 +197,14 @@ const StatChip = styled.span<{ $variant: "pending" | "completed" | "failed" }>`
     $variant === "completed"
       ? OS_LEGAL_COLORS.successLight
       : $variant === "failed"
-      ? OS_LEGAL_COLORS.dangerLight
-      : OS_LEGAL_COLORS.accentLight};
+        ? OS_LEGAL_COLORS.dangerLight
+        : OS_LEGAL_COLORS.accentLight};
   color: ${({ $variant }) =>
     $variant === "completed"
       ? OS_LEGAL_COLORS.success
       : $variant === "failed"
-      ? OS_LEGAL_COLORS.danger
-      : OS_LEGAL_COLORS.accent};
+        ? OS_LEGAL_COLORS.danger
+        : OS_LEGAL_COLORS.accent};
 `;
 
 // ---------------------------------------------------------------------------
@@ -466,8 +466,8 @@ export const WorkerTokensSection: React.FC<WorkerTokensSectionProps> = ({
                           {status === "active"
                             ? "Active"
                             : status === "revoked"
-                            ? "Revoked"
-                            : "Expired"}
+                              ? "Revoked"
+                              : "Expired"}
                         </TokenStatusBadge>
                       </Table.Cell>
                       <Table.Cell>{formatExpiry(token.expiresAt)}</Table.Cell>

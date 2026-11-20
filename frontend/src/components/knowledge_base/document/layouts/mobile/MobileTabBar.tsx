@@ -64,7 +64,9 @@ const IconWell = styled.span<{ $active: boolean }>`
   border-radius: ${MOBILE_RADIUS.pill};
   background: ${(p) =>
     p.$active ? OS_LEGAL_COLORS.accentLight : "transparent"};
-  transition: background 0.18s ease, transform 0.12s ease;
+  transition:
+    background 0.18s ease,
+    transform 0.12s ease;
 
   ${Tab}:active & {
     transform: scale(0.94);

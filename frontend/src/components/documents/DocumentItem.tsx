@@ -95,11 +95,14 @@ const StyledCard = styled.div`
   display: flex;
   flex-direction: column;
   width: 100%;
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  box-shadow:
+    0 1px 3px 0 rgba(0, 0, 0, 0.1),
+    0 1px 2px 0 rgba(0, 0, 0, 0.06);
 
   &:hover {
     transform: translateY(-4px);
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1),
+    box-shadow:
+      0 20px 25px -5px rgba(0, 0, 0, 0.1),
       0 10px 10px -5px rgba(0, 0, 0, 0.04);
     border-color: ${OS_LEGAL_COLORS.borderHover};
 
@@ -121,7 +124,8 @@ const StyledCard = styled.div`
 
   &.is-selected {
     border-color: ${OS_LEGAL_COLORS.primaryBlue};
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1),
+    box-shadow:
+      0 0 0 3px rgba(59, 130, 246, 0.1),
       0 10px 15px -3px rgba(0, 0, 0, 0.1);
   }
 

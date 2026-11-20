@@ -180,8 +180,9 @@ export const PaperContainer = styled.div<PaperContainerProps>`
   overflow: auto;
 
   /* Text rendering improvements */
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
-    Arial, sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
   font-size: 16px;
   line-height: 1.6;
   color: #2c3e50;

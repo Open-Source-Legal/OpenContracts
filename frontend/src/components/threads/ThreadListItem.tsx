@@ -153,7 +153,11 @@ const ThreadTitle = styled.h3`
 `;
 
 const ThreadDescription = styled.p`
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   font-size: 15px;
   color: ${OS_LEGAL_COLORS.textTertiary};
   margin: 0;
@@ -221,7 +225,11 @@ const AuthorInfo = styled.div`
 `;
 
 const AuthorName = styled.span`
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   font-size: 14px;
   font-weight: 600;
   color: ${OS_LEGAL_COLORS.textTertiary};

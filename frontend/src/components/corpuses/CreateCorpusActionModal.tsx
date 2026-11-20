@@ -102,10 +102,7 @@ interface CreateCorpusActionModalProps {
 
 type ActionType = "fieldset" | "analyzer" | "agent";
 type TriggerType =
-  | "add_document"
-  | "edit_document"
-  | "new_thread"
-  | "new_message";
+  "add_document" | "edit_document" | "new_thread" | "new_message";
 
 export const CreateCorpusActionModal: React.FC<
   CreateCorpusActionModalProps
@@ -483,8 +480,8 @@ export const CreateCorpusActionModal: React.FC<
                     ? selectedModerationTools
                     : selectedDocumentTools
                   : preAuthorizedTools.length > 0
-                  ? preAuthorizedTools
-                  : undefined
+                    ? preAuthorizedTools
+                    : undefined
                 : undefined,
             // Inline agent creation parameters
             createAgentInline: isInlineAgentCreation ? true : undefined,
@@ -593,10 +590,7 @@ export const CreateCorpusActionModal: React.FC<
             value={trigger}
             onChange={(value) => {
               const newTrigger = value as
-                | "add_document"
-                | "edit_document"
-                | "new_thread"
-                | "new_message";
+                "add_document" | "edit_document" | "new_thread" | "new_message";
               setTrigger(newTrigger);
               // Thread/message triggers only support agent-based actions
               if (newTrigger === "new_thread" || newTrigger === "new_message") {
@@ -779,10 +773,10 @@ export const CreateCorpusActionModal: React.FC<
                     {trigger === "new_thread"
                       ? "a new discussion thread is created"
                       : trigger === "new_message"
-                      ? "a new message is posted to a thread"
-                      : trigger === "add_document"
-                      ? "a document is added to this corpus"
-                      : "a document is edited in this corpus"}
+                        ? "a new message is posted to a thread"
+                        : trigger === "add_document"
+                          ? "a document is added to this corpus"
+                          : "a document is edited in this corpus"}
                     .
                   </>
                 </InfoMessage>

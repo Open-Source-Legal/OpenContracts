@@ -96,7 +96,7 @@ const RouteParamInitializer: React.FC<{
     const newHomeView: CorpusHomeViewType | null =
       homeViewParam === "toc" || homeViewParam === "about"
         ? homeViewParam
-        : initialHomeView ?? null;
+        : (initialHomeView ?? null);
     corpusHomeView(newHomeView);
 
     // Parse tocExpanded from URL

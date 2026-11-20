@@ -709,8 +709,8 @@ export const Annotations = () => {
                     filter_to_labelset_id
                       ? filter_to_labelset_id
                       : filtered_to_corpus?.labelSet?.id
-                      ? filtered_to_corpus.labelSet.id
-                      : undefined
+                        ? filtered_to_corpus.labelSet.id
+                        : undefined
                   }
                 />
               </FilterWidgetWrapper>
