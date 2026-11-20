@@ -1,0 +1,1 @@
+- **Frontend: web-vitals 2.1 → 6.2** (`frontend/package.json`, `frontend/src/reportWebVitals.ts`): moved to the `on*` API (`onCLS`, `onFCP`, `onINP`, `onLCP`, `onTTFB`); `getFID` no longer exists (FID was replaced by INP) and `ReportHandler` became `(metric: Metric) => void`.
