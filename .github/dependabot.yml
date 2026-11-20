@@ -71,6 +71,10 @@ updates:
         versions: [">=2.14"]
       - dependency-name: "torchvision"
         versions: [">=0.29"]
+      # optimum-intel (pinned commit in embedder/requirements.txt) caps
+      # transformers below 5.16; lift together with that pin (issue #2488).
+      - dependency-name: "transformers"
+        versions: [">=5.16"]
 
   # Packages installed by yarn in the frontend Docker build.
   - package-ecosystem: "npm"
