@@ -1023,7 +1023,7 @@ class EnrichmentService:
         refs = list(
             CorpusReference.objects.filter(corpus=corpus, reference_type=C.REF_LAW)
             .exclude(canonical_key=None)
-            .select_related("source_annotation")
+            .select_related("source_annotation", "target_document")
         )
         # Resolve each distinct key once under the audience floor.
         target_cache: dict[str, Document | None] = {}
@@ -1086,11 +1086,13 @@ class EnrichmentService:
             )
             if target is not None and target_corpus_id is not None:
                 if (
-                    ref.target_document_id != target.id
+                    ref.target_document is None
+                    or ref.target_document.version_tree_id != target.version_tree_id
                     or ref.resolution_status != C.STATUS_RESOLVED
                 ):
                     ref.target_document = target
                     ref.target_corpus_id = target_corpus_id
+                    ref.target_annotation_id = None
                     ref.resolution_status = C.STATUS_RESOLVED
                     # bulk_update bypasses auto_now — stamp ``modified``.
                     ref.modified = now
@@ -1104,6 +1106,7 @@ class EnrichmentService:
                 # broken link.
                 ref.target_document_id = None
                 ref.target_corpus_id = None
+                ref.target_annotation_id = None
                 ref.resolution_status = C.STATUS_EXTERNAL
                 ref.modified = now
                 demoted.append(ref)
@@ -1113,7 +1116,13 @@ class EnrichmentService:
         if promoted or demoted:
             CorpusReference.objects.bulk_update(
                 promoted + demoted,
-                ["target_document", "target_corpus", "resolution_status", "modified"],
+                [
+                    "target_document",
+                    "target_corpus",
+                    "target_annotation",
+                    "resolution_status",
+                    "modified",
+                ],
             )
         restamped = self._restamp_mention_links(corpus)
         return {
@@ -1137,13 +1146,15 @@ class EnrichmentService:
         """
         from django.db.models import Q
 
+        from opencontractserver.documents.models import DocumentPath
+
         # Bound the scan to refs that can actually change: either RESOLVED (need
         # a link computed/refreshed) or carrying a non-null mention link_url
         # (formerly resolved, now demoted → needs clearing). Every other ref is
         # unresolved with an already-null link, so the loop below would compute
         # link_url=None and skip the write — loading them only inflates memory
         # (tens of thousands of unresolved refs on a large corpus).
-        refs = (
+        refs = list(
             CorpusReference.objects.filter(
                 corpus=corpus,
                 reference_type__in=(C.REF_LAW, C.REF_DOCUMENT),
@@ -1156,6 +1167,16 @@ class EnrichmentService:
                 "source_annotation", "target_document", "target_corpus__creator"
             )
         )
+        # Include historical paths: the link opens the version actually cited.
+        versions = {
+            (doc_id, corpus_id): number
+            for doc_id, corpus_id, number in DocumentPath.objects.filter(
+                document_id__in={
+                    r.target_document_id for r in refs if r.target_document_id
+                },
+                corpus_id__in={r.target_corpus_id or corpus.pk for r in refs},
+            ).values_list("document_id", "corpus_id", "version_number")
+        }
         now = timezone.now()
         changed: dict[int, Annotation] = {}
         for ref in refs:
@@ -1172,6 +1193,7 @@ class EnrichmentService:
                     corpus_creator_slug=target_corpus.creator.slug,
                     corpus_slug=target_corpus.slug,
                     document_slug=target_document.slug,
+                    version_number=versions.get((target_document.pk, target_corpus.pk)),
                 )
             else:
                 # Unresolved / demoted — no clickable link.

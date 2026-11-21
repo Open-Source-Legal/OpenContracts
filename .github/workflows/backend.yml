@@ -19,8 +19,9 @@ on:
   # filter below still keeps the expensive jobs from running, and a
   # docs-only PR costs two ubuntu-latest jobs of a few seconds each.
   # `push` keeps its filter: branch protection does not gate pushes.
+  # No `branches` filter either: a PR stacked on a feature branch must run
+  # the suite too, or Codecov scores its backend patch from E2E alone.
   pull_request:
-    branches: [ "master", "main", "v*" ]
 
   push:
     branches: [ "master", "main", "v*" ]

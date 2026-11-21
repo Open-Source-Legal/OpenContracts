@@ -128,6 +128,9 @@ export type AnnotationLabelTypeEdge = {
  * for documents (`RawDocumentType` ⇢ `DocumentType`).
  */
 export type RawServerAnnotationType = Node & {
+  versionState?:
+    | import("../graphql/annotationVersionReview").AnnotationVersionState
+    | null;
   __typename?: "AnnotationType";
   id: Scalars["ID"];
   parent?: Maybe<ServerAnnotationType>; // keep typed reference

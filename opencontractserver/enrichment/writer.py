@@ -15,7 +15,7 @@ import logging
 from dataclasses import dataclass, field
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import OuterRef, Q, Subquery
 
 from opencontractserver.annotations.models import (
     RELATIONSHIP_LABEL,
@@ -25,7 +25,11 @@ from opencontractserver.annotations.models import (
     CorpusReference,
     Relationship,
 )
-from opencontractserver.documents.models import Document, DocumentRelationship
+from opencontractserver.documents.models import (
+    Document,
+    DocumentPath,
+    DocumentRelationship,
+)
 from opencontractserver.enrichment import constants as C
 from opencontractserver.enrichment.authorities import (
     classify_canonical_key,
@@ -455,12 +459,32 @@ class EnrichmentWriter:
         row for the same (source, target, label) pair already satisfies the
         projection (no duplicate is added).
         """
+        from opencontractserver.enrichment.services.corpus_reference_service import (
+            CorpusReferenceService,
+        )
+
+        # The graph is a current projection; the citation keeps its original target.
+        current_target = DocumentPath.objects.filter(
+            document__version_tree_id=OuterRef("target_document__version_tree_id"),
+            corpus=self.corpus,
+            is_current=True,
+            is_deleted=False,
+        ).values("document_id")[:1]
         expected = set(
-            CorpusReference.objects.filter(
-                corpus=self.corpus,
-                reference_type=C.REF_DOCUMENT,
-                target_document__isnull=False,
-            ).values_list("source_annotation__document_id", "target_document_id")
+            CorpusReferenceService.current_sources(
+                CorpusReference.objects.filter(
+                    corpus=self.corpus,
+                    reference_type=C.REF_DOCUMENT,
+                    resolution_status=C.STATUS_RESOLVED,
+                    target_document__isnull=False,
+                )
+            )
+            .annotate(current_target_id=Subquery(current_target))
+            .filter(
+                current_target_id__isnull=False,
+                source_annotation__document_id__isnull=False,
+            )
+            .values_list("source_annotation__document_id", "current_target_id")
         )
 
         # Materialise the current projection once — we both prune stale rows

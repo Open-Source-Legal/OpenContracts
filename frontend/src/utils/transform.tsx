@@ -108,7 +108,8 @@ export function convertToDocTypeAnnotation(
   return new DocTypeAnnotation(
     serverAnnotation.annotationLabel,
     transformedPermissions,
-    serverAnnotation.id
+    serverAnnotation.id,
+    serverAnnotation.versionState
   );
 }
 
@@ -148,7 +149,8 @@ export function convertToServerAnnotation(
       allowComments ?? false,
       annotation.id,
       annotation.contentModalities,
-      annotation.linkUrl ?? null
+      annotation.linkUrl ?? null,
+      annotation.versionState
     );
   }
 
@@ -166,7 +168,8 @@ export function convertToServerAnnotation(
     allowComments ?? false,
     annotation.id,
     annotation.contentModalities,
-    annotation.linkUrl ?? null
+    annotation.linkUrl ?? null,
+    annotation.versionState
   );
 }
 

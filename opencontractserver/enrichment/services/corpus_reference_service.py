@@ -7,17 +7,108 @@ per-object guardian rows in v1.
 
 from __future__ import annotations
 
-from django.db.models import Q
+from django.db.models import Exists, F, OuterRef, Q
 
 from opencontractserver.annotations.models import CorpusReference
 from opencontractserver.corpuses.models import Corpus
-from opencontractserver.documents.models import Document
+from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.enrichment import constants as C
 from opencontractserver.shared.services.base import BaseService
 
 
 class CorpusReferenceService(BaseService):
     """Read surface for CorpusReference rows."""
+
+    @staticmethod
+    def target_is_superseded(reference) -> bool:
+        return bool(
+            reference.target_document and not reference.target_document.is_current
+        )
+
+    @classmethod
+    def for_user(cls, user, *, include_historical=False):
+        """GraphQL entry point, separate from model-manager permission primitives."""
+        return cls.visible_to_user(user, include_historical=include_historical)
+
+    @staticmethod
+    def current_sources(queryset):
+        """Restrict each reference to an active source path in its own corpus.
+
+        Structural sources belong to a shared set rather than a document FK.
+        EXISTS avoids duplicates when a document has more than one path.
+        """
+        paths = DocumentPath.objects.filter(
+            Q(document_id=OuterRef("source_annotation__document_id"))
+            | Q(
+                document__structural_annotation_set_id=OuterRef(
+                    "source_annotation__structural_set_id"
+                )
+            ),
+            corpus_id=OuterRef("corpus_id"),
+            is_current=True,
+            is_deleted=False,
+        )
+        return queryset.filter(Exists(paths))
+
+    @classmethod
+    def current_target(cls, reference, user, *, request=None):
+        """Resolve visible current targets in one batch per source corpus/request."""
+        if reference.target_document_id is None:
+            return None
+        cache = getattr(request, "_reference_current_targets", {})
+        if reference.corpus_id not in cache:
+            trees = CorpusReference.objects.filter(
+                corpus_id=reference.corpus_id,
+                target_document__isnull=False,
+            ).values("target_document__version_tree_id")
+            documents = (
+                Document.objects.visible_to_user(user, lightweight=True)
+                .filter(
+                    version_tree_id__in=trees,
+                    is_current=True,
+                    path_records__is_current=True,
+                    path_records__is_deleted=False,
+                    path_records__corpus__in=Corpus.objects.visible_to_user(user),
+                )
+                .annotate(
+                    _reference_corpus_id=F("path_records__corpus_id"),
+                    _reference_version_number=F("path_records__version_number"),
+                )
+                .select_related("creator")
+            )
+            cache[reference.corpus_id] = {
+                (doc.version_tree_id, doc._reference_corpus_id): doc
+                for doc in documents
+            }
+            if request is not None:
+                request._reference_current_targets = cache
+        return cache[reference.corpus_id].get(
+            (
+                reference.target_document.version_tree_id,
+                reference.target_corpus_id or reference.corpus_id,
+            )
+        )
+
+    @staticmethod
+    def target_version_number(reference, *, request):
+        cache = getattr(request, "_reference_target_versions", {})
+        if reference.corpus_id not in cache:
+            targets = CorpusReference.objects.filter(
+                corpus_id=reference.corpus_id
+            ).values("target_document_id")
+            cache[reference.corpus_id] = {
+                (doc_id, corpus_id): number
+                for doc_id, corpus_id, number in DocumentPath.objects.filter(
+                    document_id__in=targets,
+                ).values_list("document_id", "corpus_id", "version_number")
+            }
+            request._reference_target_versions = cache
+        return cache[reference.corpus_id].get(
+            (
+                reference.target_document_id,
+                reference.target_corpus_id or reference.corpus_id,
+            )
+        )
 
     @staticmethod
     def _build_visibility_querysets(user):
@@ -50,9 +141,19 @@ class CorpusReferenceService(BaseService):
         structural-annotation-sourced reference (including the corpus owner's
         own) would be silently dropped.
         """
+        visible_sets = Document.objects.filter(
+            pk__in=visible_documents,
+            structural_annotation_set__isnull=False,
+        ).values("structural_annotation_set_id")
         return Q(corpus__in=visible_corpora) & (
             (
-                Q(source_annotation__document__isnull=True)
+                (
+                    Q(source_annotation__document__isnull=True)
+                    & (
+                        Q(source_annotation__structural_set__isnull=True)
+                        | Q(source_annotation__structural_set_id__in=visible_sets)
+                    )
+                )
                 | Q(source_annotation__document__in=visible_documents)
             )
             & (
@@ -89,7 +190,7 @@ class CorpusReferenceService(BaseService):
         )
 
     @classmethod
-    def visible_to_user_by_source(cls, user):
+    def visible_to_user_by_source(cls, user, *, include_historical=False):
         """References whose parent corpus AND source annotation are visible.
 
         Enforces corpus READ and source-annotation visibility, but does NOT
@@ -106,12 +207,13 @@ class CorpusReferenceService(BaseService):
         references whose target is invisible.
         """
         visible_corpora, visible_documents = cls._build_visibility_querysets(user)
-        return CorpusReference.objects.filter(
+        qs = CorpusReference.objects.filter(
             cls._source_visible_q(visible_corpora, visible_documents)
         )
+        return qs if include_historical else cls.current_sources(qs)
 
     @classmethod
-    def visible_to_user(cls, user):
+    def visible_to_user(cls, user, *, include_historical=False):
         """Return only references whose exposed graph is visible to ``user``.
 
         Corpus references are reachable from a readable corpus, but each row
@@ -128,17 +230,42 @@ class CorpusReferenceService(BaseService):
         references are not dropped before they can be degraded.
         """
         visible_corpora, visible_documents = cls._build_visibility_querysets(user)
-        return CorpusReference.objects.filter(
+        qs = CorpusReference.objects.filter(
             cls._source_visible_q(visible_corpora, visible_documents)
             & cls._target_visible_q(visible_corpora, visible_documents)
         )
+        qs = qs.select_related(
+            "source_annotation",
+            "target_document",
+            "target_corpus",
+            "target_annotation",
+            "corpus",
+        )
+        return qs if include_historical else cls.current_sources(qs)
 
     @classmethod
-    def for_corpus(cls, user, corpus_id: int):
-        return cls.visible_to_user(user).filter(corpus_id=corpus_id)
+    def for_corpus(cls, user, corpus_id: int, *, include_historical=False):
+        return cls.visible_to_user(user, include_historical=include_historical).filter(
+            corpus_id=corpus_id
+        )
 
     @classmethod
-    def for_corpus_by_source(cls, user, corpus_id: int):
+    def for_document(cls, user, document, corpus_id, *, include_historical=False):
+        """Outbound citations in this corpus plus inbound citations to this tree."""
+        return cls.visible_to_user(user, include_historical=include_historical).filter(
+            Q(corpus_id=corpus_id, source_annotation__document=document)
+            | Q(
+                target_document__version_tree_id=document.version_tree_id,
+                target_corpus_id=corpus_id,
+            )
+            | Q(
+                corpus_id=corpus_id,
+                target_document__version_tree_id=document.version_tree_id,
+            )
+        )
+
+    @classmethod
+    def for_corpus_by_source(cls, user, corpus_id: int, *, include_historical=False):
         """Corpus-scoped variant of :meth:`visible_to_user_by_source`.
 
         For callers that ghost invisible targets themselves (the governance
@@ -146,7 +273,9 @@ class CorpusReferenceService(BaseService):
         authority crawl frontier seed), so target-hidden references must not be
         pre-filtered out.
         """
-        return cls.visible_to_user_by_source(user).filter(corpus_id=corpus_id)
+        return cls.visible_to_user_by_source(
+            user, include_historical=include_historical
+        ).filter(corpus_id=corpus_id)
 
     @classmethod
     def wanted_authorities(

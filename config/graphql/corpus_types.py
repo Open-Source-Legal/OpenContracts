@@ -1182,7 +1182,9 @@ class CorpusType(Node):
                 "last": last,
             }
         )
-        resolved = getattr(self, "references", None)
+        from opencontractserver.enrichment.services import CorpusReferenceService
+
+        resolved = CorpusReferenceService.for_corpus(info.context.user, self.id)
         return resolve_django_connection(
             resolved=resolved,
             info=info,
@@ -1194,6 +1196,7 @@ class CorpusType(Node):
     def inbound_references(
         self,
         info: strawberry.Info,
+        include_historical: bool = False,
         offset: Annotated[
             int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
@@ -1222,7 +1225,11 @@ class CorpusType(Node):
                 "last": last,
             }
         )
-        resolved = getattr(self, "inbound_references", None)
+        from opencontractserver.enrichment.services import CorpusReferenceService
+
+        resolved = CorpusReferenceService.for_user(
+            info.context.user, include_historical=include_historical
+        ).filter(target_corpus_id=self.id)
         return resolve_django_connection(
             resolved=resolved,
             info=info,
