@@ -12,7 +12,7 @@ ARG NODE_MAX_OLD_SPACE_SIZE=4096
 RUN NODE_OPTIONS=--max-old-space-size=${NODE_MAX_OLD_SPACE_SIZE} yarn build
 
 # => Run container
-FROM nginx:1.31.8-alpine
+FROM nginx:1.31.9-alpine
 
 LABEL version="1.0"
 LABEL description="Base docker image for Open Contracts GUI"
