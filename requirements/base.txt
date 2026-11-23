@@ -1,6 +1,6 @@
 Pillow>=13.0.0  # https://github.com/python-pillow/Pillow
 argon2-cffi==25.1.0  # https://github.com/hynek/argon2_cffi
-hiredis==3.4.2  # https://github.com/redis/hiredis-py
+hiredis==3.5.0  # https://github.com/redis/hiredis-py
 redis==8.1.0  # https://github.com/redis/redis-py
 celery==5.6.3  # pyup: < 6.0  # https://github.com/celery/celery
 kombu==5.6.2  # https://github.com/celery/kombu
