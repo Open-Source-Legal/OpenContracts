@@ -34,8 +34,5 @@ class AnthropicProvider(BaseLLMProvider):
         "claude-opus-4-6",
         "claude-sonnet-4-6",
         "claude-haiku-4-5",
-        "claude-3-7-sonnet-latest",
-        "claude-3-5-sonnet-latest",
-        "claude-3-5-haiku-latest",
     )
     requires_api_key: ClassVar[bool] = True

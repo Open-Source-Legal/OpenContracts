@@ -62,4 +62,4 @@ DEFAULT_COMPLETION_TEMPERATURE = 0.7
 # family* is retargetable at runtime instead: both tasks read
 # ``ANTHROPIC_MODEL`` from their per-task ``settings.ANALYZER_KWARGS`` entry
 # and fall back to this constant (issue #2078).
-CLAUDE_ANALYZER_DEFAULT_MODEL = "claude-3-5-sonnet-latest"
+CLAUDE_ANALYZER_DEFAULT_MODEL = "claude-sonnet-4-6"
