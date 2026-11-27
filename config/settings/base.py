@@ -18,6 +18,7 @@ from opencontractserver.constants.document_processing import (
     DEFAULT_MAX_CORPUS_REINGEST_SOURCE_BYTES,
     DOCLING_PARSER_REQUEST_TIMEOUT_SECONDS,
     GOTENBERG_CONVERTER_REQUEST_TIMEOUT_SECONDS,
+    LITEPARSE_PARSER_REQUEST_TIMEOUT_SECONDS,
     MAX_FILE_UPLOAD_SIZE_BYTES,
     WARP_INGEST_PARSER_REQUEST_TIMEOUT_SECONDS,
 )
@@ -1257,6 +1258,19 @@ WARP_INGEST_PARSER_TIMEOUT = env.int(
 )
 WARP_INGEST_API_KEY = env("WARP_INGEST_API_KEY", default="")
 
+# LiteParse (OCRia-nano) parser microservice (optional; built locally behind the
+# ``liteparse`` compose profile because the model weights carry their own
+# licence). These seed the LiteParseParser component settings via
+# ``migrate_pipeline_settings``; the DB PipelineSettings singleton is the runtime
+# source of truth. See ``docs/pipelines/liteparse_parser.md``.
+LITEPARSE_PARSER_SERVICE_URL = env(
+    "LITEPARSE_PARSER_SERVICE_URL", default="http://liteparse:8000/parse"
+)
+LITEPARSE_PARSER_TIMEOUT = env.int(
+    "LITEPARSE_PARSER_TIMEOUT", default=LITEPARSE_PARSER_REQUEST_TIMEOUT_SECONDS
+)
+LITEPARSE_API_KEY = env("LITEPARSE_API_KEY", default="")
+
 # Gotenberg Settings - for the optional pre-parse file-to-PDF converter
 # (GotenbergFileConverter). These seed the converter's component settings via
 # ``migrate_pipeline_settings`` (PipelineSetting env_var metadata); the DB
@@ -1393,7 +1407,7 @@ DEFAULT_IMAGE = """data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAgAAAAIACAYAAAD
 DOCLING_MODELS_PATH = env.str("DOCLING_MODELS_PATH", default="/models/docling")
 
 # Parser selection via environment variable
-# Options: "docling" (default), "llamaparse", "warp_ingest"
+# Options: "docling" (default), "llamaparse", "warp_ingest", "liteparse"
 PDF_PARSER = env.str("PDF_PARSER", default="docling")
 
 # Map parser names to their full paths
@@ -1401,6 +1415,7 @@ _PDF_PARSER_MAP = {
     "docling": "opencontractserver.pipeline.parsers.docling_parser_rest.DoclingParser",
     "llamaparse": "opencontractserver.pipeline.parsers.llamaparse_parser.LlamaParseParser",
     "warp_ingest": "opencontractserver.pipeline.parsers.warp_ingest_parser.WarpIngestParser",
+    "liteparse": "opencontractserver.pipeline.parsers.liteparse_parser.LiteParseParser",
 }
 
 # Get the selected PDF parser (with fallback to docling)
