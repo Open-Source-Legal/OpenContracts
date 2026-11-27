@@ -1,0 +1,7 @@
+OCRia-nano-1 (LlamaIndex) is NOT covered by OpenContracts' MIT licence.
+Its weights are licensed under the "OCRia-nano-1 Model License" (Open RAIL-M based):
+  - free for research, personal use, and organisations under $2M annual revenue AND $2M total funding;
+  - a commercial licence is required above those thresholds, and for any document
+    parsing/OCR/extraction product that competes with LlamaParse or LlamaCloud, at any size.
+Read the full licence: https://huggingface.co/llamaindex/OCRia-nano-1
+To accept it and build this image, set OCRIA_NANO_ACCEPT_LICENSE=yes.
