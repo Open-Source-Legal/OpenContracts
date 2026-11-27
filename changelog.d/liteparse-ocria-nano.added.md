@@ -11,3 +11,4 @@
   - **Sizing:** one worker, 300 pages and `mem_limit: 6g` by default, derived from measured peaks (~0.5 GiB + 11.5 MiB per scanned page). A 300-page scan peaks at 3.8 GiB under the cap. Two concurrent 200-page scans under the earlier 3 GB cap OOM-killed a worker.
   - **Shared HTTP helpers:** the error-classification, JSON-decode and filename helpers shared with `WarpIngestParser` moved to `opencontractserver/utils/parser_service_http.py`.
   - **Docs:** `docs/pipelines/liteparse_parser.md`.
+  - **Upgrade note:** the `WarpIngestParser` refactor changes `warp_ingest_parser.py`, which remote-ingest's `implementation_digest` hashes. Existing Warp remote-ingest checkpoints are therefore invalidated once on deploy, though parse output is unchanged.
