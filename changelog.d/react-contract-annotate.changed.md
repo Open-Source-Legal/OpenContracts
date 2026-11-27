@@ -18,8 +18,10 @@
   `MobileFindSheet` are gone.
 - DOCX gets the PDF's selection menu (Copy Text, Copy Link to a `?tb=` span,
   Apply Label) and Edit / Delete beside annotation labels; the DOCX viewer
-  now applies "Show selected only" like the other formats. A drag over a
-  PDF that captures no token no longer opens an (empty) selection menu.
+  now applies "Show selected only" like the other formats, and shows the
+  selected chat message's sources (or the one picked) like the PDF does,
+  instead of every message's sources at once. A drag over a PDF that
+  captures no token no longer opens an (empty) selection menu.
 - The pdf.js worker is configured with the library's `configurePdfWorker`
   (`DocumentKnowledgeBase.tsx`), on the same `pdfjs-dist/legacy` instance
   OpenContracts loads documents with. Vitest inlines the library
