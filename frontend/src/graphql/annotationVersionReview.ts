@@ -7,11 +7,7 @@ import { RawServerAnnotationType } from "../types/graphql-api";
  * person's decision.
  */
 export type AnnotationVersionState =
-  | "AUTO"
-  | "STALE"
-  | "REAPPROVED"
-  | "CORRECTED"
-  | "DROPPED";
+  "AUTO" | "STALE" | "REAPPROVED" | "CORRECTED" | "DROPPED";
 
 export const PENDING_VERSION_STATES: ReadonlySet<AnnotationVersionState> =
   new Set(["AUTO", "STALE"]);
