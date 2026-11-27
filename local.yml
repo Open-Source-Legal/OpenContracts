@@ -229,9 +229,11 @@ services:
       - liteparse
     environment:
       LITEPARSE_API_KEY: ${LITEPARSE_API_KEY:-abc123}
-    # Hard cap — see docling-parser's mem_limit comment. Each LiteParse pool
-    # worker holds PDFium + the ONNX models; the cap contains a runaway parse.
-    mem_limit: 3g
+    # Hard cap sized from measured peaks: one parse of a 300-page scan (the
+    # default LITEPARSE_MAX_PAGES, with LITEPARSE_POOL_SIZE=1) peaks ~3.8 GiB.
+    # Raising either setting needs a matching cap — see
+    # docs/pipelines/liteparse_parser.md ("Memory and concurrency").
+    mem_limit: 6g
     restart: unless-stopped
 
   # Powers the optional pre-parse file-to-PDF converter

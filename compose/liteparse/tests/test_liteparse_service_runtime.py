@@ -30,10 +30,10 @@ def _model(name=MODEL_NAME, version="1.0.0", complete=True):
 def test_load_config_defaults():
     assert load_config(_BASE_ENV) == ServiceConfig(
         api_key="k",
-        pool_size=2,
+        pool_size=1,
         parse_timeout=1500.0,
         ocr_workers=4,
-        max_pages=2000,
+        max_pages=300,
         max_upload_mb=200,
         model_version="1.0.0",
     )
@@ -101,6 +101,6 @@ def test_parser_options_pin_backend_and_tolerate_page_errors():
     assert options["extract_blocks"] is True
     assert options["continue_on_page_error"] is True
     assert options["max_pages"] == 7
-    assert options["pool_size"] == 2
+    assert options["pool_size"] == 1
     assert options["parse_timeout"] == 1500.0
     assert options["num_workers"] == 4

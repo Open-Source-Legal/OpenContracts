@@ -13,15 +13,22 @@ from typing import Any
 
 MODEL_NAME = "ocria-nano"
 
-# Concurrent parses. A request beyond this waits for a free worker, and that wait
-# is NOT bounded by the parse timeout below, so set it to at least the number of
-# Celery worker slots that may parse PDFs at once (see docs/pipelines/liteparse_parser.md).
-DEFAULT_POOL_SIZE = 2
+# Memory budget (measured, LiteParse 2.21.3 + ocria-nano 1.0.0, scanned pages at
+# the default 300 DPI): one parse peaks at ~0.5 GiB + ~11.5 MiB per page
+# (100 pages 1.7 GiB, 300 pages 3.8 GiB, 400 pages 5.1 GiB). The container's
+# mem_limit must cover pool_size x that peak at max_pages, or a large scan's
+# worker is OOM-killed and can take a concurrent parse down with it. Defaults:
+# one worker, 300 pages, mem_limit 6g (~64% at the limit). See
+# docs/pipelines/liteparse_parser.md before raising any of the three.
+#
+# A request beyond pool_size waits for a free worker; that wait is NOT bounded
+# by the parse timeout below.
+DEFAULT_POOL_SIZE = 1
 # Per-parse deadline, kept below OpenContracts' LITEPARSE_PARSER_REQUEST_TIMEOUT_SECONDS
 # (1800) so a single stalled parse reports 504 before the client gives up.
 DEFAULT_PARSE_TIMEOUT_SECONDS = 1500.0
 DEFAULT_OCR_WORKERS = 4
-DEFAULT_MAX_PAGES = 2000
+DEFAULT_MAX_PAGES = 300
 DEFAULT_MAX_UPLOAD_MB = 200
 
 

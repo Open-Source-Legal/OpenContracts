@@ -8,5 +8,6 @@
     - A page LiteParse can't extract becomes an empty, page-aligned page and a warning, instead of failing the document.
     - A crashed or OOM-killed worker returns a retryable 503, not a permanent 422.
     - Blocks LiteParse splits off a longer line take only words no other block owns, so they don't duplicate their neighbour.
+  - **Sizing:** one worker, 300 pages and `mem_limit: 6g` by default, derived from measured peaks (~0.5 GiB + 11.5 MiB per scanned page). A 300-page scan peaks at 3.8 GiB under the cap. Two concurrent 200-page scans under the earlier 3 GB cap OOM-killed a worker.
   - **Shared HTTP helpers:** the error-classification, JSON-decode and filename helpers shared with `WarpIngestParser` moved to `opencontractserver/utils/parser_service_http.py`.
   - **Docs:** `docs/pipelines/liteparse_parser.md`.

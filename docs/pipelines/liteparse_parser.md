@@ -60,11 +60,26 @@ Use `production.yml` the same way. Django and Celery reach the service at
   service from the same host variable (default `abc123`, local use only). In production the
   service reads the host's `LITEPARSE_API_KEY`, while Django reads `.envs/.production/.django`.
   Set the same value in both places, or every parse fails with a 401.
-- **Concurrency:** `LITEPARSE_POOL_SIZE` is the number of parses the service runs at once. A
-  request beyond that waits for a free worker, and the wait is *not* bounded by
-  `LITEPARSE_PARSE_TIMEOUT_SECONDS`. Set it to at least the number of Celery worker slots that
-  may parse PDFs at once, within the container's `mem_limit`. Otherwise queued parses of large
-  scans can hit the Django client's `LITEPARSE_PARSER_TIMEOUT` and retry.
+
+## Memory and concurrency
+
+Measured with LiteParse 2.21.3, ocria-nano 1.0.0 and scanned pages at the default 300 DPI,
+one parse peaks at about **0.5 GiB + 11.5 MiB per page** (100 pages: 1.7 GiB; 300 pages:
+3.8 GiB; 400 pages: 5.1 GiB). Text-layer pages cost far less. The container's `mem_limit` must
+cover `LITEPARSE_POOL_SIZE` × that peak at `LITEPARSE_MAX_PAGES`. Otherwise a big scan's worker
+is OOM-killed (the parse returns 503 and is retried), and with more than one worker it can take
+a concurrent parse down with it.
+
+The defaults are one worker, 300 pages and `mem_limit: 6g` (about 64% at the limit). To parse
+longer scans, raise `LITEPARSE_MAX_PAGES` and `mem_limit` together, using the rule above.
+
+- **Long text-layer PDFs:** `LITEPARSE_MAX_PAGES` counts every page, so a long text-layer PDF
+  that would fit comfortably is rejected too.
+- **Queueing:** a request beyond `LITEPARSE_POOL_SIZE` waits for a free worker, and that wait is
+  *not* bounded by `LITEPARSE_PARSE_TIMEOUT_SECONDS`. The N-th queued request waits roughly
+  (N−1) × the parse time, which is about 75 s for a 300-page scan on 8 CPUs. With many Celery
+  slots parsing large scans at once, a queued request can exceed the Django client's
+  `LITEPARSE_PARSER_TIMEOUT` (1800 s) and be retried.
 
 The service refuses to start if the pinned model isn't installed. Without this check,
 text-layer PDFs would keep parsing and scanned ones would fail later. Versions are pinned in
@@ -90,8 +105,8 @@ pages stay intact.
   retried; a document LiteParse rejects (corrupt, password-protected) returns 422 and fails
   permanently.
 - PDF only. Office files are converted to PDF upstream by Gotenberg when it's configured.
-- Documents over `LITEPARSE_MAX_PAGES` (default 2000) are rejected with a 413. LiteParse would
-  otherwise silently truncate them.
+- Documents over `LITEPARSE_MAX_PAGES` (default 300) are rejected with a 413, after the parse.
+  LiteParse would otherwise silently truncate them.
 - No image tokens or multimodal image extraction yet.
 - The remote-ingest worker (`scripts/remote_ingest/`) doesn't offer this parser yet.
   `LiteParseParser.parse_pdf_bytes` is the database-free entry point it would use.
