@@ -46,6 +46,9 @@ services:
       warp-ingest:
         condition: service_started
         required: false
+      liteparse:
+        condition: service_started
+        required: false
     volumes:
       - .:/app:z
     env_file:
@@ -68,6 +71,9 @@ services:
       # `--profile warp-ingest` stack sends an empty X-API-Key and warp-ingest
       # 401s every PDF parse. Verified against the running service.
       WARP_INGEST_API_KEY: ${WARP_INGEST_API_KEY:-abc123}
+      # Same contract for the optional LiteParse service: the django client and
+      # the liteparse container read the same host var with the same default.
+      LITEPARSE_API_KEY: ${LITEPARSE_API_KEY:-abc123}
       # Same contract for the embedders: migrate_pipeline_settings seeds the keys
       # from these variables on boot, and with neither set it seeds nothing, so
       # Django sends no X-API-Key and every embedding request 401s. Sourced from
@@ -200,6 +206,34 @@ services:
     mem_limit: 6g
     restart: unless-stopped
 
+  # Optional alternative PDF parser: LiteParse (Apache-2.0) with LlamaIndex's
+  # OCRia-nano OCR/layout models, built from compose/liteparse/. Opt-in via the
+  # "liteparse" compose profile. The model weights are NOT MIT-licensed, so the
+  # image build fails unless you accept their licence (see
+  # compose/liteparse/OCRIA_NANO_LICENSE_NOTICE.txt and
+  # docs/pipelines/liteparse_parser.md):
+  #   OCRIA_NANO_ACCEPT_LICENSE=yes docker compose -f local.yml --profile liteparse up -d --build liteparse
+  # Then select "LiteParse Parser (OCRia-nano, REST)" for PDFs in the admin
+  # System Settings UI (or PDF_PARSER=liteparse). LITEPARSE_API_KEY is shared
+  # with the django client (same host var, same default). Built locally and never
+  # published. Bridge-only (no host port); django/celeryworker reach it at
+  # http://liteparse:8000/parse.
+  liteparse:
+    build:
+      context: ./compose/liteparse
+      args:
+        OCRIA_NANO_ACCEPT_LICENSE: ${OCRIA_NANO_ACCEPT_LICENSE:-}
+    image: opencontractserver_local_liteparse
+    container_name: liteparse
+    profiles:
+      - liteparse
+    environment:
+      LITEPARSE_API_KEY: ${LITEPARSE_API_KEY:-abc123}
+    # Hard cap — see docling-parser's mem_limit comment. Each LiteParse pool
+    # worker holds PDFium + the ONNX models; the cap contains a runaway parse.
+    mem_limit: 3g
+    restart: unless-stopped
+
   # Powers the optional pre-parse file-to-PDF converter
   # (GotenbergFileConverter). Enable it by setting the converter in the admin
   # System Settings UI (or DEFAULT_FILE_CONVERTER env var). No host port
@@ -324,6 +358,9 @@ services:
       warp-ingest:
         condition: service_started
         required: false
+      liteparse:
+        condition: service_started
+        required: false
     volumes:
       - .:/app:z
     env_file:
@@ -340,6 +377,7 @@ services:
       # See the django service: parsing runs here, so the worker is the side
       # that actually calls warp-ingest. Same variable, same default.
       WARP_INGEST_API_KEY: ${WARP_INGEST_API_KEY:-abc123}
+      LITEPARSE_API_KEY: ${LITEPARSE_API_KEY:-abc123}
       VECTOR_EMBEDDER_API_KEY: ${VECTOR_EMBEDDER_API_KEY:-abc123}
       MULTIMODAL_EMBEDDER_API_KEY: ${MULTIMODAL_EMBEDDER_API_KEY:-abc123}
     command: /app/compose/local/django/celery/worker/start
