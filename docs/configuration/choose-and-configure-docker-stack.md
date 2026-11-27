@@ -183,6 +183,7 @@ and the container is already there to receive requests once you do.
 |---|---|---|
 | `gotenberg` | Pre-parse file-to-PDF conversion for non-core formats (`.doc`, `.odt`, `.pptx`, images, ...) | `PipelineSettings.default_file_converter` (Admin UI or `DEFAULT_FILE_CONVERTER` env var) |
 | `warp-ingest` | Alternative deterministic PDF parser | `warp-ingest` compose profile + `PDF_PARSER` |
+| `liteparse` | Alternative PDF parser with OCRia-nano OCR for scans (built locally; model licence gate) | `OCRIA_NANO_ACCEPT_LICENSE=yes` + `liteparse` compose profile + `PDF_PARSER` — see [LiteParse Parser](../pipelines/liteparse_parser.md) |
 | `privacy_filter` | PII redaction pass | `PRIVACY_FILTER_API_KEY` env var |
 
 ### Gotenberg (file conversion for non-core formats)

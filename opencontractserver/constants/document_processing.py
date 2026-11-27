@@ -195,7 +195,10 @@ WARP_INGEST_PARSER_REQUEST_TIMEOUT_SECONDS = 3600
 # (``opencontractserver/pipeline/parsers/liteparse_parser.py``). Must stay ABOVE
 # the service's own per-parse deadline (``LITEPARSE_PARSE_TIMEOUT_SECONDS``,
 # default 1500 in ``compose/liteparse/liteparse_service/runtime.py``) so a
-# stalled parse surfaces as the service's 504 rather than a client timeout.
+# single stalled parse surfaces as the service's 504 rather than a client
+# timeout. That deadline does not cover time spent waiting for a free service
+# worker, so size the service's LITEPARSE_POOL_SIZE to the parsing concurrency
+# (docs/pipelines/liteparse_parser.md).
 # Single source for the Django setting default (``LITEPARSE_PARSER_TIMEOUT``)
 # and the ``LiteParseParser`` dataclass fallback.
 LITEPARSE_PARSER_REQUEST_TIMEOUT_SECONDS = 1800

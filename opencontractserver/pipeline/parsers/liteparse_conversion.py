@@ -6,11 +6,14 @@ items with word boxes, and LiteParse's layout blocks (headings with levels,
 paragraphs, tables, page headers/footers, ...) in reading order.
 
 - Every word becomes a PAWLs token; a text item without word boxes becomes a
-  single token so no text is lost. Pages without text keep an empty PAWLs page
-  so page indices stay aligned with the PDF.
+  single token so no text is lost. Pages are placed by ``page_num``: pages
+  without text, and pages LiteParse skipped with a page error, keep an empty
+  PAWLs page so page indices stay aligned with the PDF.
 - Each block becomes one structural annotation. Its tokens come from the text
-  items it lists; blocks that list none (tables always, and fragments LiteParse
-  split off a longer line) take the words whose centre lies inside their box.
+  items it lists. Tables list none and take the words whose centre lies inside
+  their box. Other blocks that list none are fragments LiteParse split off a
+  longer line; they take only words no listing block on the page owns, and are
+  dropped when none remain (otherwise each would duplicate its neighbour).
 - Heading levels build the ``parent_id`` hierarchy, which carries across pages.
 """
 
@@ -94,22 +97,20 @@ def _block_boxes(block: dict) -> list[dict]:
     return [cell["bbox"] for cell in cells if cell["bbox"] is not None]
 
 
-def _block_tokens(
-    block: dict,
-    tokens: list[PawlsTokenPythonType],
-    item_tokens: list[list[int]],
-    page_num: int,
+def _words_in_boxes(block: dict, tokens: list[PawlsTokenPythonType]) -> list[int]:
+    boxes = _block_boxes(block)
+    return [
+        i
+        for i, token in enumerate(tokens)
+        if any(_contains_centre(box, token) for box in boxes)
+    ]
+
+
+def _listed_tokens(
+    block: dict, item_tokens: list[list[int]], page_num: int
 ) -> list[int]:
-    indices = block["text_item_indices"]
-    if block["kind"] in LITEPARSE_TABLE_BLOCK_KINDS or not indices:
-        boxes = _block_boxes(block)
-        return [
-            i
-            for i, token in enumerate(tokens)
-            if any(_contains_centre(box, token) for box in boxes)
-        ]
     result: list[int] = []
-    for item_index in indices:
+    for item_index in block["text_item_indices"]:
         if 0 <= item_index < len(item_tokens):
             result.extend(item_tokens[item_index])
         else:
@@ -118,6 +119,28 @@ def _block_tokens(
                 page_num,
                 item_index,
             )
+    return result
+
+
+def _page_block_tokens(
+    blocks: list[dict],
+    tokens: list[PawlsTokenPythonType],
+    item_tokens: list[list[int]],
+    page_num: int,
+) -> list[list[int]]:
+    """Token indices for each block on a page, in block order."""
+    listed = [_listed_tokens(b, item_tokens, page_num) for b in blocks]
+    claimed = {i for indices in listed for i in indices}
+    result: list[list[int]] = []
+    for block, own in zip(blocks, listed):
+        if block["kind"] in LITEPARSE_TABLE_BLOCK_KINDS:
+            result.append(_words_in_boxes(block, tokens))
+        elif block["text_item_indices"]:
+            result.append(own)
+        else:
+            orphans = [i for i in _words_in_boxes(block, tokens) if i not in claimed]
+            claimed.update(orphans)
+            result.append(orphans)
     return result
 
 
@@ -225,33 +248,47 @@ def liteparse_response_to_export(
     """Convert one LiteParse service response into an ``OpenContractDocExport``."""
     payload = _validate(payload, doc_id)
 
+    pages = payload["pages"]
+    page_count = max([payload.get("total_pages") or 0] + [p["page_num"] for p in pages])
+    by_index = {p["page_num"] - 1: p for p in pages}
     pawls_pages: list[PawlsPagePythonType] = []
     annotations: list[OpenContractsAnnotationPythonType] = []
     page_texts: list[str] = []
     # (level, annotation id) of the currently open headings, across pages.
     heading_stack: list[tuple[int, str]] = []
+    # Size for pages LiteParse skipped (page errors): the nearest page before
+    # it, else the first parsed page.
+    size = (pages[0]["width"], pages[0]["height"]) if pages else (0.0, 0.0)
 
-    for page_index, page in enumerate(payload["pages"]):
+    for page_index in range(page_count):
+        page = by_index.get(page_index)
+        if page is None:
+            pawls_pages.append(
+                {
+                    "page": {"width": size[0], "height": size[1], "index": page_index},
+                    "tokens": [],
+                }
+            )
+            page_texts.append("")
+            continue
+
         page_num = page["page_num"]
+        size = (page["width"], page["height"])
         tokens, item_tokens = _page_tokens(page)
         pawls_pages.append(
             {
-                "page": {
-                    "width": page["width"],
-                    "height": page["height"],
-                    "index": page_index,
-                },
+                "page": {"width": size[0], "height": size[1], "index": page_index},
                 "tokens": tokens,
             }
         )
         page_texts.append(" ".join(t["text"] for t in tokens))
 
-        for block_index, block in enumerate(page["blocks"]):
+        block_tokens = _page_block_tokens(page["blocks"], tokens, item_tokens, page_num)
+        for block_index, (block, token_indices) in enumerate(
+            zip(page["blocks"], block_tokens)
+        ):
             kind = block["kind"]
-            if kind in LITEPARSE_SKIPPED_BLOCK_KINDS:
-                continue
-            token_indices = _block_tokens(block, tokens, item_tokens, page_num)
-            if not token_indices:
+            if kind in LITEPARSE_SKIPPED_BLOCK_KINDS or not token_indices:
                 continue
 
             annotation_id = f"lp-{page_index}-{block_index}"

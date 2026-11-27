@@ -141,3 +141,27 @@ def test_parse_success_returns_projection():
     assert body["model_version"] == "1.0.0"
     assert body["pages"][0]["blocks"] == []
     assert parser.calls == [PDF_BYTES]
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "liteparse worker process died while parsing <10 bytes>: worker exited mid-parse",
+        "liteparse worker failed to initialize: boom",
+        "parser pool is closed",
+    ],
+)
+def test_worker_failures_map_to_503(message):
+    response = _post(_client(FakeParser(error=liteparse.ParseError(message))))
+    assert response.status_code == 503
+
+
+def test_worker_failure_prefixes_match_installed_liteparse():
+    import inspect
+
+    import liteparse._pool as pool
+    from liteparse_service.app import WORKER_FAILURE_PREFIXES
+
+    source = inspect.getsource(pool)
+    for prefix in WORKER_FAILURE_PREFIXES:
+        assert prefix in source, prefix

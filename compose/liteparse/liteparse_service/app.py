@@ -20,11 +20,27 @@ from fastapi import FastAPI, File, Header, HTTPException, UploadFile
 from liteparse import ParseError, ParseTimeoutError
 
 from .projection import SCHEMA_VERSION, is_truncated, project_result
-from .runtime import MODEL_NAME, ServiceConfig, load_config, require_model
+from .runtime import (
+    MODEL_NAME,
+    ServiceConfig,
+    load_config,
+    parser_options,
+    require_model,
+)
 
 logger = logging.getLogger("liteparse_service")
 
 PDF_MAGIC = b"%PDF-"
+
+# LiteParse's worker pool re-raises a crashed/OOM-killed worker, a failed worker
+# start and a closed pool as a plain ParseError (``liteparse/_pool.py``, 2.21.3).
+# Those say nothing about the document, so they map to a retryable 503 instead of
+# a permanent 422. A test pins these prefixes to the installed liteparse source.
+WORKER_FAILURE_PREFIXES = (
+    "liteparse worker process died while parsing",
+    "liteparse worker failed to initialize",
+    "parser pool is closed",
+)
 _BYTES_PER_MB = 1024 * 1024
 
 
@@ -87,6 +103,10 @@ def create_app(
                 status_code=504, detail=f"Parse exceeded {e.timeout}s"
             ) from e
         except ParseError as e:
+            if str(e).startswith(WORKER_FAILURE_PREFIXES):
+                raise HTTPException(
+                    status_code=503, detail=f"LiteParse worker unavailable: {e}"
+                ) from e
             raise HTTPException(status_code=422, detail=f"LiteParse failed: {e}") from e
 
         if is_truncated(result):
@@ -119,17 +139,7 @@ def build_app() -> FastAPI:
     model = require_model(models.list(), name=MODEL_NAME, version=config.model_version)
     logger.info("Using %s %s from %s", model.name, model.version, model.path)
 
-    parser = LiteParse(
-        ocr_backend=MODEL_NAME,
-        emit_word_boxes=True,
-        extract_blocks=True,
-        output_format="json",
-        quiet=True,
-        pool_size=config.pool_size,
-        parse_timeout=config.parse_timeout,
-        num_workers=config.ocr_workers,
-        max_pages=config.max_pages,
-    )
+    parser = LiteParse(**parser_options(config))
     parser.warm_up()
     return create_app(
         config=config, parser=parser, liteparse_version=package_version("liteparse")

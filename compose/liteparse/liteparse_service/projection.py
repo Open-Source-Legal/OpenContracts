@@ -87,5 +87,12 @@ def project_result(result: Any, *, liteparse_version: str, model_version: str) -
 
 
 def is_truncated(result: Any) -> bool:
-    """True when LiteParse stopped at ``max_pages`` (it truncates silently)."""
-    return result.total_pages > len(result.pages)
+    """True when LiteParse stopped at ``max_pages`` (it truncates silently).
+
+    Pages skipped with a page error (``continue_on_page_error``) are accounted
+    for, so only pages that are neither parsed nor reported count as missing.
+    """
+    covered = {p.page_num for p in result.pages} | {
+        e.page_num for e in result.page_errors
+    }
+    return result.total_pages > len(covered)

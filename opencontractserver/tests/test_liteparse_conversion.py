@@ -61,16 +61,17 @@ def _block(kind, indices, *, level=None, bbox=None, text=None):
     }
 
 
-def _payload(pages, *, page_errors=()):
+def _payload(pages, *, page_errors=(), page_nums=None, total_pages=None):
+    nums = page_nums or [i + 1 for i in range(len(pages))]
     return {
         "schema_version": LITEPARSE_RESPONSE_SCHEMA_VERSION,
         "liteparse_version": "2.21.3",
         "model_version": "1.0.0",
-        "total_pages": len(pages),
+        "total_pages": len(pages) if total_pages is None else total_pages,
         "page_errors": list(page_errors),
         "pages": [
             {
-                "page_num": i + 1,
+                "page_num": nums[i],
                 "width": 612.0,
                 "height": 792.0,
                 "text_items": items,
@@ -190,6 +191,21 @@ class TestFixtureConversion(SimpleTestCase):
         self.assertEqual(export["content"].count("\n\n"), 8)
         self.assertEqual(export["file_type"], "application/pdf")
         self.assertEqual(export["title"], "Doc")
+
+    def test_sample_fixture_no_token_in_two_text_annotations(self):
+        export = _convert(_fixture("sample"))
+        seen: dict = {}
+        for annotation in export["labelled_text"]:
+            if annotation["annotationLabel"] == "Table":
+                continue
+            for ref in annotation["annotation_json"][str(annotation["page"])][
+                "tokensJsons"
+            ]:
+                key = (ref["pageIndex"], ref["tokenIndex"])
+                self.assertNotIn(
+                    key, seen, f"{annotation['id']} duplicates {seen.get(key)}"
+                )
+                seen[key] = annotation["id"]
 
 
 class TestSyntheticConversion(SimpleTestCase):
@@ -346,3 +362,47 @@ class TestSyntheticConversion(SimpleTestCase):
             export = _convert(payload)
         self.assertIn("bad page", "\n".join(logs.output))
         self.assertEqual(len(export["labelled_text"]), 1)
+
+    def test_errored_page_keeps_later_pages_aligned(self):
+        page = ([_item([_word("x", 10, 10)])], [_block("paragraph", [0])])
+        payload = _payload(
+            [page, page],
+            page_nums=[1, 3],
+            total_pages=3,
+            page_errors=[{"page_num": 2, "message": "bad page"}],
+        )
+        with self.assertLogs(
+            "opencontractserver.pipeline.parsers.liteparse_conversion", "WARNING"
+        ):
+            export = _convert(payload)
+        pawls = export["pawls_file_content"]
+        self.assertEqual([p["page"]["index"] for p in pawls], [0, 1, 2])
+        self.assertEqual(pawls[1]["tokens"], [])
+        self.assertEqual(pawls[1]["page"]["width"], 612.0)
+        self.assertEqual(export["page_count"], 3)
+        last = export["labelled_text"][-1]
+        self.assertEqual(last["page"], 2)
+        self.assertEqual(
+            last["annotation_json"]["2"]["tokensJsons"],
+            [{"pageIndex": 2, "tokenIndex": 0}],
+        )
+
+    def test_fragment_block_skipped_when_words_claimed(self):
+        item = _item([_word("full", 10, 10), _word("line", 40, 10)])
+        fragment_box = {"x": 5.0, "y": 5.0, "width": 30.0, "height": 20.0}
+        blocks = [
+            _block("heading", [], level=2, bbox=fragment_box),
+            _block("heading", [0], level=2),
+        ]
+        export = _convert(_payload([([item], blocks)]))
+        self.assertEqual([a["rawText"] for a in export["labelled_text"]], ["full line"])
+
+    def test_fragment_block_keeps_unclaimed_words(self):
+        claimed = _item([_word("owned", 10, 10)])
+        orphan = _item([_word("orphan", 300, 10)])
+        box = {"x": 0.0, "y": 0.0, "width": 400.0, "height": 30.0}
+        blocks = [_block("paragraph", [0]), _block("paragraph", [], bbox=box)]
+        export = _convert(_payload([([claimed, orphan], blocks)]))
+        self.assertEqual(
+            [a["rawText"] for a in export["labelled_text"]], ["owned", "orphan"]
+        )

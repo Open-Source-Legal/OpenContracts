@@ -7,7 +7,8 @@ LlamaIndex's [LiteParse](https://github.com/run-llama/liteparse) (Apache-2.0) wi
 - **Text-layer pages** use the PDF's own text (PDFium); nothing is OCR'd and a page parses in
   roughly 0.1 s.
 - **Scanned pages** are OCR'd with OCRia-nano (CPU only, ONNX Runtime). Each word comes back
-  with its own box and an OCR confidence.
+  with its own box. LiteParse reports OCR confidence per text line; it isn't carried into
+  annotations.
 - LiteParse's layout blocks become structural annotations: `Section Header` (heading levels
   build the parent hierarchy, across pages), `Paragraph`, `List Item`, `Table`, `Figure`,
   `Code Block`, `Page Header`, `Page Footer`. Unknown future block kinds become `Text Block`.
@@ -15,8 +16,10 @@ LlamaIndex's [LiteParse](https://github.com/run-llama/liteparse) (Apache-2.0) wi
 ## Licence — read this first
 
 The OCRia-nano weights are **not** covered by OpenContracts' MIT licence. They ship under
-the "OCRia-nano-1 Model License" (Open RAIL-M based). The weights are free for research,
-personal use, and organisations under $2M annual revenue **and** $2M total funding. You need a
+the "OCRia-nano-1 Model License" (Open RAIL-M based). The weights are free for non-production
+research and evaluation (academic/non-profit research, teaching, benchmarking, and internal R&D
+that doesn't reach a product or production workflow), personal use, and organisations under
+$2M annual revenue **and** $2M total funding. You need a
 commercial licence above those thresholds, and at any size for a document
 parsing/OCR/extraction product that competes with LlamaParse or LlamaCloud. Read the full
 licence on the model card.
@@ -51,9 +54,17 @@ Use `production.yml` the same way. Django and Celery reach the service at
   `LITEPARSE_USE_CLOUD_RUN_IAM_AUTH`, `LITEPARSE_MAX_FILE_SIZE_MB`. These are seeded into
   PipelineSettings by `migrate_pipeline_settings`.
 - **Service** (`compose/liteparse/liteparse_service/runtime.py::load_config`):
-  `LITEPARSE_API_KEY` (required; compose feeds both sides from the same host variable, default
-  `abc123` for local use), `LITEPARSE_POOL_SIZE`, `LITEPARSE_OCR_WORKERS`,
+  `LITEPARSE_API_KEY` (required), `LITEPARSE_POOL_SIZE`, `LITEPARSE_OCR_WORKERS`,
   `LITEPARSE_PARSE_TIMEOUT_SECONDS`, `LITEPARSE_MAX_PAGES`, `LITEPARSE_MAX_UPLOAD_MB`.
+- **API key on both sides:** `local.yml` feeds the django/celeryworker containers and the
+  service from the same host variable (default `abc123`, local use only). In production the
+  service reads the host's `LITEPARSE_API_KEY`, while Django reads `.envs/.production/.django`.
+  Set the same value in both places, or every parse fails with a 401.
+- **Concurrency:** `LITEPARSE_POOL_SIZE` is the number of parses the service runs at once. A
+  request beyond that waits for a free worker, and the wait is *not* bounded by
+  `LITEPARSE_PARSE_TIMEOUT_SECONDS`. Set it to at least the number of Celery worker slots that
+  may parse PDFs at once, within the container's `mem_limit`. Otherwise queued parses of large
+  scans can hit the Django client's `LITEPARSE_PARSER_TIMEOUT` and retry.
 
 The service refuses to start if the pinned model isn't installed. Without this check,
 text-layer PDFs would keep parsing and scanned ones would fail later. Versions are pinned in
@@ -73,6 +84,11 @@ pages stay intact.
 
 ## Limits
 
+- A page LiteParse can't extract is reported as a page error: it becomes an empty page (so
+  page numbers stay aligned) and a worker warning, and the rest of the document is kept.
+- A crashed or killed worker process (e.g. OOM under `mem_limit`) returns 503, so the parse is
+  retried; a document LiteParse rejects (corrupt, password-protected) returns 422 and fails
+  permanently.
 - PDF only. Office files are converted to PDF upstream by Gotenberg when it's configured.
 - Documents over `LITEPARSE_MAX_PAGES` (default 2000) are rejected with a 413. LiteParse would
   otherwise silently truncate them.

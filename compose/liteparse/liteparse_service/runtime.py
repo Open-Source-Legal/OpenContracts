@@ -13,9 +13,12 @@ from typing import Any
 
 MODEL_NAME = "ocria-nano"
 
+# Concurrent parses. A request beyond this waits for a free worker, and that wait
+# is NOT bounded by the parse timeout below, so set it to at least the number of
+# Celery worker slots that may parse PDFs at once (see docs/pipelines/liteparse_parser.md).
 DEFAULT_POOL_SIZE = 2
-# Must stay below OpenContracts' LITEPARSE_PARSER_REQUEST_TIMEOUT_SECONDS (1800)
-# so the service reports a timeout (504) before the client gives up.
+# Per-parse deadline, kept below OpenContracts' LITEPARSE_PARSER_REQUEST_TIMEOUT_SECONDS
+# (1800) so a single stalled parse reports 504 before the client gives up.
 DEFAULT_PARSE_TIMEOUT_SECONDS = 1500.0
 DEFAULT_OCR_WORKERS = 4
 DEFAULT_MAX_PAGES = 2000
@@ -79,3 +82,21 @@ def require_model(installed: Iterable[Any], *, name: str, version: str) -> Any:
         f"{name} {version} is not installed (or is incomplete) in "
         "LITEPARSE_MODEL_DIR; rebuild the image"
     )
+
+
+def parser_options(config: ServiceConfig) -> dict:
+    """Keyword arguments for ``liteparse.LiteParse`` (kept pure so CI tests it)."""
+    return {
+        # Explicit: LiteParse falls back to Tesseract when the model is absent.
+        "ocr_backend": MODEL_NAME,
+        "emit_word_boxes": True,
+        "extract_blocks": True,
+        # A bad page is reported in page_errors instead of failing the document.
+        "continue_on_page_error": True,
+        "output_format": "json",
+        "quiet": True,
+        "pool_size": config.pool_size,
+        "parse_timeout": config.parse_timeout,
+        "num_workers": config.ocr_workers,
+        "max_pages": config.max_pages,
+    }

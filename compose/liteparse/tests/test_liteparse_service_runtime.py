@@ -14,6 +14,7 @@ from liteparse_service.runtime import (  # noqa: E402
     MODEL_NAME,
     ServiceConfig,
     load_config,
+    parser_options,
     require_model,
 )
 
@@ -91,3 +92,15 @@ def test_require_model_rejects_incomplete():
 def test_require_model_rejects_version_mismatch():
     with pytest.raises(RuntimeError, match="ocria-nano 1.0.0"):
         require_model([_model(version="0.9.0")], name=MODEL_NAME, version="1.0.0")
+
+
+def test_parser_options_pin_backend_and_tolerate_page_errors():
+    options = parser_options(load_config({**_BASE_ENV, "LITEPARSE_MAX_PAGES": "7"}))
+    assert options["ocr_backend"] == MODEL_NAME
+    assert options["emit_word_boxes"] is True
+    assert options["extract_blocks"] is True
+    assert options["continue_on_page_error"] is True
+    assert options["max_pages"] == 7
+    assert options["pool_size"] == 2
+    assert options["parse_timeout"] == 1500.0
+    assert options["num_workers"] == 4

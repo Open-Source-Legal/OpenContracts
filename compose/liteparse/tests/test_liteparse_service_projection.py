@@ -201,3 +201,17 @@ def test_is_truncated_true_when_total_exceeds_pages():
 
 def test_is_truncated_false_when_equal():
     assert is_truncated(_result([_page(1), _page(2)])) is False
+
+
+def test_is_truncated_false_when_errored_pages_account_for_gap():
+    result = _result(
+        [_page(1), _page(3)], total_pages=3, page_errors=[NS(page_num=2, message="x")]
+    )
+    assert is_truncated(result) is False
+
+
+def test_is_truncated_true_when_gap_not_explained_by_errors():
+    result = _result(
+        [_page(1), _page(2)], total_pages=4, page_errors=[NS(page_num=2, message="x")]
+    )
+    assert is_truncated(result) is True

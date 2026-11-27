@@ -18,6 +18,11 @@ from opencontractserver.constants.document_processing import (
     DEFAULT_MAX_CORPUS_REINGEST_SOURCE_BYTES,
     DOCLING_PARSER_REQUEST_TIMEOUT_SECONDS,
     GOTENBERG_CONVERTER_REQUEST_TIMEOUT_SECONDS,
+)
+from opencontractserver.constants.document_processing import (
+    LITEPARSE_MAX_FILE_SIZE_MB as LITEPARSE_MAX_FILE_SIZE_MB_DEFAULT,
+)
+from opencontractserver.constants.document_processing import (
     LITEPARSE_PARSER_REQUEST_TIMEOUT_SECONDS,
     MAX_FILE_UPLOAD_SIZE_BYTES,
     WARP_INGEST_PARSER_REQUEST_TIMEOUT_SECONDS,
@@ -1270,6 +1275,12 @@ LITEPARSE_PARSER_TIMEOUT = env.int(
     "LITEPARSE_PARSER_TIMEOUT", default=LITEPARSE_PARSER_REQUEST_TIMEOUT_SECONDS
 )
 LITEPARSE_API_KEY = env("LITEPARSE_API_KEY", default="")
+LITEPARSE_USE_CLOUD_RUN_IAM_AUTH = env.bool(
+    "LITEPARSE_USE_CLOUD_RUN_IAM_AUTH", default=False
+)
+LITEPARSE_MAX_FILE_SIZE_MB = env.int(
+    "LITEPARSE_MAX_FILE_SIZE_MB", default=LITEPARSE_MAX_FILE_SIZE_MB_DEFAULT
+)
 
 # Gotenberg Settings - for the optional pre-parse file-to-PDF converter
 # (GotenbergFileConverter). These seed the converter's component settings via

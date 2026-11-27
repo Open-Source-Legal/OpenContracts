@@ -4,5 +4,9 @@
   - **Conversion:** `liteparse_conversion.py::liteparse_response_to_export` maps the service's word boxes and layout blocks to PAWLs tokens and structural annotations (`Section Header`/`Paragraph`/`Table`/`Page Header`/…). Heading levels build a `parent_id` hierarchy across pages.
   - **Licence gate:** the model weights are not MIT-licensed, so the service sits behind the `liteparse` compose profile in `local.yml`/`production.yml`. It is built locally (never published), and its image build fails unless `OCRIA_NANO_ACCEPT_LICENSE=yes`.
   - **Startup checks:** the service refuses to start without the pinned model. It rejects documents over `LITEPARSE_MAX_PAGES` with a 413 rather than let LiteParse silently truncate them.
+  - **Error handling:**
+    - A page LiteParse can't extract becomes an empty, page-aligned page and a warning, instead of failing the document.
+    - A crashed or OOM-killed worker returns a retryable 503, not a permanent 422.
+    - Blocks LiteParse splits off a longer line take only words no other block owns, so they don't duplicate their neighbour.
   - **Shared HTTP helpers:** the error-classification, JSON-decode and filename helpers shared with `WarpIngestParser` moved to `opencontractserver/utils/parser_service_http.py`.
   - **Docs:** `docs/pipelines/liteparse_parser.md`.

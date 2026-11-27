@@ -219,3 +219,13 @@ class TestLiteParseParser(TestCase):
         ]
         self.assertEqual(len(matches), 1)
         self.assertIn("pdf", matches[0].supported_file_types)
+
+    def test_every_setting_env_var_is_a_django_setting(self):
+        """migrate_pipeline_settings seeds from getattr(settings, env_var)."""
+        from dataclasses import fields
+
+        from django.conf import settings as django_settings
+
+        for f in fields(LiteParseParser.Settings):
+            env_var = f.metadata["pipeline_setting"].env_var
+            self.assertTrue(hasattr(django_settings, env_var), env_var)
