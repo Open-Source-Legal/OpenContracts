@@ -73,9 +73,11 @@ UISettingsAtom.tsx
 └── showLabelsAtom - Label display behavior
 
 DocumentAtom.tsx
-├── scrollContainerRefAtom - Scroll container reference
-├── pendingScrollAnnotationIdAtom - Annotation to scroll to
+├── scrollContainerRefAtom - The viewer's container
 └── textSearchStateAtom - Search state management
+
+AnnotatorHandleAtom.ts
+└── annotatorHandleAtom - The mounted PDF/DOCX viewer's handle
 ```
 
 This approach provides:
@@ -92,19 +94,13 @@ This approach provides:
    - Initializes Jotai atoms with annotation data
    - Manages layer switching and tab navigation
 
-2. **PDF** component manages the virtualized rendering of pages:
-   - Calculates page heights at current zoom level (cached per zoom)
-   - Uses binary search to determine visible page range
-   - Adds overscan buffer (2 pages above/below) for smooth scrolling
-   - Ensures selected annotation/search result pages are always rendered
-   - Absolutely positions all pages based on cumulative heights
-
-3. **PDFPage** renders individual pages with their annotations:
-   - Only mounts when page is in visible range
-   - Creates and manages its own PDF canvas
-   - Overlays annotation components on top of the canvas
-   - Handles user interactions for creating/selecting annotations
-   - Implements two-phase scroll-to-annotation system
+2. **PdfAnnotatorWrapper / DocxAnnotatorWrapper** mount
+   `@os-legal/react-contract-annotate`'s `PdfAnnotator` / `DocxAnnotator`,
+   which own page rendering, virtualization, annotation and highlight
+   geometry, text selection and scroll-to-annotation. OpenContracts binds its
+   atoms to their props in `annotator/bindings/useViewerBindings.tsx` and
+   supplies the selection menu, Edit/Delete and dialogs. See
+   [document_viewer.md](mdc:docs/frontend/document_viewer.md).
 
 ### Advanced Features
 
@@ -138,39 +134,10 @@ Sophisticated chat panel width management:
 - **FloatingDocumentInput**: Unified chat/search input
 - **ZoomControls**: Simple zoom interface with keyboard shortcuts
 
-### Virtualization Implementation Details
+### Virtualization
 
-The PDF component implements sophisticated virtualization:
-
-```typescript
-// Page height calculation (cached per zoom level)
-useEffect(() => {
-  const heights = await calculatePageHeights(pdfDoc, zoomLevel);
-  setPageHeights(heights);
-}, [pdfDoc, zoomLevel]);
-
-// Visible range calculation using binary search
-const calcRange = useCallback(() => {
-  const scroll = getScrollPosition();
-  const viewHeight = getViewportHeight();
-
-  // Binary search for first/last visible pages
-  const firstVisible = binarySearchFirstVisible(cumulative, scroll);
-  const lastVisible = binarySearchLastVisible(cumulative, scroll + viewHeight);
-
-  // Add overscan and ensure selected items are visible
-  let start = Math.max(0, firstVisible - OVERSCAN);
-  let end = Math.min(pageCount - 1, lastVisible + OVERSCAN);
-
-  // Force selected annotation's page to be visible
-  if (selectedPageIdx !== undefined) {
-    start = Math.min(start, selectedPageIdx);
-    end = Math.max(end, selectedPageIdx);
-  }
-
-  setRange([start, end]);
-}, [/* dependencies */]);
-```
+PDF page virtualization is the viewer library's (`src/pdf/PdfViewport.tsx`
+in react-contract-annotate); OpenContracts does not reach into it.
 
 ### Unified Annotation and Relationship Visibility System
 
@@ -203,31 +170,18 @@ The system implements a unified, atom-based filtering architecture that ensures 
    - Respects selected-only and structural toggles
 
 5. **Components consume filtered data consistently**:
-   - **PDFPage/TxtAnnotator**: Use `useVisibleAnnotations()` for rendering
+   - **PDF/DOCX viewer**: Gets the same display settings; the library applies the `useVisibleAnnotations()` rules
+   - **TxtAnnotator**: Uses `useVisibleAnnotations()` for rendering
    - **UnifiedContentFeed**: Uses both `useVisibleAnnotations()` and `useVisibleRelationships()`
    - **RelationshipList**: Uses `useVisibleRelationships()` for display
    - All components react to the same atom state changes
 
 ### Scroll-to-Annotation System
 
-The system uses a two-phase approach for scrolling to annotations, triggered by:
-- URL parameters (`?ann=id1,id2`)
-- Direct props (`initialAnnotationIds`)
-- Programmatic selection
-
-1. **Phase 1 (PDF.tsx)**: Scroll to make the page visible
-   - Calculate which page contains the annotation
-   - Expand virtualization range to include the page
-   - Scroll container so page is in viewport
-   - Set pendingScrollAnnotationIdAtom
-
-2. **Phase 2 (PDFPage.tsx)**: Center the specific annotation
-   - Check if page owns the pending annotation
-   - Find the annotation element once rendered
-   - Scroll it into view with centering
-   - Retry with requestAnimationFrame if element not yet rendered
-
-See [scroll-to-annotation-flow.md](mdc:docs/architecture/components/annotator/current-state/scroll-to-annotation-flow.md) for complete details.
+The viewer scrolls by itself when the selected annotations or the active
+highlight change. Code that must move it without changing the selection
+uses the handle in `annotatorHandleAtom`. Never query or scroll the
+viewer's DOM from OpenContracts code.
 
 ### Data Flow for Annotation and Relationship Updates
 
@@ -268,27 +222,23 @@ Each tab knows which layer(s) it belongs to and can trigger layer switches when 
 
 ## Key Technical Aspects
 
-1. **Virtualization**: Only visible PDF pages (+overscan) are rendered, providing dramatic performance improvements for large documents. Binary search algorithms ensure O(log n) complexity for finding visible pages.
+1. **Viewer library**: PDF/DOCX rendering, virtualization and geometry live in `@os-legal/react-contract-annotate`; OpenContracts passes data and controlled state in and handles what it reports.
 
-2. **Height Caching**: Page heights are calculated once per zoom level and cached, preventing expensive recalculations during scrolling.
+2. **Slots and Jotai**: The library provides its private Jotai store to everything it renders, slots included; wrap slot content that reads OpenContracts atoms in a `Provider` with OpenContracts' store (as `useViewerBindings` does for the selection menu).
 
-3. **Smart Range Expansion**: The visible range automatically expands to include selected annotations, search results, or chat source highlights, ensuring important content is always rendered.
+3. **Computed Derivations**: `allAnnotationsAtom` and `perPageAnnotationsAtom` are derived states that automatically update when their dependencies change, eliminating manual synchronization.
 
-4. **Computed Derivations**: `allAnnotationsAtom` and `perPageAnnotationsAtom` are derived states that automatically update when their dependencies change, eliminating manual synchronization.
+4. **Unified Filtering**: The `useVisibleAnnotations` and `useVisibleRelationships` hooks provide parallel filtering logic that ensures annotations and relationships are filtered consistently using the same atom state.
 
-5. **Unified Filtering**: The `useVisibleAnnotations` and `useVisibleRelationships` hooks provide parallel filtering logic that ensures annotations and relationships are filtered consistently using the same atom state.
-
-6. **Forced Visibility**: Some content is always visible regardless of filter settings:
+5. **Forced Visibility**: Some content is always visible regardless of filter settings:
    - Selected annotations and relationships
    - Annotations connected to selected relationships
    - All content when specific items are being highlighted
 
-7. **Efficient Rendering**: Components only re-render when their specific dependencies change, not on every state update. PDFPage components manage their own lifecycle independently.
+6. **Stable inputs**: `bindings/convert.ts` returns the same converted object for the same annotation, so the viewer only redraws what changed.
 
-8. **Absolute Positioning**: All pages are absolutely positioned based on cumulative heights, with a spacer div maintaining correct total scroll height.
+7. **Layer-aware Navigation**: The system intelligently manages which features are available in each layer and handles transitions smoothly.
 
-9. **Layer-aware Navigation**: The system intelligently manages which features are available in each layer and handles transitions smoothly.
+8. **Unified State Management**: All major state is managed through Jotai atoms, providing a single source of truth and automatic reactivity.
 
-10. **Unified State Management**: All major state is managed through Jotai atoms, providing a single source of truth and automatic reactivity.
-
-This architecture creates a flexible, highly performant system for displaying and interacting with annotations on PDF documents, with centralized state management and consistent filtering logic across the application. The virtualization approach enables smooth handling of documents with hundreds or thousands of pages, while the dual-layer architecture provides both detailed annotation capabilities and high-level knowledge synthesis tools.
+This architecture keeps OpenContracts' state centralized and its filtering consistent across panels, while the viewer library handles drawing documents of any length.

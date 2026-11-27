@@ -1,6 +1,5 @@
 import { ReactElement } from "react";
 import { AnnotationLabelType } from "../types/graphql-api";
-import { PDFPageInfo } from "./annotator/types/pdf";
 
 /**
  *  Types
@@ -139,9 +138,3 @@ export type {
   CompactPageData,
   CompactAnnotationJson,
 } from "../utils/compactAnnotationJson";
-
-export interface PageProps {
-  pageInfo: PDFPageInfo;
-  read_only: boolean;
-  onError: (_err: Error) => void;
-}

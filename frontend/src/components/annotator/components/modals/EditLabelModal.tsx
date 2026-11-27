@@ -11,10 +11,13 @@ import {
 } from "@os-legal/ui";
 import type { DropdownOption } from "@os-legal/ui";
 import { useCorpusState } from "../../context/CorpusAtom";
-import { ServerTokenAnnotation } from "../../types/annotations";
+import {
+  ServerSpanAnnotation,
+  ServerTokenAnnotation,
+} from "../../types/annotations";
 
 interface EditLabelModalProps {
-  annotation: ServerTokenAnnotation;
+  annotation: ServerTokenAnnotation | ServerSpanAnnotation;
   visible: boolean;
   onHide: () => void;
 }

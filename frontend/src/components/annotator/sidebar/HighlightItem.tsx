@@ -11,7 +11,6 @@ import {
 import { DynamicIcon } from "../../widgets/icon-picker/DynamicIcon";
 import { useLocation, useNavigate } from "react-router-dom";
 import { HorizontallyJustifiedDiv } from "./common";
-import { useAnnotationRefs } from "../hooks/useAnnotationRefs";
 import { useAnnotationSelection } from "../context/UISettingsAtom";
 import { updateAnnotationSelectionParams } from "../../../utils/navigationUtils";
 import { ServerTokenAnnotation, ServerAnnotation } from "../types/annotations";
@@ -182,7 +181,6 @@ export const HighlightItem: React.FC<HighlightItemProps> = ({
   const location = useLocation();
   const navigate = useNavigate();
   const { selectedAnnotations } = useAnnotationSelection();
-  const { annotationElementRefs } = useAnnotationRefs();
 
   // Fetch images if annotation has IMAGE modality
   const { images, loading, error, hasFetchedEmpty } = useAnnotationImages(
@@ -198,16 +196,10 @@ export const HighlightItem: React.FC<HighlightItemProps> = ({
     relation.targetIds.includes(annotation.id)
   );
   const handleClick = () => {
-    // Only use scrollIntoView for PDF token annotations. Text annotations
-    // are scrolled by TxtAnnotator's own selectedAnnotations useEffect,
-    // so calling scrollIntoView here would cause two competing scroll animations.
-    if (annotation instanceof ServerTokenAnnotation) {
-      annotationElementRefs.current[annotation.id]?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
-    }
-
+    // No scrolling here: the document viewers scroll to a newly selected
+    // annotation themselves (the PDF/DOCX viewer on a selection change,
+    // TxtAnnotator in its own selectedAnnotations effect).
+    //
     // Update selection via URL - CentralRouteManager Phase 2 will set reactive var
     // Toggle behavior: if already selected, deselect; otherwise select
     const newSelection = selected ? [] : [annotation.id];

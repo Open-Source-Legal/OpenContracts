@@ -217,51 +217,6 @@ export class ServerTokenAnnotation {
  */
 export type ServerAnnotation = ServerTokenAnnotation | ServerSpanAnnotation;
 
-export class RenderedSpanAnnotation {
-  public readonly id: string;
-
-  constructor(
-    public bounds: BoundingBox,
-    public readonly page: number,
-    public readonly annotationLabel: AnnotationLabelType,
-    public readonly tokens: TokenId[] | null = null,
-    public readonly rawText: string,
-    id: string | undefined = undefined
-  ) {
-    this.id = id || uuidv4();
-  }
-
-  toString() {
-    return this.id;
-  }
-
-  /**
-   * Returns a deep copy of the provided Annotation with the applied
-   * changes.
-   */
-  update(delta: Partial<RenderedSpanAnnotation> = {}) {
-    return new RenderedSpanAnnotation(
-      delta.bounds ?? Object.assign({}, this.bounds),
-      delta.page ?? this.page,
-      delta.annotationLabel ?? Object.assign({}, this.annotationLabel),
-      delta.tokens ?? this.tokens?.map((t) => Object.assign({}, t)),
-      delta.rawText ?? this.rawText,
-      this.id
-    );
-  }
-
-  static fromObject(obj: RenderedSpanAnnotation) {
-    return new RenderedSpanAnnotation(
-      obj.bounds,
-      obj.page,
-      obj.annotationLabel,
-      obj.tokens,
-      obj.rawText,
-      obj.id
-    );
-  }
-}
-
 export class DocTypeAnnotation {
   public readonly id: string;
 

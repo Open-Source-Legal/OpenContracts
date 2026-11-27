@@ -95,8 +95,8 @@ DocumentKnowledgeBase
 │   ├── Analyses (document layer)
 │   └── Extracts (document layer)
 ├── Document Layer Components
-│   ├── PDF (Virtualization Layer)
-│   │   └── PDFPage (Rendered only when visible)
+│   ├── PdfAnnotatorWrapper / DocxAnnotatorWrapper
+│   │   └── PdfAnnotator / DocxAnnotator (@os-legal/react-contract-annotate)
 │   ├── TxtAnnotatorWrapper (for text files)
 │   ├── FloatingDocumentControls
 │   ├── FloatingDocumentInput
@@ -229,29 +229,10 @@ Sophisticated handling of structural annotations:
 
 ## Virtualized Rendering System
 
-The PDF component implements a sophisticated virtualization system to handle large documents efficiently:
-
-### How It Works
-
-1. **Page Height Calculation**
-   - On mount and zoom changes, the system calculates the height of each page
-   - Heights are cached per zoom level to avoid recalculation
-   - A cumulative array stores the top position of each page for quick lookups
-
-2. **Visible Range Detection**
-   - The system tracks scroll position of the container
-   - Binary search determines which pages intersect the viewport
-   - An overscan of 2 pages is added above and below for smooth scrolling
-
-3. **Smart Range Expansion**
-   - If an annotation is selected, its page is forced to be in the visible range
-   - Same logic applies for search results and chat source highlights
-   - This ensures important content is always rendered when needed
-
-4. **Absolute Positioning**
-   - All pages are absolutely positioned based on cumulative heights
-   - Only pages within the visible range actually render their content
-   - A spacer div at the bottom maintains correct scroll height
+PDF and DOCX documents are drawn by `@os-legal/react-contract-annotate`,
+which virtualizes PDF pages itself (visible pages plus an overscan; pages
+holding the selection or the active highlight stay mounted). See
+[Document Viewer (PDF and DOCX)](../../../../frontend/document_viewer.md).
 
 ## State Management
 
@@ -305,25 +286,15 @@ Key responsibilities:
 - Layer switching logic
 - URL parameter synchronization
 
-### PDF.tsx
+### PdfAnnotatorWrapper and DocxAnnotatorWrapper
 
-**Source**: [`frontend/src/components/annotator/renderers/pdf/PDF.tsx`](../../../../../frontend/src/components/annotator/renderers/pdf/PDF.tsx)
+**Source**: [`frontend/src/components/annotator/components/wrappers/`](../../../../../frontend/src/components/annotator/components/wrappers/)
 
-The virtualization engine that:
-- Calculates which pages should be visible based on scroll position
-- Manages page height calculations and caching
-- Coordinates scrolling to specific annotations/search results
-- Provides the container structure for all PDF pages
-
-### PDFPage.tsx
-
-**Source**: [`frontend/src/components/annotator/renderers/pdf/PDFPage.tsx`](../../../../../frontend/src/components/annotator/renderers/pdf/PDFPage.tsx)
-
-Renders individual PDF pages when visible:
-- Manages its own canvas and PDF rendering
-- Displays all annotations for the page
-- Handles user selection and annotation creation
-- Integrates search results and chat source highlights
+Mount `@os-legal/react-contract-annotate`'s `PdfAnnotator` / `DocxAnnotator`
+on the loaded document and bind them to OpenContracts' state through
+`annotator/bindings/useViewerBindings.tsx` (annotations, highlights,
+selection, zoom, display settings, the selection menu, Edit/Delete). See
+[Document Viewer (PDF and DOCX)](../../../../frontend/document_viewer.md).
 
 ### UnifiedContentFeed
 

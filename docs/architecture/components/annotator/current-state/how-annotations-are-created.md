@@ -7,20 +7,21 @@ The annotation creation and handling system has evolved to use modern React patt
 ## Annotation Creation Flow
 
 ### 1. User Selection
-- User selects text on the PDF by clicking and dragging
-- This triggers mouse events in the `SelectionLayer` component within `PDFPage`
-- The selection layer handles both single-page and multi-page selections
+- The user drags over a PDF page (Shift-drag adds regions, also on other
+  pages) or selects text in a DOCX. `@os-legal/react-contract-annotate`
+  works out the selected tokens (PDF) or character span (DOCX) and reports
+  the selection; a drag that captures no token makes no selection.
 
 ### 2. Selection Handling
-The `SelectionLayer` component:
-- Detects mouse down/move/up events
-- Calculates the selected tokens based on coordinates
-- Checks if Shift key is pressed for multi-page selections
-- Creates a `ServerTokenAnnotation` object with the selection data
+- The library shows OpenContracts' selection menu
+  (`annotator/bindings/AnnotationSelectionMenu.tsx`) at the selection.
+- Apply Label commits it with the active label; `useViewerBindings` turns
+  the draft into a `ServerTokenAnnotation` / `ServerSpanAnnotation`
+  (`bindings/convert.ts::draftToAnnotation`) and calls the create handler.
 
 ### 3. Annotation Creation
 ```typescript
-// In PDFPage.tsx
+// In DocumentKnowledgeBase.tsx, passed to the PDF and DOCX viewers
 const createAnnotationHandler = async (annotation: ServerTokenAnnotation) => {
   if (!corpusId) {
     toast.info("Add document to corpus to create annotations");
@@ -43,15 +44,15 @@ When an annotation is created:
 3. `allAnnotationsAtom` automatically recomputes (includes new annotation)
 4. `perPageAnnotationsAtom` automatically updates with page indexing
 5. `useVisibleAnnotations` includes the new annotation based on filters
-6. Affected `PDFPage` components re-render with the new annotation
+6. The viewer receives the new annotation and draws it
 
 ## Annotation Data Flow
 
 ```mermaid
 graph TD
-    A[User selects text] -->|Mouse events| B[SelectionLayer]
-    B --> C[Calculate selected tokens]
-    C --> D[Create ServerTokenAnnotation]
+    A[User selects text] -->|Mouse events| B[Viewer library]
+    B --> C[Selection menu: Apply Label]
+    C --> D[draftToAnnotation]
     D --> E[createAnnotationHandler]
     E --> F{Has corpus?}
     F -->|No| G[Show info toast]
@@ -63,7 +64,7 @@ graph TD
     K --> M[allAnnotationsAtom recomputes]
     M --> N[perPageAnnotationsAtom updates]
     N --> O[useVisibleAnnotations filters]
-    O --> P[PDFPage re-renders]
+    O --> P[Viewer redraws]
 ```
 
 ## Annotation Storage Architecture
@@ -151,7 +152,7 @@ export function useVisibleAnnotations() {
 1. **Forced Visibility**: Selected annotations always shown
 2. **Structural Filter**: Hide/show based on `showStructuralAnnotationsAtom`
 3. **Label Filter**: Filter by annotation labels
-4. **Page Filter**: PDFPage components filter by page number
+4. **Page Filter**: The PDF viewer draws a page's annotations while the page is mounted
 
 ## Annotation Controls
 
@@ -197,7 +198,7 @@ This prevents UI overload from showing all structural annotations at once.
 
 1. **Atom-based Updates**: Only components that use affected atoms re-render
 2. **Computed Atoms**: Automatic memoization of derived state
-3. **Page-level Filtering**: Each PDFPage only processes its own annotations
+3. **Page-level Filtering**: The PDF viewer draws each page's annotations only while it is mounted
 4. **Virtualized Rendering**: Only visible pages render annotations
 5. **Deduplication**: `allAnnotationsAtom` prevents duplicate processing
 

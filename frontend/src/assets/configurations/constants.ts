@@ -85,7 +85,20 @@ export const DEFAULT_AGENT_COLOR = "#4A90E2";
 export const TEXT_BLOCK_HIGHLIGHT_COLOR = "#0EA5E9";
 // Sentinel ID used to inject text block deep links as virtual chat sources
 // in the TxtAnnotator (so they render with the same highlight machinery).
+// The PDF/DOCX viewers use it as the id of the text block's highlight.
 export const TEXT_BLOCK_DEEPLINK_ID = "__text_block_deeplink__";
+// Highlights painted by the PDF/DOCX viewer (@os-legal/react-contract-annotate)
+// for search hits and chat sources: their colours, and id prefixes that keep
+// the two kinds (and the text block above) from colliding with each other.
+export const SEARCH_RESULT_HIGHLIGHT_COLOR = "#ffff00";
+export const CHAT_SOURCE_HIGHLIGHT_COLOR = "#5C7C9D";
+export const SEARCH_HIGHLIGHT_ID_PREFIX = "__search__:";
+export const CHAT_SOURCE_HIGHLIGHT_ID_PREFIX = "__chat_source__:";
+// Where the docxodus WebAssembly runtime is served from: the dev server's
+// path and the build's directory under BASE_URL (both set up by
+// frontend/tooling/docxodusWasm.ts).
+export const DOCXODUS_WASM_DEV_PATH = "/node_modules/docxodus/dist/wasm/";
+export const DOCXODUS_WASM_BUILD_DIR = "docxodus-wasm/";
 
 // File size constants for formatting
 export const FILE_SIZE = {
@@ -302,13 +315,6 @@ export const POPOVER_Z_INDEX = 100002;
 // *below* the MOBILE_ANNOTATION_LABEL_MODAL slot (so the label picker
 // covers the annotation tools when both are visible).
 export const Z_INDEX = {
-  /** PDF page SelectionLayer — full-page overlay capturing mouse for the
-   *  annotator. Sits above the rendered canvas so drag-to-select works. */
-  PDF_SELECTION_LAYER: 1,
-  /** PDF page NativeLinkLayer — anchors hovering over PDF.js external link
-   *  annotations. Must sit above ``PDF_SELECTION_LAYER`` so its
-   *  ``pointer-events: auto`` anchors receive clicks first. */
-  PDF_NATIVE_LINK_LAYER: 2,
   /** Mobile floating document-controls pill — overlays the viewer's top-right
    *  corner inside ViewerArea's local stacking context, above the rendered
    *  page but below in-page loading overlays. */
@@ -821,68 +827,9 @@ export const KNOWN_ACRONYMS: Record<string, string> = {
   nlm: "NLM",
 };
 
-// Annotation visual styling
-/** RGB tuple for the rejected/maroon pulse animation and static state */
-export const REJECTED_RGB = { r: 128, g: 0, b: 0 } as const;
-/** RGB tuple for the approved/green pulse animation */
-export const APPROVED_RGB = { r: 46, g: 204, b: 113 } as const;
-/** Border-radius for annotation bounding boxes and label pills */
-export const ANNOTATION_BOUNDARY_RADIUS = "6px";
-/** Border-radius for individual annotation tokens */
-export const ANNOTATION_TOKEN_RADIUS = "4px";
-
-// Annotation boundary box-shadow layers (selected state)
-export const BOUNDARY_SHADOW_SELECTED = {
-  outerBlur: 14,
-  outerSpread: 4,
-  outerOpacity: 0.13,
-  midBlur: 5,
-  midSpread: 1,
-  midOpacity: 0.1,
-  insetBlur: 8,
-  insetSpread: 2,
-  insetOpacity: 0.07,
-} as const;
-
-// Annotation boundary box-shadow layers (unselected state)
-export const BOUNDARY_SHADOW_UNSELECTED = {
-  outerBlur: 10,
-  outerSpread: 2,
-  outerOpacity: 0.07,
-  midBlur: 3,
-  midSpread: 0,
-  midOpacity: 0.05,
-  insetBlur: 6,
-  insetSpread: 1,
-  insetOpacity: 0.04,
-} as const;
-
-// Annotation boundary background opacity
-export const BOUNDARY_OPACITY_SELECTED = 0.18;
-export const BOUNDARY_OPACITY_UNSELECTED = 0.06;
-
-// Token highlight opacity
-export const TOKEN_OPACITY_HIGH = 0.38;
-export const TOKEN_OPACITY_LOW = 0.22;
-
-// Token shadow
-export const TOKEN_SHADOW_BLUR = 4;
-export const TOKEN_SHADOW_SPREAD = 1;
-
-// Token expansion (px added around each token to close inter-token gaps)
-export const TOKEN_EXPANSION_PX = 1;
-
 // PAWLs coordinate normalization
 /** Half a PDF point tolerance for comparing PAWLs vs PDF.js page dimensions */
 export const PAWLS_COORDINATE_EPSILON = 0.5;
-
-/**
- * Fraction of page dimensions above which a single token is considered
- * a degenerate page-level element (e.g. full-page image capture from Docling).
- * Such tokens are excluded from annotation overlap detection because they
- * would cause every annotation's bounding box to span the entire page.
- */
-export const PAGE_SPANNING_TOKEN_THRESHOLD = 0.9;
 
 // Compact annotation JSON v2 safety limits
 /** Maximum span for a single range segment (safety guard). */
@@ -945,11 +892,6 @@ export const PANEL_WIDTH_QUARTER_PCT = 25;
 export const PANEL_WIDTH_HALF_PCT = 50;
 export const PANEL_WIDTH_FULL_PCT = 90;
 export const PANEL_SNAP_THRESHOLD_PCT = 3;
-
-// Cooldown between an action-menu interaction and the next selection start.
-// Prevents the next mousedown / touchstart from being treated as a fresh
-// selection while the menu is still dismissing.
-export const SELECTION_MENU_COOLDOWN_MS = 300;
 
 // Document-relationship ``relationship_type`` values, mirroring
 // ``DocumentRelationship.RELATIONSHIP_TYPE_CHOICES`` in

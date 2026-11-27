@@ -28,17 +28,16 @@ The search functionality in the document knowledge base allows users to search t
 - The `useTextSearch()` hook must be called in `DocumentKnowledgeBase` for search processing to work
 
 ### 4. Result Rendering
-Results are rendered through a chain of components:
-
-1. [`SearchResult`](../../../../../frontend/src/components/annotator/display/components/SearchResult.tsx) - Renders both the highlight boundary and tokens
-
-2. [`ResultBoundary`](../../../../../frontend/src/components/annotator/display/components/ResultBoundary.tsx) - Creates the yellow highlight box around matched text
-
-3. [`SearchSelectionTokens`](../../../../../frontend/src/components/annotator/display/components/SelectionTokens.tsx) - Renders individual token highlights
+Each match becomes a highlight of the PDF/DOCX viewer
+(`annotator/bindings/convert.ts::searchHighlight`): its tokens on PDF, its
+span on DOCX. The PDF paints the current match only; DOCX paints them all.
+The current match is the viewer's active highlight, so stepping through the
+matches scrolls to each one (`useViewerBindings`).
 
 ### 5. Visual Styling
-- Matched text is highlighted using styled components
-- See [`TokenSpan`](../../../../../frontend/src/components/annotator/display/components/Tokens.tsx) for the styling implementation
+- Search hits use `SEARCH_RESULT_HIGHLIGHT_COLOR` (`constants.ts`); the
+  library draws the box, the token highlights and the "Search Result n of
+  m" chip.
 
 ### 6. Integration with Unified Feed
 - Search results can also be displayed in the [`UnifiedContentFeed`](../../../../../frontend/src/components/knowledge_base/document/unified_feed/UnifiedContentFeed.tsx) when in feed mode

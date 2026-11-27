@@ -165,11 +165,10 @@ docker compose -f production.yml up
    - Components consume state via reactive vars, never touch URLs directly
    - Deep linking and canonical redirects handled automatically
 
-3. **PDF Annotation System** (see `.cursor/rules/pdf-viewer-and-annotator-architecture.mdc`):
-   - **Virtualized rendering**: Only visible pages (+overscan) rendered for performance
-   - Binary search to find visible page range (O(log n))
-   - Height caching per zoom level
-   - Two-phase scroll-to-annotation system
+3. **PDF/DOCX Viewer** (see `docs/frontend/document_viewer.md`):
+   - Drawn by the `@os-legal/react-contract-annotate` package (page rendering, virtualization, geometry, text selection, scroll-to-annotation). OpenContracts owns the data, controls, menus and persistence; plain text stays on `TxtAnnotator`
+   - Bindings: `frontend/src/components/annotator/bindings/` (`useViewerBindings` maps atoms → props, `convert.ts` maps data). The viewer scrolls itself on selection / active-highlight changes; use `annotatorHandleAtom` to move it otherwise
+   - Library slots (`renderSelectionMenu`, …) render inside the library's private Jotai `Provider`: wrap slot content that reads OpenContracts atoms in a `Provider` with OpenContracts' store
    - Dual-layer architecture: Document layer (annotations) + Knowledge layer (summaries)
 
 4. **Unified Filtering Architecture**:
@@ -485,6 +484,7 @@ Then use the printed session key directly in curl or Playwright route intercepti
 - **Frontend Routing**: `docs/frontend/routing_system.md`
 - **Frontend Auth Flow**: `docs/frontend/auth_flow.md`
 - **PDF Data Layer**: `docs/architecture/PDF-data-layer.md`
+- **PDF/DOCX Viewer (react-contract-annotate bindings)**: `docs/frontend/document_viewer.md`
 - **PAWLs Format (v1/v2)**: `docs/architecture/pawls-format.md`
 - **Parser Pipeline**: `docs/pipelines/pipeline_overview.md`
 - **LLM Framework**: `docs/architecture/llms/README.md`

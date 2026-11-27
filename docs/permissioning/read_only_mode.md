@@ -21,8 +21,7 @@ Read-only mode prevents users from modifying documents and annotations while sti
 
 #### Annotation Components
 - **UnifiedLabelSelector**: Disabled when `readOnly={true}`
-- **SelectionLayer**: Shows "Document is read-only" message
-- **AnnotationMenu**: Shows only copy option (no Apply Label)
+- **AnnotationSelectionMenu** (`annotator/bindings/`, the PDF/DOCX selection menu): Shows only Copy Text / Copy Link (no Apply Label) and a "Document is read-only" message
 
 #### Floating Components
 - **FloatingDocumentInput**: Hides chat mode button

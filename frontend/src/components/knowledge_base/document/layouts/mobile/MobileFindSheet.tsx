@@ -9,7 +9,6 @@ import {
   useSearchText,
   useTextSearchState,
 } from "../../../../annotator/context/DocumentAtom";
-import { useAnnotationRefs } from "../../../../annotator/hooks/useAnnotationRefs";
 import { TextSearchSpanResult, TextSearchTokenResult } from "../../../../types";
 
 export interface MobileFindSheetProps {
@@ -206,8 +205,9 @@ function isTokenResult(
  * A thin wrapper over the existing in-document text-search system: typing
  * drives the `searchText` atom (consumed by `useTextSearch`, mounted by
  * DocumentKnowledgeBase, which computes matches); the prev/next controls step
- * `selectedTextSearchMatchIndex` and scroll the corresponding match element
- * into view — the same primitive `FloatingDocumentInput` uses on desktop.
+ * `selectedTextSearchMatchIndex`, which the document viewer follows by
+ * scrolling to that match — the same primitive `FloatingDocumentInput` uses
+ * on desktop.
  *
  * On mobile we also surface every match as a tappable row. Tapping a row
  * selects that match and closes the sheet (via the optional `onClose`
@@ -225,7 +225,6 @@ export const MobileFindSheet: React.FC<MobileFindSheetProps> = ({
     selectedTextSearchMatchIndex,
     setSelectedTextSearchMatchIndex,
   } = useTextSearchState();
-  const annotationRefs = useAnnotationRefs();
 
   const matchCount = textSearchMatches.length;
 
@@ -236,20 +235,6 @@ export const MobileFindSheet: React.FC<MobileFindSheetProps> = ({
   useEffect(() => {
     if (open) inputRef.current?.focus();
   }, [open]);
-
-  // Scroll the selected match into view whenever the selection changes.
-  useEffect(() => {
-    if (matchCount === 0) return;
-    const target =
-      annotationRefs.textSearchElementRefs.current[
-        selectedTextSearchMatchIndex
-      ];
-    target?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [
-    selectedTextSearchMatchIndex,
-    matchCount,
-    annotationRefs.textSearchElementRefs,
-  ]);
 
   const step = (delta: number) => {
     if (matchCount === 0) return;

@@ -34,6 +34,7 @@ import {
   hoveredAnnotationIdAtom,
 } from "../../../../annotator/context/UISettingsAtom";
 import { RelationGroup } from "../../../../annotator/types/annotations";
+import { annotatorHandleAtom } from "../../../../annotator/context/AnnotatorHandleAtom";
 import { AnnotationLabelType } from "../../../../../types/graphql-api";
 import { JUMP_TO_RELATIONSHIP_SCROLL_RETRY_MS } from "../../../../../assets/configurations/constants";
 
@@ -249,6 +250,24 @@ describe("useJumpToRelationship", () => {
 
     await waitFor(() => store.get(selectedRelationsAtom).length === 1);
     expect(store.get(selectedRelationsAtom)[0].id).toBe(RELAY_GLOBAL_ID);
+  });
+
+  it("scrolls through the PDF/DOCX viewer's handle when one is mounted", async () => {
+    // The library viewer keeps its elements to itself: the hook asks its
+    // handle to bring the source annotation into view, mounted or not.
+    const scrollToAnnotation = vi.fn(async () => true);
+    store.set(annotatorHandleAtom, { scrollToAnnotation } as never);
+    store.set(structuralRelationshipsAtom, [
+      makeRelationGroup(RELAY_GLOBAL_ID),
+    ]);
+    selectedRelationshipId(String(RELAY_PK));
+
+    renderJumpHook();
+
+    await waitFor(() => scrollToAnnotation.mock.calls.length > 0);
+    expect(scrollToAnnotation).toHaveBeenCalledTimes(1);
+    expect(scrollToAnnotation).toHaveBeenCalledWith("ann-1");
+    expect(store.get(hoveredAnnotationIdAtom)).toBe("ann-1");
   });
 
   it("does not re-apply selection on every allRelations mutation", async () => {

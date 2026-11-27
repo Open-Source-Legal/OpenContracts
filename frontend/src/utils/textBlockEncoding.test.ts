@@ -6,7 +6,6 @@ import {
   textBlockFromMultipageJson,
   textBlockFromTokensByPage,
   textBlockToTokenIds,
-  textBlockToBounds,
   TextSpanBlock,
   PdfTokenBlock,
 } from "./textBlockEncoding";
@@ -302,55 +301,6 @@ describe("textBlockEncoding", () => {
         { pageIndex: 0, tokenIndex: 6 },
       ]);
       expect(result[2]).toEqual([{ pageIndex: 2, tokenIndex: 0 }]);
-    });
-  });
-
-  describe("textBlockToBounds", () => {
-    it("computes bounding box from token geometry", () => {
-      const block: PdfTokenBlock = {
-        type: "pdf",
-        tokensByPage: { 0: [0, 1] },
-      };
-      const pageTokens = {
-        0: [
-          { x: 10, y: 20, width: 30, height: 10 },
-          { x: 50, y: 20, width: 20, height: 10 },
-        ],
-      };
-      const result = textBlockToBounds(block, pageTokens);
-      expect(result[0]).toEqual({
-        top: 20,
-        left: 10,
-        bottom: 30,
-        right: 70,
-      });
-    });
-
-    it("skips pages without token data", () => {
-      const block: PdfTokenBlock = {
-        type: "pdf",
-        tokensByPage: { 0: [0], 1: [0] },
-      };
-      const pageTokens = {
-        0: [{ x: 0, y: 0, width: 10, height: 10 }],
-        // Page 1 has no token data
-      };
-      const result = textBlockToBounds(block, pageTokens);
-      expect(result[0]).toBeDefined();
-      expect(result[1]).toBeUndefined();
-    });
-
-    it("skips out-of-range token indices", () => {
-      const block: PdfTokenBlock = {
-        type: "pdf",
-        tokensByPage: { 0: [999] },
-      };
-      const pageTokens = {
-        0: [{ x: 0, y: 0, width: 10, height: 10 }],
-      };
-      const result = textBlockToBounds(block, pageTokens);
-      // Token 999 doesn't exist → no valid bounds
-      expect(result[0]).toBeUndefined();
     });
   });
 });

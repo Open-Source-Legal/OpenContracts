@@ -8,7 +8,7 @@ import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles
 // "wrap text/DOCX in a PDF container". The styling contract is shared
 // across renderers; renaming the source export is tracked separately.
 import { PDFContainer as ViewerContainer } from "../../../annotator/display/viewer/DocumentViewer";
-import { PDF } from "../../../annotator/renderers/pdf/PDF";
+import PdfAnnotatorWrapper from "../../../annotator/components/wrappers/PdfAnnotatorWrapper";
 import TxtAnnotatorWrapper from "../../../annotator/components/wrappers/TxtAnnotatorWrapper";
 import DocxAnnotatorWrapper from "../../../annotator/components/wrappers/DocxAnnotatorWrapper";
 import { ViewState } from "../../../types";
@@ -20,7 +20,10 @@ import {
 } from "../../../../utils/files";
 import { MarkdownDocumentViewer } from "./MarkdownDocumentViewer";
 import { EmptyState } from "./EmptyStates";
-import { ServerTokenAnnotation } from "../../../annotator/types/annotations";
+import {
+  ServerSpanAnnotation,
+  ServerTokenAnnotation,
+} from "../../../annotator/types/annotations";
 
 interface ViewerStatusProps {
   loadingLabel: string;
@@ -76,14 +79,16 @@ export interface DocumentViewerProps {
   fileType: string;
   /** Current load state for the document body (PDF/PAWLS/DOCX/text) */
   viewState: ViewState;
-  /** Whether annotations can be created/edited (passed to PDF only) */
+  /** Whether annotations can be created/edited */
   canEdit: boolean;
   /** Measured width of the viewer container, used for fit-to-width zoom */
   containerWidth: number | null;
   /** Ref callback that publishes the container element to atoms + zoom hooks */
   containerRefCallback: React.RefCallback<HTMLDivElement>;
-  /** Annotation creation handler (PDF only) */
-  createAnnotationHandler: (annotation: ServerTokenAnnotation) => Promise<void>;
+  /** Annotation creation handler (PDF and DOCX) */
+  createAnnotationHandler: (
+    annotation: ServerTokenAnnotation | ServerSpanAnnotation
+  ) => Promise<void>;
   /** OC_URL link-annotation creator (PDF only); enables the "Add link" action. */
   createUrlAnnotationHandler?: (
     annotation: ServerTokenAnnotation,
@@ -109,18 +114,18 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
 }) => {
   if (isPdfFileType(fileType)) {
     return (
-      <ViewerContainer id="pdf-container" ref={containerRefCallback}>
+      <ViewerContainer id="pdf-container" ref={containerRefCallback} $frame>
         <ViewerStatus
           loadingLabel="Loading PDF..."
           errorTitle="Error Loading PDF"
           errorDescription="Could not load the PDF document."
           viewState={viewState}
         >
-          <PDF
-            read_only={!canEdit}
+          <PdfAnnotatorWrapper
+            readOnly={!canEdit}
             containerWidth={containerWidth}
-            createAnnotationHandler={createAnnotationHandler}
-            createUrlAnnotationHandler={createUrlAnnotationHandler}
+            createAnnotation={createAnnotationHandler}
+            createUrlAnnotation={createUrlAnnotationHandler}
           />
         </ViewerStatus>
       </ViewerContainer>
@@ -162,14 +167,17 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
 
   if (isDocxFileType(fileType)) {
     return (
-      <ViewerContainer id="docx-container" ref={containerRefCallback}>
+      <ViewerContainer id="docx-container" ref={containerRefCallback} $frame>
         <ViewerStatus
           loadingLabel="Loading DOCX..."
           errorTitle="Error Loading DOCX"
           errorDescription="Could not load the Word document."
           viewState={viewState}
         >
-          <DocxAnnotatorWrapper readOnly={!canEdit} allowInput={canEdit} />
+          <DocxAnnotatorWrapper
+            readOnly={!canEdit}
+            createAnnotation={createAnnotationHandler}
+          />
         </ViewerStatus>
       </ViewerContainer>
     );

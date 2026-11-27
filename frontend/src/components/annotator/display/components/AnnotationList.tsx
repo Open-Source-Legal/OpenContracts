@@ -9,7 +9,6 @@ import styled from "styled-components";
 
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
 import "../../sidebar/AnnotatorSidebar.css";
-import { useAnnotationRefs } from "../../hooks/useAnnotationRefs";
 import { usePdfAnnotations } from "../../hooks/AnnotationHooks";
 import {
   useAnnotationControls,
@@ -141,7 +140,6 @@ export const AnnotationList: React.FC<AnnotationListProps> = ({
   useEffect(updateRange, [cumulative, updateRange]);
 
   /* ------------ helpers ---------------------------------------------- */
-  const { annotationElementRefs } = useAnnotationRefs();
   const handleDeleteAnnotation = useDeleteAnnotation();
 
   const scrollToRow = (idx: number) => {

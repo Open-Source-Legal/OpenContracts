@@ -189,7 +189,7 @@ useEffect(() => {
 ```
 
 **Why it's needed:**
-The PDF component (`<PDF containerWidth={containerWidth} />`) needs the pixel width to calculate page layouts. When sidebar opens/closes, the container width changes, triggering a re-render with the new constrained width.
+The PDF viewer (`<PdfAnnotatorWrapper containerWidth={containerWidth} />`) uses the pixel width for its first fit-to-width zoom. When the sidebar opens or closes, the container width changes and the viewer's root takes the new width.
 
 ## Floating Controls Offset
 

@@ -1835,10 +1835,9 @@ if (!isFeatureAvailable('ANNOTATIONS')) {
 
 Components that properly support read-only mode:
 
-- ✅ **PDF Component**: Prevents annotation creation
+- ✅ **PdfAnnotatorWrapper / DocxAnnotatorWrapper**: Prevent annotation creation (`readOnly`)
 - ✅ **TxtAnnotatorWrapper**: Disables input
-- ✅ **SelectionLayer**: Shows read-only messages
-- ✅ **AnnotationMenu**: Shows only copy option
+- ✅ **AnnotationSelectionMenu** (PDF/DOCX selection menu): Shows only Copy Text / Copy Link, with a read-only message
 - ✅ **FloatingControls**: Hides edit actions
 - ✅ **Content Feed**: Passes readOnly to children
 
