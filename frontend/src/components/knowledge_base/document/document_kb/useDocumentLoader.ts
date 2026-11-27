@@ -88,7 +88,6 @@ interface UseDocumentLoaderParams {
   documentId: string;
   corpusId?: string;
   authReady: boolean;
-  zoomLevel: number;
   setProgress: ReturnType<typeof useUISettings>["setProgress"];
   selectedAnalysisId: string | null;
   selectedExtractId: string | null;
@@ -151,7 +150,6 @@ export function useDocumentLoader({
   documentId,
   corpusId,
   authReady,
-  zoomLevel,
   setProgress,
   selectedAnalysisId,
   selectedExtractId,
@@ -380,13 +378,13 @@ export function useDocumentLoader({
               viewport.height,
               pageNum
             );
-            return new PDFPageInfo(p, pageTokens, zoomLevel);
+            return new PDFPageInfo(p, pageTokens);
           }) as unknown as Promise<PDFPageInfo>
         );
       }
       return Promise.all(loadPagesPromises);
     },
-    [zoomLevel]
+    []
   );
 
   const finalizePdfLoad = useCallback(

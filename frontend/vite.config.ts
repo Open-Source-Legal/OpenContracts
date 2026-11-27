@@ -158,7 +158,14 @@ export default defineConfig(async () => {
           // ERR_UNSUPPORTED_DIR_IMPORT when vitest externalizes docxodus.
           // Inlining routes docxodus through Vite's resolver, which handles
           // directory entry points, matching what the browser build does.
-          inline: ["@os-legal/caml-react", "docxodus"],
+          // @os-legal/react-contract-annotate is inlined for the same reason:
+          // its `./docx` entry imports docxodus, which an externalized
+          // library would load through Node's resolver instead.
+          inline: [
+            "@os-legal/caml-react",
+            "@os-legal/react-contract-annotate",
+            "docxodus",
+          ],
         },
       },
       // More specific include pattern

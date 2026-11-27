@@ -7,8 +7,9 @@ import { useFeatureAvailability } from "../../../hooks/useFeatureAvailability";
 // pdfjs-dist 6's default build needs very recent JS built-ins
 // (e.g. Map.prototype.getOrInsertComputed); the legacy build bundles the
 // polyfills. The API and worker must come from the same build, so every
-// pdf.js import in the app uses the legacy entry points.
-import { GlobalWorkerOptions } from "pdfjs-dist/legacy/build/pdf.mjs";
+// pdf.js import in the app uses the legacy entry points (as does the
+// viewer library, so its documents and ours share one pdf.js instance).
+import { configurePdfWorker } from "@os-legal/react-contract-annotate/pdf";
 import workerSrc from "pdfjs-dist/legacy/build/pdf.worker.mjs?url";
 import { useUISettings } from "../../annotator/hooks/useUISettings";
 import useWindowDimensions from "../../hooks/WindowDimensionHook";
@@ -71,7 +72,7 @@ import { DesktopDocumentLayout } from "./layouts/DesktopDocumentLayout";
 import { MobileDocumentLayout } from "./layouts/MobileDocumentLayout";
 
 // Setting worker path to worker bundle.
-GlobalWorkerOptions.workerSrc = workerSrc;
+configurePdfWorker(workerSrc);
 
 interface DocumentKnowledgeBaseProps {
   documentId: string;
@@ -528,7 +529,6 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
     documentId,
     corpusId,
     authReady,
-    zoomLevel,
     setProgress,
     selectedAnalysisId: selectedAnalysis?.id ?? null,
     selectedExtractId: selectedExtract?.id ?? null,

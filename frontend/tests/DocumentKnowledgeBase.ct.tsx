@@ -448,21 +448,26 @@ test("PDF container renders with virtualized pages", async ({
   const firstCanvas = pdfContainer.locator("canvas").first();
   await expect(firstCanvas).toBeVisible({ timeout: LONG_TIMEOUT });
 
+  // One absolutely positioned slot per page inside the viewer's page stack;
+  // the viewer's root is the element that scrolls.
   const pagePlaceholders = pdfContainer.locator(
-    '> div[style*="position: relative;"] > div[style*="position: absolute;"]'
+    '[data-rca-pdf-pages] > div[style*="position: absolute;"]'
   );
   await expect(pagePlaceholders).toHaveCount(23, { timeout: LONG_TIMEOUT });
+  const scrollContainer = pdfContainer.locator("[data-rca-root]");
 
   // Continue with existing scrolling logic...
   const renderedPageIndices = new Set<number>();
   const totalPages = 23;
 
-  const scrollableView = await pdfContainer.boundingBox();
+  const scrollableView = await scrollContainer.boundingBox();
   if (!scrollableView) {
-    throw new Error("Could not get bounding box for #pdf-container");
+    throw new Error("Could not get bounding box for the viewer's root");
   }
   const clientHeight = scrollableView.height;
-  const scrollHeight = await pdfContainer.evaluate((node) => node.scrollHeight);
+  const scrollHeight = await scrollContainer.evaluate(
+    (node) => node.scrollHeight
+  );
 
   console.log(
     `[TEST] pdfContainer clientHeight: ${clientHeight}, scrollHeight: ${scrollHeight}`
@@ -475,7 +480,7 @@ test("PDF container renders with virtualized pages", async ({
     currentScrollTop += scrollIncrement;
     currentScrollTop = Math.min(currentScrollTop, scrollHeight - clientHeight);
 
-    await pdfContainer.evaluate((node, st) => {
+    await scrollContainer.evaluate((node, st) => {
       node.scrollTop = st;
     }, currentScrollTop);
 
@@ -1093,7 +1098,7 @@ test("DOCX document renders DOCX annotator via WASM", async ({
   await expect(docxAnnotator).toBeVisible({ timeout: 45_000 });
 
   // Verify the DOCX content is rendered
-  const docxContent = docxAnnotator.locator(".docx-content");
+  const docxContent = docxAnnotator.locator("[data-rca-docx-frame]");
   await expect(docxContent).toBeVisible({ timeout: LONG_TIMEOUT });
 
   // PDF annotator should NOT be present
@@ -1157,8 +1162,10 @@ test("selects a label and creates an annotation via unified feed", async ({
   // Prepare for annotation
   const firstCanvas = page.locator("#pdf-container canvas").first();
   await expect(firstCanvas).toBeVisible({ timeout: LONG_TIMEOUT });
-  const firstPageContainer = page.locator(".PageAnnotationsContainer").first();
-  const selectionLayer = firstPageContainer.locator("#selection-layer");
+  const firstPageContainer = page.locator("[data-rca-page]").first();
+  const selectionLayer = firstPageContainer.locator(
+    "[data-rca-selection-layer]"
+  );
   const layerBox = await selectionLayer.boundingBox();
   expect(layerBox).toBeTruthy();
 
@@ -1255,8 +1262,10 @@ test("keyboard shortcut 'C' copies selected text", async ({ mount, page }) => {
   });
 
   // Perform text selection
-  const firstPageContainer = page.locator(".PageAnnotationsContainer").first();
-  const selectionLayer = firstPageContainer.locator("#selection-layer");
+  const firstPageContainer = page.locator("[data-rca-page]").first();
+  const selectionLayer = firstPageContainer.locator(
+    "[data-rca-selection-layer]"
+  );
   const layerBox = await selectionLayer.boundingBox();
   expect(layerBox).toBeTruthy();
 
@@ -1323,8 +1332,10 @@ test("keyboard shortcut 'A' applies label to create annotation", async ({
   await firstLabelOption.click();
 
   // Perform text selection
-  const firstPageContainer = page.locator(".PageAnnotationsContainer").first();
-  const selectionLayer = firstPageContainer.locator("#selection-layer");
+  const firstPageContainer = page.locator("[data-rca-page]").first();
+  const selectionLayer = firstPageContainer.locator(
+    "[data-rca-selection-layer]"
+  );
   const layerBox = await selectionLayer.boundingBox();
 
   await page.mouse.move(
@@ -1387,8 +1398,10 @@ test("ESC key cancels selection and closes action menu", async ({
     page.getByRole("heading", { name: mockPdfDocument.title ?? "" })
   ).toBeVisible({ timeout: LONG_TIMEOUT });
 
-  const firstPageContainer = page.locator(".PageAnnotationsContainer").first();
-  const selectionLayer = firstPageContainer.locator("#selection-layer");
+  const firstPageContainer = page.locator("[data-rca-page]").first();
+  const selectionLayer = firstPageContainer.locator(
+    "[data-rca-selection-layer]"
+  );
   const layerBox = await selectionLayer.boundingBox();
 
   // Test 1: ESC during selection (before mouse up)
@@ -1466,8 +1479,10 @@ test("cancel button dismisses selection without action", async ({
   await firstLabelOption.click();
 
   // Perform text selection
-  const firstPageContainer = page.locator(".PageAnnotationsContainer").first();
-  const selectionLayer = firstPageContainer.locator("#selection-layer");
+  const firstPageContainer = page.locator("[data-rca-page]").first();
+  const selectionLayer = firstPageContainer.locator(
+    "[data-rca-selection-layer]"
+  );
   const layerBox = await selectionLayer.boundingBox();
 
   await page.mouse.move(
@@ -1552,8 +1567,10 @@ test("mobile: moving finger during long press wait cancels selection", async ({
   ).toBeVisible({ timeout: LONG_TIMEOUT });
 
   // Get the selection layer
-  const firstPageContainer = page.locator(".PageAnnotationsContainer").first();
-  const selectionLayer = firstPageContainer.locator("#selection-layer");
+  const firstPageContainer = page.locator("[data-rca-page]").first();
+  const selectionLayer = firstPageContainer.locator(
+    "[data-rca-selection-layer]"
+  );
   const layerBox = await selectionLayer.boundingBox();
   expect(layerBox).toBeTruthy();
 
@@ -1730,9 +1747,9 @@ test("PDF annotations render with soft bounding boxes on canvas", async ({
   // Wait for annotations to render on the canvas
   await page.waitForTimeout(2000);
 
-  // Verify the SelectionBoundary span is rendered on the PDF overlay
+  // Verify the annotation's bounding box is rendered on the PDF overlay
   const selectionBoundary = page.locator(
-    `[id="SELECTION_${mockAnnotationNonStructural1.id}"]`
+    `[data-rca-annotation="${mockAnnotationNonStructural1.id}"]`
   );
   await expect(selectionBoundary).toBeVisible({ timeout: LONG_TIMEOUT });
 
@@ -1794,7 +1811,7 @@ test("PDF annotations with labels always visible", async ({ mount, page }) => {
 
   // Verify annotation boundary is visible
   const selectionBoundary = page.locator(
-    `[id="SELECTION_${mockAnnotationNonStructural1.id}"]`
+    `[data-rca-annotation="${mockAnnotationNonStructural1.id}"]`
   );
   await expect(selectionBoundary).toBeVisible({ timeout: LONG_TIMEOUT });
 
@@ -1863,7 +1880,7 @@ test("Search jumps to first 'Transfer Taxes' hit using floating input", async ({
   await searchInput.press("Enter");
 
   /* 6️⃣  wait for ANY highlight to become visible */
-  const highlight = page.locator("[id^='SEARCH_RESULT_']").first();
+  const highlight = page.locator("[data-rca-highlight^='__search__:']").first();
   await expect(highlight).toBeVisible({ timeout: LONG_TIMEOUT });
 
   /* 6b️⃣  wait until the container finished scrolling */
@@ -1943,7 +1960,8 @@ test("Chat source chip in unified feed centres its highlight in PDF", async ({
   // Wait for highlight to be in the DOM & scrolled into view
   const messageId = "TWVzc2FnZVR5cGU6Ng=="; // base-64 id used by the UI
   const highlight = page.locator(
-    `[id="CHAT_SOURCE_${messageId}.0"]` // an attribute selector needs no escaping
+    // an attribute selector needs no escaping
+    `[data-rca-highlight="__chat_source__:${messageId}.0"]`
   );
   await expect(highlight).toBeVisible({ timeout: LONG_TIMEOUT });
 
@@ -2302,10 +2320,10 @@ test.describe("Read-Only Mode Tests", () => {
     }
 
     // Attempt to make a selection on the PDF
-    const firstPageContainer = page
-      .locator(".PageAnnotationsContainer")
-      .first();
-    const selectionLayer = firstPageContainer.locator("#selection-layer");
+    const firstPageContainer = page.locator("[data-rca-page]").first();
+    const selectionLayer = firstPageContainer.locator(
+      "[data-rca-selection-layer]"
+    );
     const layerBox = await selectionLayer.boundingBox();
     expect(layerBox).toBeTruthy();
 
@@ -2757,10 +2775,10 @@ test.describe("Read-Only Mode Tests", () => {
     });
 
     // Perform text selection
-    const firstPageContainer = page
-      .locator(".PageAnnotationsContainer")
-      .first();
-    const selectionLayer = firstPageContainer.locator("#selection-layer");
+    const firstPageContainer = page.locator("[data-rca-page]").first();
+    const selectionLayer = firstPageContainer.locator(
+      "[data-rca-selection-layer]"
+    );
     const layerBox = await selectionLayer.boundingBox();
     expect(layerBox).toBeTruthy();
 
@@ -2873,7 +2891,9 @@ test("Chat sources hide regular annotations and search results, but show explici
 
   // Wait for chat source to be visible
   const messageId = "TWVzc2FnZVR5cGU6Ng==";
-  const chatSource = page.locator(`[id="CHAT_SOURCE_${messageId}.0"]`);
+  const chatSource = page.locator(
+    `[data-rca-highlight="__chat_source__:${messageId}.0"]`
+  );
   await expect(chatSource).toBeVisible({ timeout: LONG_TIMEOUT });
   console.log("[TEST] Chat sources are now displayed");
 

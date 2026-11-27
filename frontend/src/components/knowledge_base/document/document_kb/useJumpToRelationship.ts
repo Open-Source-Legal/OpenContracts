@@ -14,7 +14,8 @@
  *    the URL.
  *  - Scroll the source annotation into view (matches how
  *    ``ContentItemRenderer.handleSelectRelation`` behaves for in-app
- *    selections).
+ *    selections): through the PDF/DOCX viewer's handle when one is
+ *    mounted, else through the plain-text annotator's element refs.
  *
  * The hook is a no-op when ``selectedRelationshipId`` is null. It waits
  * for the relation list to populate (structural relations are lazy-
@@ -33,6 +34,7 @@ import {
   hoveredAnnotationIdAtom,
 } from "../../../annotator/context/UISettingsAtom";
 import { allRelationsAtom } from "../../../annotator/context/AnnotationAtoms";
+import { annotatorHandleAtom } from "../../../annotator/context/AnnotatorHandleAtom";
 import { useAnnotationRefs } from "../../../annotator/hooks/useAnnotationRefs";
 import { RelationGroup } from "../../../annotator/types/annotations";
 import { getNumericIdFromGlobalId } from "../../../../utils/idValidation";
@@ -44,6 +46,7 @@ export function useJumpToRelationship(): void {
   const [, setSelectedRelations] = useAtom(selectedRelationsAtom);
   const [, setHoveredAnnotationId] = useAtom(hoveredAnnotationIdAtom);
   const { annotationElementRefs } = useAnnotationRefs();
+  const viewerHandle = useAtomValue(annotatorHandleAtom);
 
   // Two separate "applied once" guards:
   // * ``lastAppliedSelectionRef`` — set as soon as the selection has been
@@ -112,8 +115,24 @@ export function useJumpToRelationship(): void {
     // available we leave ``lastAppliedScrollRef`` unset so the effect
     // retries once the relevant page mounts.
     const tryScroll = (): boolean => {
-      const refs = annotationElementRefs?.current ?? {};
       const candidateIds = [...match.sourceIds, ...match.targetIds];
+      if (viewerHandle) {
+        // The PDF/DOCX viewer mounts the target's page itself and reports
+        // whether it got there; on a miss the next run tries again.
+        const targetId = candidateIds[0];
+        if (!targetId) return false;
+        void viewerHandle.scrollToAnnotation(targetId).then((scrolled) => {
+          if (!scrolled && lastAppliedScrollRef.current === relId) {
+            lastAppliedScrollRef.current = null;
+          }
+        });
+        if (match.sourceIds[0]) {
+          setHoveredAnnotationId(match.sourceIds[0]);
+        }
+        lastAppliedScrollRef.current = relId;
+        return true;
+      }
+      const refs = annotationElementRefs?.current ?? {};
       const targetId = candidateIds.find((id) => refs[id]);
       const ref = targetId ? refs[targetId] : undefined;
       if (ref && typeof ref.scrollIntoView === "function") {
@@ -150,5 +169,6 @@ export function useJumpToRelationship(): void {
     setSelectedRelations,
     setHoveredAnnotationId,
     annotationElementRefs,
+    viewerHandle,
   ]);
 }

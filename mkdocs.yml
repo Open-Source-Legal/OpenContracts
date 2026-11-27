@@ -132,7 +132,6 @@ nav:
           - State Management: architecture/components/annotator/current-state/state-management.md
           - Virtualized Rendering: architecture/components/annotator/current-state/virtualized-rendering.md
           - How Search Works: architecture/components/annotator/current-state/how-search-works.md
-          - Scroll-to-Annotation Flow: architecture/components/annotator/current-state/scroll-to-annotation-flow.md
           - Sidebar and Zoom: architecture/components/annotator/current-state/sidebar-and-zoom.md
           - Extract Selection Flow: architecture/components/annotator/current-state/extract-selection-flow.md
           - Document Knowledge Base Features: architecture/components/annotator/current-state/document-knowledge-base-features.md
@@ -202,7 +201,7 @@ nav:
       - Auth Flow: frontend/auth_flow.md
       - Layout Architecture: frontend/layout-architecture.md
       - Document Rendering: frontend/document_rendering_and_annotation.md
-      - Search Rendering: frontend/search_rendering.md
+      - Document Viewer (PDF/DOCX): frontend/document_viewer.md
       - Discussions: frontend/discussions.md
       - Real-Time Notifications: frontend/real-time-notifications.md
       - Corpus Selection: frontend/corpus-and-document-selection.md

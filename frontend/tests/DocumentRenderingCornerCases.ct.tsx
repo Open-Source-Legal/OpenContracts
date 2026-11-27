@@ -195,10 +195,10 @@ test.describe("Selection Menu Positioning Corner Cases", () => {
     );
 
     // Get the selection layer on the first page
-    const firstPageContainer = page
-      .locator(".PageAnnotationsContainer")
-      .first();
-    const selectionLayer = firstPageContainer.locator("#selection-layer");
+    const firstPageContainer = page.locator("[data-rca-page]").first();
+    const selectionLayer = firstPageContainer.locator(
+      "[data-rca-selection-layer]"
+    );
     const layerBox = await selectionLayer.boundingBox();
     expect(layerBox).toBeTruthy();
 
@@ -283,10 +283,10 @@ test.describe("Selection Menu Positioning Corner Cases", () => {
     );
 
     // Get the selection layer
-    const firstPageContainer = page
-      .locator(".PageAnnotationsContainer")
-      .first();
-    const selectionLayer = firstPageContainer.locator("#selection-layer");
+    const firstPageContainer = page.locator("[data-rca-page]").first();
+    const selectionLayer = firstPageContainer.locator(
+      "[data-rca-selection-layer]"
+    );
     const layerBox = await selectionLayer.boundingBox();
     expect(layerBox).toBeTruthy();
 
@@ -402,8 +402,9 @@ test.describe("Selection Menu Positioning Corner Cases", () => {
     await page.keyboard.press("Control++");
     await page.waitForTimeout(500);
 
-    // Now with zoom, create horizontal scroll by scrolling right
-    const pdfContainer = page.locator("#pdf-container");
+    // Now with zoom, create horizontal scroll by scrolling right (the
+    // viewer's root is the element that scrolls)
+    const pdfContainer = page.locator("#pdf-container [data-rca-root]");
     await pdfContainer.evaluate((el) => {
       // Scroll right to test horizontal positioning
       el.scrollLeft = 50;
@@ -411,17 +412,20 @@ test.describe("Selection Menu Positioning Corner Cases", () => {
     await page.waitForTimeout(300);
 
     // Get the selection layer after zoom and scroll
-    const firstPageContainer = page
-      .locator(".PageAnnotationsContainer")
-      .first();
-    const selectionLayer = firstPageContainer.locator("#selection-layer");
+    const firstPageContainer = page.locator("[data-rca-page]").first();
+    const selectionLayer = firstPageContainer.locator(
+      "[data-rca-selection-layer]"
+    );
     const layerBox = await selectionLayer.boundingBox();
     expect(layerBox).toBeTruthy();
 
     // Select text using the same reliable pattern
-    // Position near right edge to test horizontal constraints
+    // Position near right edge to test horizontal constraints. The drag
+    // starts inside the text body: a drag that captures no token makes no
+    // selection (and opens no menu), and at this zoom the page's first 50px
+    // are its top margin.
     const startX = layerBox!.x + Math.min(layerBox!.width - 100, 200);
-    const startY = layerBox!.y + 50;
+    const startY = layerBox!.y + layerBox!.height * 0.1;
 
     await performTextSelection(page, startX, startY, startX + 60, startY + 25);
 
@@ -549,10 +553,10 @@ test.describe("Cumulative Height Calculation Drift", () => {
     await page.waitForTimeout(1000);
 
     // Get the first page for testing
-    const firstPageContainer = page
-      .locator(".PageAnnotationsContainer")
-      .first();
-    const selectionLayer = firstPageContainer.locator("#selection-layer");
+    const firstPageContainer = page.locator("[data-rca-page]").first();
+    const selectionLayer = firstPageContainer.locator(
+      "[data-rca-selection-layer]"
+    );
 
     // Create an annotation on the first page
     const layerBox = await selectionLayer.boundingBox();
@@ -696,7 +700,9 @@ test.describe("Multi-Page Annotation Rendering", () => {
 
     // Test: When viewing page 3, all annotation pages should be mounted
     await page.evaluate(() => {
-      const container = document.querySelector("#pdf-container");
+      const container = document.querySelector(
+        "#pdf-container [data-rca-root]"
+      );
       if (container) {
         // Scroll to page 3 (middle of multi-page annotation)
         container.scrollTop = 2 * 1000; // Assuming 1000px per page
@@ -707,7 +713,7 @@ test.describe("Multi-Page Annotation Rendering", () => {
 
     // Check if virtualization is forcing all annotation pages to be visible
     const visiblePages = await page.evaluate(() => {
-      const pages = document.querySelectorAll(".PageAnnotationsContainer");
+      const pages = document.querySelectorAll("[data-rca-page]");
       const visiblePageNumbers: number[] = [];
 
       pages.forEach((page, index) => {
@@ -774,7 +780,7 @@ test.describe("Multi-Page Annotation Rendering", () => {
 
     // Check initial state - should see pages 1-3 due to the multi-page annotation
     const initialPages = await page.evaluate(() => {
-      const pages = document.querySelectorAll(".PageAnnotationsContainer");
+      const pages = document.querySelectorAll("[data-rca-page]");
       const mountedPages: number[] = [];
 
       pages.forEach((page, index) => {
@@ -791,7 +797,9 @@ test.describe("Multi-Page Annotation Rendering", () => {
 
     // Now scroll to page 5 - far from the multi-page annotation
     await page.evaluate(() => {
-      const container = document.querySelector("#pdf-container");
+      const container = document.querySelector(
+        "#pdf-container [data-rca-root]"
+      );
       if (container) {
         container.scrollTop = 4 * 1000; // Scroll to page 5
       }
@@ -801,7 +809,7 @@ test.describe("Multi-Page Annotation Rendering", () => {
 
     // Check which pages are mounted after scrolling
     const pagesAfterScroll = await page.evaluate(() => {
-      const pages = document.querySelectorAll(".PageAnnotationsContainer");
+      const pages = document.querySelectorAll("[data-rca-page]");
       const mountedPages: number[] = [];
 
       pages.forEach((page, index) => {
@@ -824,7 +832,9 @@ test.describe("Multi-Page Annotation Rendering", () => {
     // Simulate selecting the multi-page annotation by clicking on it
     // First, scroll back to page 1 to find the annotation
     await page.evaluate(() => {
-      const container = document.querySelector("#pdf-container");
+      const container = document.querySelector(
+        "#pdf-container [data-rca-root]"
+      );
       if (container) {
         container.scrollTop = 0; // Back to top
       }
@@ -842,7 +852,9 @@ test.describe("Multi-Page Annotation Rendering", () => {
 
       // Now scroll to page 5 again
       await page.evaluate(() => {
-        const container = document.querySelector("#pdf-container");
+        const container = document.querySelector(
+          "#pdf-container [data-rca-root]"
+        );
         if (container) {
           container.scrollTop = 4 * 1000; // Scroll to page 5
         }
@@ -852,7 +864,7 @@ test.describe("Multi-Page Annotation Rendering", () => {
 
       // Check final state - pages 1-3 should STILL be mounted because of the selected multi-page annotation
       const finalPages = await page.evaluate(() => {
-        const pages = document.querySelectorAll(".PageAnnotationsContainer");
+        const pages = document.querySelectorAll("[data-rca-page]");
         const mountedPages: number[] = [];
 
         pages.forEach((page, index) => {
@@ -1342,7 +1354,7 @@ test.describe("Rapid Zoom Race Conditions", () => {
           ) {
             const target = mutation.target as HTMLElement;
             if (
-              target.classList.contains("PageAnnotationsContainer") ||
+              target.hasAttribute("data-rca-page") ||
               target.tagName === "CANVAS"
             ) {
               const transform = target.style.transform;
@@ -1387,7 +1399,7 @@ test.describe("Rapid Zoom Race Conditions", () => {
         "#pdf-container canvas"
       ) as HTMLCanvasElement;
       const annotationContainer = document.querySelector(
-        ".PageAnnotationsContainer"
+        "[data-rca-page]"
       ) as HTMLElement;
 
       return {

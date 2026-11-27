@@ -882,6 +882,14 @@
   resolved "https://registry.yarnpkg.com/@os-legal/caml/-/caml-0.1.2.tgz#403fcd236c5206abd9ed3d5657e95a898a67bda2"
   integrity sha512-7Kdhu5ziXMepoDg+ONC041vag4kHAQfam98R0pvmPST7xbfZCu+oY3jDdVtPuNjcVgbKZWh223VfStJCAKExQQ==
 
+"@os-legal/react-contract-annotate@^0.1.4":
+  version "0.1.4"
+  resolved "https://registry.yarnpkg.com/@os-legal/react-contract-annotate/-/react-contract-annotate-0.1.4.tgz#dbb4535d6886f7272099f1da1e219c324b82000a"
+  integrity sha512-UGCazh4PzjL3E6WkDMVXVv17uYDdF8plLwgenuNBvLby2nDMwN63Tn4UohjkrTDBsyde8btohHvAUFu186qi+A==
+  dependencies:
+    dompurify "^3.4.18"
+    jotai "^3.0.1"
+
 "@os-legal/ui@0.1.19":
   version "0.1.19"
   resolved "https://registry.yarnpkg.com/@os-legal/ui/-/ui-0.1.19.tgz#d3511090cc41a8b8e0f499bcab23bd010e99e237"

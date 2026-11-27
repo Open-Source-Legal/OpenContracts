@@ -18,13 +18,10 @@ The Annotator system uses a modern architecture combining Jotai for state manage
 
 ```
 DocumentKnowledgeBase (Data fetching & top-level state)
-├── PDF (Virtualization engine)
-│   └── PDFPage (Individual page renderer)
-│       ├── Canvas (PDF content)
-│       ├── SelectionLayer (User interactions)
-│       ├── Selection (Annotation display)
-│       ├── SearchResult (Search highlights)
-│       └── ChatSourceResult (Chat source highlights)
+├── PdfAnnotatorWrapper / DocxAnnotatorWrapper (bindings/useViewerBindings)
+│   └── PdfAnnotator / DocxAnnotator (@os-legal/react-contract-annotate:
+│       pages, annotations, highlights, text selection, scrolling)
+├── TxtAnnotatorWrapper (plain text)
 ├── Sidebars/Panels (UI for managing annotations)
 ├── ViewSettingsPopup (Annotation visibility controls)
 └── LabelSelector (Active annotation label selection)
@@ -105,8 +102,8 @@ export const perPageAnnotationsAtom = atom((get) => {
 
 ### Document State Atoms (DocumentAtom.tsx)
 
-- `scrollContainerRefAtom` - Reference to scrolling container
-- `pendingScrollAnnotationIdAtom` - Annotation to scroll to
+- `scrollContainerRefAtom` - The viewer's container
+- `annotatorHandleAtom` (`AnnotatorHandleAtom.ts`) - The mounted PDF/DOCX viewer's handle
 - `textSearchStateAtom` - Current search results and selection
 
 ## Data Flow
@@ -129,7 +126,8 @@ graph TD
     J --> K
     K --> L[perPageAnnotationsAtom<br/>(computed, indexed by page)]
     K --> M[useVisibleAnnotations<br/>(filtered by UI settings)]
-    M --> N[PDFPage Components]
+    K --> N[PDF/DOCX viewer<br/>(filters with the same rules)]
+    M --> O[TxtAnnotator, sidebar]
 ```
 
 ### Key Points:
@@ -143,15 +141,15 @@ graph TD
 When a user selects an annotation:
 1. `selectedAnnotationIdsAtom` is updated
 2. `useVisibleAnnotations` ensures selected annotations are visible
-3. PDF component expands visible range to include annotation's page
-4. PDFPage scrolls the specific annotation into view
+3. The PDF/DOCX viewer, whose selection is controlled, mounts the
+   annotation's page and scrolls it into view
 
 ### 3. Filtering Updates
 
 When filter settings change:
 1. UI atoms are updated (e.g., `showStructuralAnnotationsAtom`, `spanLabelsToViewAtom`)
 2. `useVisibleAnnotations` hook recomputes based on new filters
-3. Only affected PDFPage components re-render
+3. The viewer receives the new display settings and redraws
 4. No network requests needed - all filtering is local
 
 #### Special Behavior: Show Structural Toggle
@@ -184,23 +182,14 @@ const handleShowStructuralChange = useCallback(() => {
   - Manages layout and panel switching
   - Coordinates between different viewing modes
 
-### PDF Component
+### PDF and DOCX Viewers
 
-- **Purpose**: Implements virtualized rendering for performance
-- **Key Features**:
-  - Calculates visible page range using binary search
-  - Manages page height caching per zoom level
-  - Ensures selected items' pages are always rendered
-  - Handles scroll-to-annotation coordination
-
-### PDFPage Component
-
-- **Purpose**: Renders individual PDF pages with annotations
-- **Optimizations**:
-  - Only renders when in viewport
-  - Manages its own PDF rendering lifecycle
-  - Filters annotations to show only those on current page
-  - Handles annotation selection and creation
+- **Purpose**: `PdfAnnotatorWrapper` / `DocxAnnotatorWrapper` mount
+  `@os-legal/react-contract-annotate` on the loaded document;
+  `bindings/useViewerBindings.tsx` maps the atoms above to its props and
+  writes what it reports (selection, zoom, created annotations) back.
+- Virtualization, page rendering and scroll mechanics are the library's. See
+  [Document Viewer (PDF and DOCX)](../../../../frontend/document_viewer.md).
 
 ### useVisibleAnnotations Hook
 
@@ -303,9 +292,7 @@ The system provides centralized, consistent filtering through `useVisibleAnnotat
 - Stored in `spanLabelsToViewAtom`
 
 ### 4. Page-Level Filtering
-- PDFPage components further filter to show only annotations on their page
-- Efficient - no unnecessary rendering of off-page annotations
-- Uses `perPageAnnotationsAtom` for O(1) page lookups
+- The PDF viewer draws each page's annotations only while that page is mounted
 
 ### 5. Show Selected Only Mode
 - When enabled, only selected annotations are visible
@@ -315,9 +302,7 @@ The system provides centralized, consistent filtering through `useVisibleAnnotat
 ## Performance Optimizations
 
 ### 1. Virtualized Rendering
-- Only visible PDF pages (+overscan) are rendered
-- Dramatic performance improvement for large documents
-- Smart range expansion for selected items
+- Only visible PDF pages (+overscan) are rendered (by the viewer library)
 
 ### 2. Computed Atoms
 - Derivations only recalculate when dependencies change
@@ -325,19 +310,16 @@ The system provides centralized, consistent filtering through `useVisibleAnnotat
 - Automatic memoization built-in
 
 ### 3. Granular Updates
-- Component-level filtering prevents unnecessary re-renders
-- Page components operate independently
-- Zoom changes only affect visible pages
+- Converted annotations keep their identity (`bindings/convert.ts`), so the
+  viewer redraws only what changed
 
 ### 4. Efficient Data Structures
 - Page-indexed annotation map for O(1) lookups
 - Set-based deduplication
-- Binary search for visible page detection
 
-### 5. Scroll Optimization
-- RequestAnimationFrame for smooth scrolling
-- Throttled scroll event handling
-- Smart scroll-to-annotation with precedence system
+### 5. Scrolling
+- The viewer scrolls on a selection or active-highlight change, and on
+  handle calls (`annotatorHandleAtom`)
 
 ## Control Components Architecture
 

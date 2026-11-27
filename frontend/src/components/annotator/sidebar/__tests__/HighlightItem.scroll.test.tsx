@@ -2,7 +2,8 @@
  * Focused tests for HighlightItem scroll-to-annotation behavior and page display.
  *
  * Verifies:
- * 1. scrollIntoView is only called for PDF token annotations, not text span annotations.
+ * 1. Clicking an annotation selects it and scrolls nothing itself: the
+ *    document viewers scroll to a newly selected annotation.
  * 2. Page labels always appear for PDF token annotations (page is always meaningful).
  * 3. Page labels appear for span annotations only when page > 0 (page=0 is a sentinel).
  */
@@ -90,7 +91,8 @@ function makeSpanAnnotation(page: number) {
 }
 
 function renderHighlightItem(
-  annotation: ServerTokenAnnotation | ServerSpanAnnotation
+  annotation: ServerTokenAnnotation | ServerSpanAnnotation,
+  onSelect = vi.fn()
 ) {
   return render(
     <MemoryRouter>
@@ -98,7 +100,7 @@ function renderHighlightItem(
         annotation={annotation}
         read_only
         relations={[]}
-        onSelect={vi.fn()}
+        onSelect={onSelect}
       />
     </MemoryRouter>
   );
@@ -111,13 +113,12 @@ describe("HighlightItem scroll behaviour", () => {
     mockScrollIntoView.mockClear();
   });
 
-  it("calls scrollIntoView when clicking a PDF token annotation", () => {
-    renderHighlightItem(makeTokenAnnotation(2));
+  it("selects a PDF token annotation and leaves the scrolling to the viewer", () => {
+    const onSelect = vi.fn();
+    renderHighlightItem(makeTokenAnnotation(2), onSelect);
     fireEvent.click(screen.getByTestId("highlight-item"));
-    expect(mockScrollIntoView).toHaveBeenCalledWith({
-      behavior: "smooth",
-      block: "center",
-    });
+    expect(onSelect).toHaveBeenCalledWith("token-annot-1");
+    expect(mockScrollIntoView).not.toHaveBeenCalled();
   });
 
   it("does NOT call scrollIntoView when clicking a text span annotation", () => {

@@ -13,7 +13,6 @@
  */
 
 import {
-  BoundingBox,
   MultipageAnnotationJson,
   SinglePageAnnotationJson,
   TokenId,
@@ -252,48 +251,6 @@ export function textBlockToTokenIds(
       pageIndex: pageIdx,
       tokenIndex,
     }));
-  }
-  return result;
-}
-
-/**
- * Compute bounding boxes for a PdfTokenBlock given page token data.
- * This looks up token geometry from the page's token array.
- *
- * @param block - The PDF text block reference
- * @param pageTokens - Map of page index → token array (from PAWLS data)
- * @returns Map of page index → bounding box
- */
-export function textBlockToBounds(
-  block: PdfTokenBlock,
-  pageTokens: Record<
-    number,
-    { x: number; y: number; width: number; height: number }[]
-  >
-): Record<number, BoundingBox> {
-  const result: Record<number, BoundingBox> = {};
-  for (const [pageKey, tokenIndices] of Object.entries(block.tokensByPage)) {
-    const pageIdx = parseInt(pageKey, 10);
-    const tokens = pageTokens[pageIdx];
-    if (!tokens) continue;
-
-    let top = Infinity;
-    let left = Infinity;
-    let bottom = -Infinity;
-    let right = -Infinity;
-
-    for (const idx of tokenIndices) {
-      const token = tokens[idx];
-      if (!token) continue;
-      top = Math.min(top, token.y);
-      left = Math.min(left, token.x);
-      bottom = Math.max(bottom, token.y + token.height);
-      right = Math.max(right, token.x + token.width);
-    }
-
-    if (top !== Infinity) {
-      result[pageIdx] = { top, left, bottom, right };
-    }
   }
   return result;
 }

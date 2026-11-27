@@ -8,7 +8,6 @@ import {
   useSearchText,
   useTextSearchState,
 } from "../../annotator/context/DocumentAtom";
-import { useAnnotationRefs } from "../../annotator/hooks/useAnnotationRefs";
 
 interface FloatingDocumentInputProps {
   /** Whether the input should be rendered */
@@ -346,7 +345,6 @@ export const FloatingDocumentInput: React.FC<FloatingDocumentInputProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Search functionality
-  const annotationRefs = useAnnotationRefs();
   const { searchText, setSearchText } = useSearchText();
   const {
     textSearchMatches,
@@ -395,26 +393,6 @@ export const FloatingDocumentInput: React.FC<FloatingDocumentInputProps> = ({
       setLocalInput(searchText || "");
     }
   }, [searchText, mode]);
-
-  // Scroll to search result
-  useEffect(() => {
-    if (mode === "search") {
-      const currentRef =
-        annotationRefs.textSearchElementRefs.current[
-          selectedTextSearchMatchIndex
-        ];
-      if (currentRef) {
-        currentRef.scrollIntoView({
-          behavior: "smooth",
-          block: "center",
-        });
-      }
-    }
-  }, [
-    selectedTextSearchMatchIndex,
-    annotationRefs.textSearchElementRefs,
-    mode,
-  ]);
 
   // Auto-resize textarea
   const adjustTextareaHeight = () => {

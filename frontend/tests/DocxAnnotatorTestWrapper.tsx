@@ -1,39 +1,44 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { MemoryRouter } from "react-router-dom";
-import DocxAnnotator from "../src/components/annotator/renderers/docx/DocxAnnotator";
-import { ServerSpanAnnotation } from "../src/components/annotator/types/annotations";
+import { MockedProvider } from "@apollo/client/testing";
+import { Provider as JotaiProvider, createStore } from "jotai";
+
+import DocxAnnotatorWrapper from "../src/components/annotator/components/wrappers/DocxAnnotatorWrapper";
+import {
+  docTextAtom,
+  docxBytesAtom,
+  textSearchStateAtom,
+} from "../src/components/annotator/context/DocumentAtom";
+import { pdfAnnotationsAtom } from "../src/components/annotator/context/AnnotationAtoms";
+import {
+  activeSpanLabelAtom,
+  spanLabelsToViewAtom,
+} from "../src/components/annotator/context/AnnotationControlAtoms";
+import { chatSourcesAtom } from "../src/components/annotator/context/ChatSourceAtom";
+import { corpusStateAtom } from "../src/components/annotator/context/CorpusAtom";
+import { zoomLevelAtom } from "../src/components/annotator/context/UISettingsAtom";
+import {
+  PdfAnnotations,
+  ServerSpanAnnotation,
+  ServerTokenAnnotation,
+} from "../src/components/annotator/types/annotations";
+import {
+  showSelectedAnnotationOnly,
+  showStructuralAnnotations,
+} from "../src/graphql/cache";
 import { AnnotationLabelType, LabelType } from "../src/types/graphql-api";
 import { PermissionTypes, TextSearchSpanResult } from "../src/components/types";
 
 /**
+ * Mounts OpenContracts' DOCX viewer (`DocxAnnotatorWrapper`, which renders
+ * `@os-legal/react-contract-annotate`'s `DocxAnnotator`) with its state
+ * seeded into the same atoms the knowledge base fills, so the tests run the
+ * production bindings.
+ *
  * The test DOCX fixture is served at runtime via page.route() in
  * setupDocxFixture() — no Vite ?url import needed.
  */
 const TEST_DOCX_URL = "/test-fixtures/test.docx";
-
-/**
- * Shared hook for loading test DOCX bytes from the fixture route interceptor.
- * Used by both DocxAnnotatorTestWrapper and DocxAnnotatorEditableWrapper.
- */
-function useTestDocxBytes(): { docxBytes: Uint8Array; loading: boolean } {
-  const [docxBytes, setDocxBytes] = useState<Uint8Array>(new Uint8Array(0));
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch(TEST_DOCX_URL)
-      .then((res) => res.arrayBuffer())
-      .then((buf) => {
-        setDocxBytes(new Uint8Array(buf));
-        setLoading(false);
-      })
-      .catch((err) => {
-        console.error("Failed to load test DOCX:", err);
-        setLoading(false);
-      });
-  }, []);
-
-  return { docxBytes, loading };
-}
 
 const sampleLabels: AnnotationLabelType[] = [
   {
@@ -60,17 +65,19 @@ const sampleDocText =
   "This paragraph contains an Important Clause that should be annotated.\n" +
   "The Definition section explains key terms used throughout.\n";
 
+const ALL_PERMISSIONS = [
+  PermissionTypes.CAN_READ,
+  PermissionTypes.CAN_UPDATE,
+  PermissionTypes.CAN_REMOVE,
+];
+
 const sampleAnnotation1 = new ServerSpanAnnotation(
   0,
   sampleLabels[0],
   "Hello World",
   false,
   { start: 0, end: 11 },
-  [
-    PermissionTypes.CAN_READ,
-    PermissionTypes.CAN_UPDATE,
-    PermissionTypes.CAN_REMOVE,
-  ],
+  ALL_PERMISSIONS,
   false,
   false,
   false,
@@ -84,15 +91,24 @@ const sampleAnnotation2 = new ServerSpanAnnotation(
   "Important Clause",
   false,
   { start: 84, end: 100 },
-  [
-    PermissionTypes.CAN_READ,
-    PermissionTypes.CAN_UPDATE,
-    PermissionTypes.CAN_REMOVE,
-  ],
+  ALL_PERMISSIONS,
   false,
   false,
   false,
   "ann-2"
+);
+
+const structuralAnnotation = new ServerSpanAnnotation(
+  0,
+  sampleLabels[0],
+  "The Definition",
+  true,
+  { start: 118, end: 132 },
+  [PermissionTypes.CAN_READ],
+  false,
+  false,
+  false,
+  "struct-ann-1"
 );
 
 interface ChatSourceHighlight {
@@ -107,19 +123,24 @@ interface WrapperProps {
   withAnnotations?: boolean;
   /** Provide search results for highlighting in the DOCX body. */
   searchResults?: TextSearchSpanResult[];
-  /** Provide chat-source highlights. Active source gets a brighter color. */
+  /** Chat sources of one message, which is shown as selected. */
   chatSources?: ChatSourceHighlight[];
   /** Which chat source is currently selected by the user. */
   selectedChatSourceId?: string;
-  /** Restrict visible labels (controls CSS visibility rules). */
+  /** Restrict visible labels. */
   visibleLabels?: AnnotationLabelType[];
-  /** Include structural annotations + show them (tests the structural toggle branch). */
+  /** Include a structural annotation and show structural annotations. */
   withStructuralAnnotation?: boolean;
   /** Adjust zoom to exercise the zoom branch. */
   zoomLevel?: number;
+  /** Receives the annotation the user created. */
+  onCreateAnnotation?: (
+    annotation: ServerTokenAnnotation | ServerSpanAnnotation
+  ) => void;
 }
 
-export const DocxAnnotatorTestWrapper: React.FC<WrapperProps> = ({
+/** A Jotai store holding the viewer's state, the DOCX bytes once fetched. */
+function useSeededStore({
   readOnly = true,
   withAnnotations = false,
   searchResults,
@@ -128,157 +149,125 @@ export const DocxAnnotatorTestWrapper: React.FC<WrapperProps> = ({
   visibleLabels,
   withStructuralAnnotation = false,
   zoomLevel,
-}) => {
-  const [selected, setSelected] = useState<string[]>([]);
-  const { docxBytes, loading } = useTestDocxBytes();
+}: WrapperProps) {
+  const [store] = useState(() => {
+    // The display toggles CentralRouteManager sets from the URL in the app
+    // (`selectedOnly` / `structural` absent: off).
+    showSelectedAnnotationOnly(false);
+    showStructuralAnnotations(withStructuralAnnotation);
+    const s = createStore();
+    const annotations = [
+      ...(withAnnotations ? [sampleAnnotation1, sampleAnnotation2] : []),
+      ...(withStructuralAnnotation ? [structuralAnnotation] : []),
+    ];
+    s.set(docTextAtom, sampleDocText);
+    s.set(pdfAnnotationsAtom, new PdfAnnotations(annotations, [], []));
+    s.set(textSearchStateAtom, {
+      matches: searchResults ?? [],
+      selectedIndex: 0,
+    });
+    if (chatSources?.length) {
+      const messageId = chatSources[0].messageId;
+      s.set(chatSourcesAtom, {
+        messages: [
+          {
+            messageId,
+            content: "",
+            timestamp: "",
+            sources: chatSources.map((source, index) => ({
+              id: source.sourceId,
+              page: 0,
+              label: String(index + 1),
+              label_id: 0,
+              annotation_id: 0,
+              rawText: sampleDocText.slice(
+                source.start_index,
+                source.end_index
+              ),
+              tokensByPage: {},
+              boundsByPage: {},
+              startIndex: source.start_index,
+              endIndex: source.end_index,
+              isTextBased: true,
+            })),
+          },
+        ],
+        selectedMessageId: messageId,
+        selectedSourceIndex: selectedChatSourceId
+          ? chatSources.findIndex((c) => c.sourceId === selectedChatSourceId)
+          : null,
+      });
+    }
+    s.set(spanLabelsToViewAtom, visibleLabels ?? null);
+    if (zoomLevel !== undefined) s.set(zoomLevelAtom, zoomLevel);
+    if (!readOnly) {
+      s.set(activeSpanLabelAtom, sampleLabels[0]);
+      s.set(corpusStateAtom, (prev) => ({
+        ...prev,
+        myPermissions: ALL_PERMISSIONS,
+        humanSpanLabels: sampleLabels,
+        spanLabels: sampleLabels,
+      }));
+    }
+    return s;
+  });
 
-  const structuralAnn = new ServerSpanAnnotation(
-    0,
-    sampleLabels[0],
-    "The Definition",
-    true,
-    { start: 118, end: 132 },
-    [PermissionTypes.CAN_READ],
-    false,
-    false,
-    false,
-    "struct-ann-1"
-  );
+  useEffect(() => {
+    fetch(TEST_DOCX_URL)
+      .then((res) => res.arrayBuffer())
+      .then((buf) => store.set(docxBytesAtom, new Uint8Array(buf)))
+      .catch((err) => console.error("Failed to load test DOCX:", err));
+  }, [store]);
 
-  const annotations = withAnnotations
-    ? withStructuralAnnotation
-      ? [sampleAnnotation1, sampleAnnotation2, structuralAnn]
-      : [sampleAnnotation1, sampleAnnotation2]
-    : withStructuralAnnotation
-      ? [structuralAnn]
-      : [];
+  return store;
+}
 
-  if (loading) {
-    return <div>Loading test DOCX...</div>;
-  }
+export const DocxAnnotatorTestWrapper: React.FC<WrapperProps> = (props) => {
+  const store = useSeededStore(props);
+  const { readOnly = true, onCreateAnnotation } = props;
 
   return (
     <MemoryRouter>
-      <div style={{ width: 800, height: 600, padding: 16 }}>
-        <DocxAnnotator
-          docxBytes={docxBytes}
-          docText={sampleDocText}
-          annotations={annotations}
-          searchResults={searchResults ?? []}
-          chatSources={chatSources}
-          selectedChatSourceId={selectedChatSourceId}
-          getSpan={(span) =>
-            new ServerSpanAnnotation(
-              0,
-              sampleLabels[0],
-              span.text,
-              false,
-              { start: span.start, end: span.end },
-              [
-                PermissionTypes.CAN_READ,
-                PermissionTypes.CAN_UPDATE,
-                PermissionTypes.CAN_REMOVE,
-              ],
-              false,
-              false,
-              false
-            )
-          }
-          visibleLabels={visibleLabels ?? sampleLabels}
-          availableLabels={sampleLabels}
-          selectedLabelTypeId={readOnly ? null : "label-1"}
-          readOnly={readOnly}
-          allowInput={!readOnly}
-          createAnnotation={() => {}}
-          updateAnnotation={() => {}}
-          approveAnnotation={() => {}}
-          rejectAnnotation={() => {}}
-          deleteAnnotation={() => {}}
-          selectedAnnotations={selected}
-          setSelectedAnnotations={setSelected}
-          showStructuralAnnotations={withStructuralAnnotation}
-          zoomLevel={zoomLevel}
-        />
-      </div>
+      <MockedProvider mocks={[]} addTypename={false}>
+        <JotaiProvider store={store}>
+          <div style={{ width: 800, height: 600, padding: 16 }}>
+            <DocxAnnotatorWrapper
+              readOnly={readOnly}
+              createAnnotation={async (annotation) =>
+                onCreateAnnotation?.(annotation)
+              }
+            />
+          </div>
+        </JotaiProvider>
+      </MockedProvider>
     </MemoryRouter>
   );
 };
 
 /**
- * Editable wrapper that exposes created annotation data for test assertions.
- * Renders a hidden element with data-testid="last-annotation" whose data-start
- * and data-end attributes contain the offsets of the last created annotation.
+ * An editable viewer that shows the last annotation the user created in a
+ * `last-annotation` element (its span in `data-start` / `data-end`).
  */
 export const DocxAnnotatorEditableWrapper: React.FC = () => {
-  const [selected, setSelected] = useState<string[]>([]);
-  const { docxBytes, loading } = useTestDocxBytes();
-  const [lastAnnotation, setLastAnnotation] = useState<{
-    start: number;
-    end: number;
-    text: string;
-  } | null>(null);
-
-  const handleCreate = React.useCallback((annotation: ServerSpanAnnotation) => {
-    setLastAnnotation({
-      start: annotation.json.start,
-      end: annotation.json.end,
-      text: annotation.rawText,
-    });
-  }, []);
-
-  if (loading) {
-    return <div>Loading test DOCX...</div>;
-  }
-
+  const [last, setLast] = useState<{ start: number; end: number } | null>(null);
   return (
-    <MemoryRouter>
-      <div style={{ width: 800, height: 600, padding: 16 }}>
-        <DocxAnnotator
-          docxBytes={docxBytes}
-          docText={sampleDocText}
-          annotations={[]}
-          searchResults={[]}
-          getSpan={(span) =>
-            new ServerSpanAnnotation(
-              0,
-              sampleLabels[0],
-              span.text,
-              false,
-              { start: span.start, end: span.end },
-              [
-                PermissionTypes.CAN_READ,
-                PermissionTypes.CAN_UPDATE,
-                PermissionTypes.CAN_REMOVE,
-              ],
-              false,
-              false,
-              false
-            )
-          }
-          visibleLabels={sampleLabels}
-          availableLabels={sampleLabels}
-          selectedLabelTypeId="label-1"
-          readOnly={false}
-          allowInput={true}
-          createAnnotation={handleCreate}
-          deleteAnnotation={() => {}}
-          selectedAnnotations={selected}
-          setSelectedAnnotations={setSelected}
-          showStructuralAnnotations={false}
+    <>
+      <DocxAnnotatorTestWrapper
+        readOnly={false}
+        onCreateAnnotation={(annotation) => {
+          const span = annotation.json as { start: number; end: number };
+          setLast({ start: span.start, end: span.end });
+        }}
+      />
+      {last && (
+        <div
+          data-testid="last-annotation"
+          data-start={last.start}
+          data-end={last.end}
         />
-        {lastAnnotation && (
-          <div
-            data-testid="last-annotation"
-            data-start={lastAnnotation.start}
-            data-end={lastAnnotation.end}
-          >
-            {lastAnnotation.text}
-          </div>
-        )}
-      </div>
-    </MemoryRouter>
+      )}
+    </>
   );
 };
 
-/** Exported for tests that need to verify offsets against the docText constant. */
 export { sampleDocText };

@@ -4,48 +4,32 @@
 
 ## Overview
 
-The `DocumentKnowledgeBase` component is responsible for rendering documents and enabling annotation functionality. It automatically selects the appropriate renderer based on the document's file type and provides a unified annotation experience across different document formats. The system features sophisticated virtualized rendering for performance, multi-layered state management with Jotai atoms, and intelligent annotation filtering.
+The `DocumentKnowledgeBase` component is responsible for rendering documents and enabling annotation functionality. It selects a viewer by the document's file type and provides a unified annotation experience across formats. PDF and DOCX are drawn by `@os-legal/react-contract-annotate`, bound to OpenContracts' state as described in [Document Viewer (PDF and DOCX)](./document_viewer.md); plain text is drawn by OpenContracts' own `TxtAnnotator`.
 
 ## Renderer Selection
 
-The component chooses between two renderers based on the document's `fileType`:
+[`DocumentViewer.tsx`](../../frontend/src/components/knowledge_base/document/document_kb/DocumentViewer.tsx) picks the viewer by `fileType`:
 
-### PDF Renderer
-- **File types**: `application/pdf`
-- **Component**: `PDF` (from `components/annotator/renderers/pdf/PDF.tsx`)
-- **When selected**: When `document.fileType === "application/pdf"` and a PDF file URL is available
+| File type | Viewer |
+|---|---|
+| `application/pdf` | `PdfAnnotatorWrapper` (`@os-legal/react-contract-annotate`'s `PdfAnnotator`) |
+| DOCX | `DocxAnnotatorWrapper` (the library's `DocxAnnotator`) |
+| Markdown | `MarkdownDocumentViewer` |
+| `text/plain`, `application/txt` | `TxtAnnotatorWrapper` (`TxtAnnotator`) |
 
-### Text Renderer
-- **File types**: `application/txt`, `text/plain`
-- **Component**: `TxtAnnotator` (wrapped by `TxtAnnotatorWrapper`)
-- **When selected**: When `document.fileType === "application/txt"` or `"text/plain"` and a text extract file is available
-
-The selection logic can be found in [`DocumentKnowledgeBase.tsx`](../../frontend/src/components/knowledge_base/document/DocumentKnowledgeBase.tsx) (search for `metadata.fileType`):
-
-```typescript
-if (metadata.fileType === "application/pdf") {
-  // Render PDF component
-} else if (metadata.fileType === "application/txt" || metadata.fileType === "text/plain") {
-  // Render TxtAnnotator component
-} else {
-  // Show unsupported file type message
-}
-```
+Any other type shows an "Unsupported File" state.
 
 ## How Annotation Works
 
-### PDF Annotation
+### PDF and DOCX Annotation
 
-1. **Token-based System**: PDFs use a PAWLS format that provides token-level information for each page
-2. **Page Structure**: Each page is rendered as a canvas with an overlay for annotations
-3. **Selection**: Users click and drag to select tokens on the page
-4. **Creation Flow**:
-   - User selects text by clicking and dragging
-   - `SelectionBoundary` component detects the selection
-   - Selection action menu appears with context-appropriate options
-   - User chooses to copy text or apply annotation label
-   - For annotations, `createAnnotationHandler` is called with the annotation data
-   - Annotation is sent to the backend via GraphQL mutation
+PDFs are token based (PAWLS tokens per page); DOCX annotations are character
+spans into the parser's text. In both, the user drags (PDF) or selects text
+(DOCX), the library reports the selection, and OpenContracts' selection menu
+(`annotator/bindings/AnnotationSelectionMenu.tsx`) offers the actions below.
+Apply Label turns the selection into a `ServerTokenAnnotation` /
+`ServerSpanAnnotation` and calls `createAnnotationHandler`, which persists it
+through GraphQL. See [Document Viewer (PDF and DOCX)](./document_viewer.md).
 
 ### Selection Action Menu
 
@@ -56,6 +40,8 @@ After selecting text in any document type, users see an intelligent context menu
 | Action | Description | Keyboard Shortcut | Availability |
 |--------|-------------|-------------------|--------------|
 | Copy Text | Copies selected text to clipboard | C | Always available |
+| Copy Link | Copies a `?tb=` deep link to the selection | L | Always available (PDF, DOCX, text) |
+| Add link… | Creates an OC_URL link annotation | — | PDF, when permissions granted |
 | Apply Label | Creates annotation with active label | A | When label selected & permissions granted |
 | Cancel | Dismisses selection | ESC | Always available |
 
@@ -203,41 +189,10 @@ The system automatically selects the appropriate label type:
 
 ## Virtualized Rendering
 
-The PDF renderer uses a sophisticated virtual window technique for performance optimization, enabling smooth handling of large documents with hundreds of pages.
-
-### How It Works
-
-- **Visible Range Calculation**: Only pages within the viewport (plus an overscan of 2 pages above/below) are rendered
-- **Binary Search**: Page visibility is determined using binary search on cumulative page heights for O(log n) performance
-- **Absolute Positioning**: Pages are absolutely positioned with calculated offsets based on cumulative heights
-- **Dynamic Mounting**: Components mount/unmount as they enter/exit the visible range
-
-### Implementation Details
-
-```typescript
-// The system maintains a range [startIdx, endIdx] of visible pages
-const calcRange = () => {
-  // Binary search for first visible page
-  // Find last visible page
-  // Apply overscan buffer
-  // Force mount pages with selections/search results
-}
-```
-
-### Special Cases
-
-The virtualization system ensures certain pages remain mounted regardless of visibility:
-
-- **Selected Annotations**: Pages containing selected annotations are forced to remain mounted
-- **Search Results**: Pages with active search matches stay mounted during navigation
-- **Chat Sources**: Pages with chat source highlights maintain mounting for smooth scrolling
-
-### Performance Benefits
-
-- Handles documents with 500+ pages efficiently
-- Reduces memory usage by up to 90% for large documents
-- Maintains 60fps scrolling through dynamic page loading
-- Scales linearly with visible pages, not total pages
+PDF pages are virtualized by the library (only the visible pages plus an
+overscan are mounted; pages holding the selection or the active highlight
+stay mounted). See `src/pdf/PdfViewport.tsx` in
+[react-contract-annotate](https://github.com/Open-Source-Legal/react-contract-annotate).
 
 ## State Management Architecture
 
@@ -261,13 +216,11 @@ The annotation system uses Jotai atoms for efficient, reactive state management:
 - **`pdfDocAtom`**: PDF.js document proxy instance
 - **`pagesAtom`**: Map of page number to PDFPageInfo objects
 - **`viewStateAtom`**: Loading/loaded/error state
-- **`scrollContainerRefAtom`**: Reference to the scrollable container
+- **`scrollContainerRefAtom`**: The viewer's container (plain text and Markdown scroll it; for PDF/DOCX it only frames the viewer, which scrolls its own root)
 
 #### Navigation & Scrolling
-- **`pendingScrollAnnotationIdAtom`**: Annotation ID to scroll to
-- **`pendingScrollSearchResultIdAtom`**: Search result ID to scroll to
-- **`pendingScrollChatSourceKeyAtom`**: Chat source to scroll to
-- **`pageSelectionAtom`**: Current text selection bounds
+- **`annotatorHandleAtom`**: The mounted PDF/DOCX viewer's handle, for moving it without changing the selection
+- Selecting annotations or changing the active highlight scrolls the viewer by itself (see [Document Viewer](./document_viewer.md#scrolling))
 
 ### Key Hooks
 
@@ -375,38 +328,19 @@ All consuming components re-render with filtered data
 
 - **FloatingDocumentControls**: Updates atom state via `AnnotationControls`
 - **UnifiedContentFeed**: Consumes filtered data via visibility hooks
-- **PDFPage/TxtAnnotator**: Use `useVisibleAnnotations()` for rendering
+- **PDF/DOCX viewer**: Receives the same display settings; the library applies the visibility rules of `useVisibleAnnotations()`
+- **TxtAnnotator**: Uses `useVisibleAnnotations()` for rendering
 - **RelationshipList**: Uses `useVisibleRelationships()` for display
 
 This unified approach eliminates the previous disconnect between prop-based and atom-based filtering, ensuring that all UI components show consistent filtered content.
 
 ## Scroll Synchronization
 
-The system implements a three-tier priority system for scroll targets:
-
-### Priority Levels
-
-#### 1. Search Results (Highest Priority)
-- Triggered by: `pendingScrollSearchResultIdAtom`
-- Behavior: Scrolls to and highlights the active search match
-- Clear condition: After successful scroll or new search
-
-#### 2. Chat Sources (Medium Priority)
-- Triggered by: `pendingScrollChatSourceKeyAtom`
-- Behavior: Centers the chat source highlight in viewport
-- Clear condition: After scroll or selecting different source
-
-#### 3. Annotations (Base Priority)
-- Triggered by: `pendingScrollAnnotationIdAtom`
-- Behavior: Scrolls to and centers selected annotation
-- Clear condition: After scroll or selecting different annotation
-
-### Scroll Behavior
-
-All scroll operations use:
-- `scrollIntoView({ behavior: "smooth", block: "center" })`
-- RequestAnimationFrame for DOM readiness
-- Retry logic for elements not yet rendered
+The PDF/DOCX viewer scrolls when the selected annotations change (to the
+first one), when the active highlight changes, and on handle calls. The
+active highlight is the picked chat source (the first when none is picked),
+else the current search hit, else the `?tb=` text block. See
+[Document Viewer](./document_viewer.md#scrolling).
 
 ## Zoom System
 
@@ -453,117 +387,10 @@ setZoomLevel(newZoom);
 showZoomFeedback(); // Shows temporary zoom indicator
 ```
 
-#### 3. Zoom Propagation ([`PDF.tsx`](../../frontend/src/components/annotator/renderers/pdf/PDF.tsx))
-
-When zoom changes, a cascade of updates occurs:
-
-##### Page Height Recalculation
-```typescript
-useEffect(() => {
-  // Recalculate all page heights at new zoom
-  for (let i = 1; i <= pdfDoc.numPages; i++) {
-    const height = Math.round(
-      page.getViewport({ scale: zoomLevel }).height + 32
-    );
-  }
-  setPageHeights(h); // Triggers re-render
-}, [pdfDoc, zoomLevel]);
-```
-
-##### Cumulative Heights Update
-- Recomputes prefix sums for absolute page positioning
-- Critical for virtual scrolling calculations
-- Enables O(log n) page visibility checks via binary search
-
-##### Visible Range Recalculation
-- `calcRange()` determines which pages are in viewport
-- Accounts for overscan buffer (2 pages above/below)
-- Forces mounting of pages with selections/search results
-
-#### 4. Coordinated Rendering System ([`PDF.tsx`](../../frontend/src/components/annotator/renderers/pdf/PDF.tsx))
-
-The system uses a sophisticated debounced rendering queue:
-
-```typescript
-requestPageRender(
-  pageNumber: number,
-  renderer: PDFPageRenderer,
-  canvas: HTMLCanvasElement,
-  onComplete?: (zoomLevel: number) => void
-)
-```
-
-**Key Features:**
-- **Debouncing**: 100ms delay to batch rapid zoom changes
-- **Deduplication**: Multiple requests for same page are merged
-- **Cancellation**: All in-progress renders cancelled before new zoom
-- **Coordination**: All visible pages re-render together
-
-#### 5. Individual Page Rendering ([`PDFPage.tsx`](../../frontend/src/components/annotator/renderers/pdf/PDFPage.tsx))
-
-Each page component:
-1. Receives zoom change notification
-2. Cancels any in-progress render via `PDFPageRenderer.cancelCurrentRender()`
-3. Updates canvas dimensions to match new viewport
-4. Triggers PDF.js re-render at new scale
-5. Notifies completion via callback
-
-#### 6. Annotation Layer Synchronization
-
-Annotations maintain alignment through:
-- **Token Bounds**: Recalculated via `getScaledTokenBounds()`
-- **Absolute Positioning**: Pixel positions updated based on new scale
-- **Selection Overlays**: Automatically repositioned with scaled content
-
-#### 7. Performance Optimizations
-
-##### Render Cancellation
-```typescript
-// Immediate visual feedback
-this.currentRenderTask.cancel();
-ctx.clearRect(0, 0, canvas.width, canvas.height);
-```
-
-##### Virtual Window Management
-- Only visible pages (+ overscan) are rendered
-- Pages outside viewport are unmounted to save memory
-- Special cases force pages to remain mounted:
-  - Pages with selected annotations
-  - Pages with active search results  
-  - Pages with chat source highlights
-
-##### Debounced Batch Processing
-- Prevents render thrashing during rapid zoom
-- Groups all page renders into single operation
-- Tracks last processed zoom to avoid redundant renders
-
-#### 8. Scroll Position Preservation
-
-The system maintains user context during zoom:
-
-```typescript
-// Annotation scroll preservation
-if (selectedAnnotations.length > 0) {
-  const topOffset = cumulative[selectedPageIdx] - 32;
-  scrollTo({ top: topOffset, behavior: "smooth" });
-  setPendingScrollId(targetId);
-}
-```
-
-Similar logic applies for:
-- Search result positions
-- Chat source highlights
-
-### Zoom Performance Characteristics
-
-| Document Size | Zoom Response Time | Memory Impact |
-|--------------|-------------------|---------------|
-| 1-10 pages | < 50ms | Minimal |
-| 10-100 pages | 50-150ms | ~100MB with virtualization |
-| 100-500 pages | 100-200ms | ~150MB (only visible pages rendered) |
-| 500+ pages | 150-300ms | Scales with visible pages, not total |
-
-The virtualization system ensures memory usage scales with viewport size rather than document size, enabling smooth handling of documents with hundreds of pages.
+#### 3. Rendering at the New Zoom
+The viewer's zoom is controlled by `zoomLevelAtom`; page-height caching,
+coordinated re-rendering and render cancellation at the new scale are the
+library's (`src/pdf/PdfViewport.tsx`).
 
 ## Permission Hierarchy
 
@@ -590,39 +417,6 @@ Permissions are derived from:
 1. Corpus-level permissions (primary)
 2. Document-level permissions (fallback)
 3. Explicit read-only flag (override)
-
-## Component Lifecycle
-
-### PDFPage Component Lifecycle
-
-#### 1. Mount Phase
-- Triggered when page enters visible range + overscan buffer
-- Component shell renders immediately
-
-#### 2. Initialization Phase
-- Canvas element created and sized
-- PDF page rendered at current zoom level
-- PAWLS token mapping established
-- Event listeners attached
-
-#### 3. Active Phase
-- Handle annotation rendering
-- Process text selections
-- Display search highlights
-- Respond to zoom changes
-
-#### 4. Unmount Phase
-- Triggered when page exits visible range + overscan
-- Canvas render task cancelled
-- Event listeners removed
-- Refs unregistered from global stores
-
-### Memory Management
-
-- Only visible pages maintain DOM elements
-- Canvas render tasks are properly cancelled
-- Event listeners are cleaned up on unmount
-- Refs are unregistered to prevent memory leaks
 
 ## Error Handling
 

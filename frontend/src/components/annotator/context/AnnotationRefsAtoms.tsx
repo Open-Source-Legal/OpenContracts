@@ -1,54 +1,15 @@
 import { atom } from "jotai";
-import { PDFPageRenderer } from "../renderers/pdf/PDF";
-import { scrollContainerRefAtom } from "./DocumentAtom";
-
-export type RefType =
-  | "selection"
-  | "search"
-  | "annotation"
-  | "scrollContainer"
-  | "pdfPageCanvas"
-  | "pdfPageRenderer"
-  | "pdfPageContainer"
-  | "chatSourceBoundary"
-  | "chatSource";
 
 /**
- * Atom for the scroll container reference
+ * DOM elements of the annotations the plain-text annotator (`TxtAnnotator`)
+ * has drawn, by annotation id, so code outside it can scroll one into view.
+ *
+ * The PDF and DOCX viewers (`@os-legal/react-contract-annotate`) keep their
+ * elements to themselves; they are moved through `annotatorHandleAtom`.
  */
-export { scrollContainerRefAtom } from "./DocumentAtom";
+export type RefType = "annotation";
 
-/**
- * Atom for the PDF page canvas reference
- */
-export const PDFPageCanvasRefAtom = atom<HTMLCanvasElement | null>(null);
-
-/**
- * Atom for the PDF page renderer reference
- */
-export const PDFPageRendererRefAtom = atom<PDFPageRenderer | null>(null);
-
-/**
- * Atom for the PDF page container references indexed by page number
- */
-const PDFPageContainerRefsAtom = atom<Record<number, HTMLDivElement | null>>(
-  {}
-);
-
-/**
- * Atom for annotation element references
- */
 const annotationElementRefsAtom = atom<Record<string, HTMLElement | null>>({});
-
-/**
- * Atom for text search element references
- */
-const textSearchElementRefsAtom = atom<Record<string, HTMLElement | null>>({});
-
-/**
- * Atom for chat source element references
- */
-const chatSourceElementRefsAtom = atom<Record<string, HTMLElement | null>>({});
 
 /**
  * Atom for registering refs
@@ -60,49 +21,14 @@ export const registerRefAtom = atom(
     set,
     params: {
       type: RefType;
-      ref: React.MutableRefObject<any>;
-      id?: string | number;
+      ref: React.MutableRefObject<HTMLElement | null>;
+      id: string | number;
     }
   ) => {
-    const { type, id, ref } = params;
-
-    switch (type) {
-      case "scrollContainer":
-        set(scrollContainerRefAtom, ref.current);
-        break;
-      case "pdfPageCanvas":
-        set(PDFPageCanvasRefAtom, ref.current);
-        break;
-      case "pdfPageRenderer":
-        set(PDFPageRendererRefAtom, ref.current);
-        break;
-      case "pdfPageContainer":
-        set(PDFPageContainerRefsAtom, {
-          ...get(PDFPageContainerRefsAtom),
-          [id as number]: ref.current,
-        });
-        break;
-      case "annotation":
-        set(annotationElementRefsAtom, {
-          ...get(annotationElementRefsAtom),
-          [id!.toString()]: ref.current,
-        });
-        break;
-      case "search":
-        set(textSearchElementRefsAtom, {
-          ...get(textSearchElementRefsAtom),
-          [id!.toString()]: ref.current,
-        });
-        break;
-      case "chatSource":
-        set(chatSourceElementRefsAtom, {
-          ...get(chatSourceElementRefsAtom),
-          [id!.toString()]: ref.current,
-        });
-        break;
-      default:
-        console.warn(`Unhandled RefType: ${type}`);
-    }
+    set(annotationElementRefsAtom, {
+      ...get(annotationElementRefsAtom),
+      [params.id.toString()]: params.ref.current,
+    });
   }
 );
 
@@ -116,48 +42,12 @@ export const unregisterRefAtom = atom(
     set,
     params: {
       type: RefType;
-      id?: string | number;
+      id: string | number;
     }
   ) => {
-    const { type, id } = params;
-
-    switch (type) {
-      case "scrollContainer":
-        set(scrollContainerRefAtom, null);
-        break;
-      case "pdfPageCanvas":
-        set(PDFPageCanvasRefAtom, null);
-        break;
-      case "pdfPageRenderer":
-        set(PDFPageRendererRefAtom, null);
-        break;
-      case "pdfPageContainer": {
-        const newRefs = { ...get(PDFPageContainerRefsAtom) };
-        delete newRefs[id as number];
-        set(PDFPageContainerRefsAtom, newRefs);
-        break;
-      }
-      case "annotation": {
-        const newRefs = { ...get(annotationElementRefsAtom) };
-        delete newRefs[id!.toString()];
-        set(annotationElementRefsAtom, newRefs);
-        break;
-      }
-      case "search": {
-        const newRefs = { ...get(textSearchElementRefsAtom) };
-        delete newRefs[id!.toString()];
-        set(textSearchElementRefsAtom, newRefs);
-        break;
-      }
-      case "chatSource": {
-        const newRefs = { ...get(chatSourceElementRefsAtom) };
-        delete newRefs[id!.toString()];
-        set(chatSourceElementRefsAtom, newRefs);
-        break;
-      }
-      default:
-        console.warn(`Unhandled RefType: ${type}`);
-    }
+    const newRefs = { ...get(annotationElementRefsAtom) };
+    delete newRefs[params.id.toString()];
+    set(annotationElementRefsAtom, newRefs);
   }
 );
 
@@ -165,11 +55,5 @@ export const unregisterRefAtom = atom(
  * Combined read-only atom for accessing all refs
  */
 export const annotationRefsAtom = atom((get) => ({
-  scrollContainerRef: get(scrollContainerRefAtom),
-  PDFPageCanvasRef: get(PDFPageCanvasRefAtom),
-  PDFPageRendererRef: get(PDFPageRendererRefAtom),
-  PDFPageContainerRefs: get(PDFPageContainerRefsAtom),
   annotationElementRefs: get(annotationElementRefsAtom),
-  textSearchElementRefs: get(textSearchElementRefsAtom),
-  chatSourceElementRefs: get(chatSourceElementRefsAtom),
 }));

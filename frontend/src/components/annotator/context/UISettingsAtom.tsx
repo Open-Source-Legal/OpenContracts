@@ -60,7 +60,6 @@ export const modalOpenAtom = atom<boolean>(false);
 export const readOnlyAtom = atom<boolean>(false);
 export const loadingMessageAtom = atom<string>("");
 export const shiftDownAtom = atom<boolean>(false);
-export const isCreatingAnnotationAtom = atom<boolean>(false);
 
 /**
  * Query State Atoms
