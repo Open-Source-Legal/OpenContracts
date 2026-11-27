@@ -191,6 +191,38 @@ DOCLING_PARSER_REQUEST_TIMEOUT_SECONDS = 600
 # DB pipeline settings) and the ``WarpIngestParser`` dataclass fallback.
 WARP_INGEST_PARSER_REQUEST_TIMEOUT_SECONDS = 3600
 
+# LiteParse (OCRia-nano) service response → OpenContracts export
+# (``opencontractserver/pipeline/parsers/liteparse_conversion.py``).
+# Must equal ``SCHEMA_VERSION`` in ``compose/liteparse/liteparse_service/projection.py``;
+# a mismatch means the service image and OpenContracts disagree on the wire
+# shape, so conversion refuses rather than misreading fields.
+LITEPARSE_RESPONSE_SCHEMA_VERSION = 1
+# LiteParse block kind → structural annotation label. Names follow
+# ``LlamaParseParser.ELEMENT_TYPE_MAPPING`` so downstream consumers (e.g.
+# ``research/constants.py::RESEARCH_HEADER_ANCHOR_LABELS``) recognise them.
+LITEPARSE_BLOCK_LABELS = {
+    "heading": "Section Header",
+    "paragraph": "Paragraph",
+    "list_item": "List Item",
+    "code": "Code Block",
+    "table": "Table",
+    "merged_table": "Table",
+    "grid_fallback": "Table",
+    "figure": "Figure",
+    "page_header": "Page Header",
+    "page_footer": "Page Footer",
+}
+# Label for block kinds a future LiteParse adds that the map above doesn't know.
+LITEPARSE_FALLBACK_LABEL = "Text Block"
+# Kinds that carry no text worth annotating (horizontal rules).
+LITEPARSE_SKIPPED_BLOCK_KINDS = frozenset({"rule"})
+# Table kinds come back with empty ``text_item_indices``; their words are found
+# by position inside the block (or cell) boxes instead.
+LITEPARSE_TABLE_BLOCK_KINDS = frozenset({"table", "merged_table", "grid_fallback"})
+# Running page headers/footers: never parents, never children, in the hierarchy.
+LITEPARSE_PAGE_CHROME_KINDS = frozenset({"page_header", "page_footer"})
+LITEPARSE_HEADING_KIND = "heading"
+
 # Maximum number of embedding batch tasks to queue in a single reembed_corpus run.
 # For very large corpuses (millions of annotations), this prevents flooding the
 # Celery queue. Remaining annotations will be logged but not queued; re-running
