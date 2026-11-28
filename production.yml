@@ -68,6 +68,10 @@ services:
         # Opt-in alternative PDF parser (behind the "warp-ingest" profile).
         # required: false so stacks without the profile still start.
         required: false
+      liteparse:
+        condition: service_started
+        # Opt-in alternative PDF parser (behind the "liteparse" profile).
+        required: false
     env_file:
       - ./.envs/.production/.django
       - ./.envs/.production/.postgres
@@ -169,6 +173,36 @@ services:
       - warp-ingest
     environment:
       - WARP_API_KEY=${WARP_INGEST_API_KEY:-abc123}
+
+  # Optional alternative PDF parser: LiteParse (Apache-2.0) with LlamaIndex's
+  # OCRia-nano OCR/layout models, built from compose/liteparse/. Opt-in via the
+  # "liteparse" compose profile. The model weights are NOT MIT-licensed, so the
+  # image build fails unless you accept their licence (see
+  # compose/liteparse/OCRIA_NANO_LICENSE_NOTICE.txt and
+  # docs/pipelines/liteparse_parser.md):
+  #   OCRIA_NANO_ACCEPT_LICENSE=yes docker compose -f production.yml --profile liteparse up -d --build liteparse
+  # Then select "LiteParse Parser (OCRia-nano, REST)" for PDFs in the admin
+  # System Settings UI. LITEPARSE_API_KEY must match the LITEPARSE_API_KEY the
+  # django client sends (set both from the same env var). Built locally and never
+  # published. Bridge-only (no host port); django and celeryworker reach it at
+  # http://liteparse:8000/parse.
+  liteparse:
+    build:
+      context: ./compose/liteparse
+      args:
+        OCRIA_NANO_ACCEPT_LICENSE: ${OCRIA_NANO_ACCEPT_LICENSE:-}
+    image: opencontractserver_production_liteparse
+    container_name: liteparse
+    profiles:
+      - liteparse
+    environment:
+      LITEPARSE_API_KEY: ${LITEPARSE_API_KEY:-abc123}
+    # Hard cap sized from measured peaks: one parse of a 300-page scan (the
+    # default LITEPARSE_MAX_PAGES, with LITEPARSE_POOL_SIZE=1) peaks ~3.8 GiB.
+    # Raising either setting needs a matching cap — see
+    # docs/pipelines/liteparse_parser.md ("Memory and concurrency").
+    mem_limit: 6g
+    restart: unless-stopped
 
   # Powers the optional pre-parse file-to-PDF converter
   # (GotenbergFileConverter). Bridge-only (no host port); django/celeryworker

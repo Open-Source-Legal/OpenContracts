@@ -1,0 +1,8 @@
+# Exact pins: LiteParse output feeds OpenContracts' parser contract, so a
+# floating version could silently change parse results (see the Warp-Ingest pin
+# rationale in local.yml). Bump deliberately and re-record the fixtures in
+# opencontractserver/tests/fixtures/liteparse/.
+liteparse==2.21.3
+fastapi==0.165.0
+uvicorn==0.54.0
+python-multipart==0.0.34

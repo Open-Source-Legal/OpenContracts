@@ -22,21 +22,17 @@ REST shape.
 """
 
 import logging
-import re
 from dataclasses import dataclass, field
 from typing import Any, Optional, cast
 
 import requests
 from django.core.files.storage import default_storage
-from requests.exceptions import ConnectionError, RequestException, Timeout
+from requests.exceptions import RequestException
 
 from opencontractserver.constants.document_processing import (
     WARP_INGEST_PARSER_REQUEST_TIMEOUT_SECONDS,
 )
-from opencontractserver.pipeline.base.exceptions import (
-    DocumentParsingError,
-    is_transient_http_status,
-)
+from opencontractserver.pipeline.base.exceptions import DocumentParsingError
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.pipeline.base.parser import BaseParser
 from opencontractserver.pipeline.base.settings_schema import (
@@ -45,6 +41,11 @@ from opencontractserver.pipeline.base.settings_schema import (
 )
 from opencontractserver.types.dicts import OpenContractDocExport
 from opencontractserver.utils.cloud import maybe_add_cloud_run_auth
+from opencontractserver.utils.parser_service_http import (
+    decode_parser_service_json,
+    parser_service_request_error,
+    safe_pdf_filename,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,9 @@ WARP_INGEST_API_KEY_HEADER = "X-API-Key"
 # render_format the client requests: Warp-Ingest emits an OpenContractDocExport
 # directly under the ``result`` key for this value.
 WARP_INGEST_RENDER_FORMAT = "opencontracts"
+
+# Service name used in classified error messages.
+WARP_INGEST_SERVICE_NAME = "Warp-Ingest"
 
 
 class WarpIngestParser(BaseParser):
@@ -324,52 +328,18 @@ class WarpIngestParser(BaseParser):
                 timeout=self.request_timeout,
             )
             response.raise_for_status()
-        except Timeout:
-            msg = (
-                f"Request to Warp-Ingest parser service timed out after "
-                f"{self.request_timeout}s for document {doc_id}"
-            )
-            logger.error(msg)
-            raise DocumentParsingError(msg, is_transient=True)
-        except ConnectionError:
-            msg = (
-                f"Failed to connect to Warp-Ingest parser service at "
-                f"{self.service_url} for document {doc_id}"
-            )
-            logger.error(msg)
-            raise DocumentParsingError(msg, is_transient=True)
         except RequestException as e:
-            # 4xx (bad request, unsupported media type, auth) are permanent,
-            # except 408/429 (service busy); 5xx are transient.
-            is_transient = True
-            status_code = None
-            response_text = ""
-            if hasattr(e, "response") and e.response is not None:
-                status_code = e.response.status_code
-                response_text = e.response.text[:500]
-                is_transient = is_transient_http_status(status_code)
+            raise parser_service_request_error(
+                e,
+                service_name=WARP_INGEST_SERVICE_NAME,
+                service_url=self.service_url,
+                timeout=self.request_timeout,
+                doc_id=doc_id,
+            ) from e
 
-            msg = f"Request to Warp-Ingest parser service failed for document {doc_id}: {e}"
-            if status_code:
-                msg += f" (status={status_code})"
-            if response_text:
-                msg += f" - Response: {response_text}"
-
-            logger.error(msg)
-            raise DocumentParsingError(msg, is_transient=is_transient)
-
-        # A 200 with a truncated/corrupt body would otherwise raise a raw,
-        # unclassified JSONDecodeError; wrap it so the failure is a classified
-        # (transient) DocumentParsingError like every other error path here.
-        try:
-            payload = response.json()
-        except ValueError as e:
-            msg = (
-                f"Warp-Ingest returned a malformed (non-JSON) response for "
-                f"document {doc_id}: {e}"
-            )
-            logger.error(msg)
-            raise DocumentParsingError(msg, is_transient=True)
+        payload = decode_parser_service_json(
+            response, service_name=WARP_INGEST_SERVICE_NAME, doc_id=doc_id
+        )
 
         export = self._extract_export(payload, doc_id)
 
@@ -381,26 +351,9 @@ class WarpIngestParser(BaseParser):
         )
         return export
 
-    @staticmethod
-    def _safe_pdf_filename(title: Optional[str], doc_id: int) -> str:
-        """Build a safe multipart filename ending in ``.pdf``.
-
-        ``document.title`` is user-controlled and flows into the multipart
-        part's ``Content-Disposition`` header, so strip CR/LF, other control
-        characters, quotes and path separators that could smuggle header-like
-        content into that MIME part (defense-in-depth; modern urllib3 also
-        guards this). Falls back to ``doc_{id}.pdf`` when the title is empty or
-        sanitizes to nothing.
-        """
-        raw = (title or "").strip()
-        # Replace control chars (incl. CR/LF via \x00-\x1f), DEL, quotes and
-        # path separators — anything that could break out of the header value.
-        cleaned = re.sub(r'[\x00-\x1f\x7f"\\/]+', "_", raw).strip("_ ").strip()
-        if not cleaned:
-            cleaned = f"doc_{doc_id}"
-        if not cleaned.lower().endswith(".pdf"):
-            cleaned = f"{cleaned}.pdf"
-        return cleaned
+    # Multipart filename sanitizer (shared with the other whole-PDF REST
+    # clients); kept as a class attribute so call sites and tests use one name.
+    _safe_pdf_filename = staticmethod(safe_pdf_filename)
 
     @staticmethod
     def _extract_export(response_data: Any, doc_id: int) -> OpenContractDocExport:

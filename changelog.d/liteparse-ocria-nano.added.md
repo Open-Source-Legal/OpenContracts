@@ -1,0 +1,14 @@
+- **LiteParse (OCRia-nano) PDF parser — optional, licence-gated microservice.**
+  - **Parser:** `opencontractserver/pipeline/parsers/liteparse_parser.py::LiteParseParser`, selectable with `PDF_PARSER=liteparse` or in System Settings.
+  - **Service:** it posts the whole PDF to the new in-repo `compose/liteparse` service, which runs LlamaIndex's LiteParse 2.21.3 with the OCRia-nano 1.0.0 OCR/layout models. Text-layer pages use the PDF's own text; scanned pages are OCR'd.
+  - **Conversion:** `liteparse_conversion.py::liteparse_response_to_export` maps the service's word boxes and layout blocks to PAWLs tokens and structural annotations (`Section Header`/`Paragraph`/`Table`/`Page Header`/…). Heading levels build a `parent_id` hierarchy across pages.
+  - **Licence gate:** the model weights are not MIT-licensed, so the service sits behind the `liteparse` compose profile in `local.yml`/`production.yml`. It is built locally (never published), and its image build fails unless `OCRIA_NANO_ACCEPT_LICENSE=yes`.
+  - **Startup checks:** the service refuses to start without the pinned model. It rejects documents over `LITEPARSE_MAX_PAGES` with a 413 rather than let LiteParse silently truncate them.
+  - **Error handling:**
+    - A page LiteParse can't extract becomes an empty, page-aligned page and a warning, instead of failing the document.
+    - A crashed or OOM-killed worker returns a retryable 503, not a permanent 422.
+    - Blocks LiteParse splits off a longer line take only words no other block owns, so they don't duplicate their neighbour.
+  - **Sizing:** one worker, 300 pages and `mem_limit: 6g` by default, derived from measured peaks (~0.5 GiB + 11.5 MiB per scanned page). A 300-page scan peaks at 3.8 GiB under the cap. Two concurrent 200-page scans under the earlier 3 GB cap OOM-killed a worker.
+  - **Shared HTTP helpers:** the error-classification, JSON-decode and filename helpers shared with `WarpIngestParser` moved to `opencontractserver/utils/parser_service_http.py`.
+  - **Docs:** `docs/pipelines/liteparse_parser.md`.
+  - **Upgrade note:** the `WarpIngestParser` refactor changes `warp_ingest_parser.py`, which remote-ingest's `implementation_digest` hashes. Existing Warp remote-ingest checkpoints are therefore invalidated once on deploy, though parse output is unchanged.
